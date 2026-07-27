@@ -1,0 +1,60 @@
+import type { GenerationStyle, LutPreset, TransitionType } from "./types";
+
+/**
+ * There is no paid generative-video API involved here. Instead we run a
+ * rule-based "director" that reads the free-text prompt (RU/EN keywords)
+ * and turns it into a concrete editing style used by the algorithmic
+ * auto-editor (`autoEdit.ts`). This is the honest, 100%-free substitute for
+ * a real text-to-video model: keyword heuristics + classic DSP (scene
+ * detection / beat detection) instead of a neural generator.
+ */
+export function parsePromptToStyle(prompt: string): GenerationStyle {
+  const p = prompt.toLowerCase();
+
+  const has = (...words: string[]) => words.some((w) => p.includes(w));
+
+  let pace: GenerationStyle["pace"] = "medium";
+  if (has("динамич", "быстр", "энергич", "клип", "fast", "energetic", "dynamic")) pace = "fast";
+  if (has("медлен", "плавн", "спокой", "лирич", "slow", "calm", "cinematic")) pace = "slow";
+
+  const bw = has("черно-бел", "чёрно-бел", "ч/б", "black and white", "monochrome");
+
+  let colorGrade: LutPreset = "none";
+  if (bw) colorGrade = "bw";
+  else if (has("тепл", "закат", "warm", "sunset")) colorGrade = "warm";
+  else if (has("холод", "cool", "cold", "blue")) colorGrade = "cool";
+  else if (has("кино", "cinematic", "фильм")) colorGrade = "cinematic";
+  else if (has("ретро", "винтаж", "retro", "vintage")) colorGrade = "vintage";
+  else if (has("ярк", "сочн", "vivid", "vibrant")) colorGrade = "vivid";
+
+  const kenBurns = has("фото", "photo", "слайд", "slideshow") || true; // always safe default for images
+
+  const beatSync = has("музык", "бит", "ритм", "music", "beat", "song") || pace === "fast";
+
+  let transition: TransitionType = "crossfade";
+  if (pace === "fast") transition = "cut";
+  if (has("wipe", "шторк")) transition = "wipeleft";
+  if (has("zoom", "зум")) transition = "zoom";
+  if (has("плавн", "crossfade", "растворение", "fade")) transition = "crossfade";
+
+  const addCaptions = has("титры", "субтитры", "текст", "caption", "subtitle");
+
+  return { pace, bw, colorGrade, kenBurns, beatSync, transition, addCaptions, rawPrompt: prompt };
+}
+
+export const PACE_CLIP_SECONDS: Record<GenerationStyle["pace"], number> = {
+  fast: 2.2,
+  medium: 3.6,
+  slow: 5.5,
+};
+
+export const STYLE_CHIPS: { label: string; hint: string }[] = [
+  { label: "⚡ Динамично", hint: "динамичный энергичный ролик с быстрыми склейками" },
+  { label: "🎬 Кинематографично", hint: "кинематографично, плавные переходы, тёплая цветокоррекция" },
+  { label: "🎵 Синхрон с музыкой", hint: "смонтируй под ритм музыки, синхронизируй склейки с битом" },
+  { label: "⚪⚫ Чёрно-белое", hint: "чёрно-белый стиль" },
+  { label: "🌅 Тёплые тона", hint: "тёплая атмосфера заката" },
+  { label: "❄️ Холодные тона", hint: "холодные синие тона" },
+  { label: "📝 С титрами", hint: "добавь титры с текстом" },
+  { label: "🖼️ Ken Burns для фото", hint: "плавное увеличение фотографий" },
+];

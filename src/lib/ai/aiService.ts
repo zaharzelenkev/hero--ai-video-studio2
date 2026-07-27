@@ -81,10 +81,10 @@ export interface AIEditDecision {
   analysisQuality: "ai" | "rule-based";
 }
 
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+import { AI_CONFIG } from "@/config/ai";
 
-export async function analyzeWithAI(request: AIAnalysisRequest, apiKey?: string): Promise<AIEditDecision> {
+export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditDecision> {
+  const apiKey = AI_CONFIG.groqApiKey;
   if (!apiKey) {
     return generateRuleBasedDecision(request);
   }
@@ -175,14 +175,14 @@ ${request.assets.map((a, i) => {
 
 Верни ТОЛЬКО JSON.`;
 
-    const response = await fetch(GROQ_API_URL, {
+    const response = await fetch(AI_CONFIG.apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: GROQ_MODEL,
+        model: AI_CONFIG.model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },

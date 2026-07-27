@@ -9,7 +9,7 @@ import { toBlobURL } from "@ffmpeg/util";
 // network. If, for some reason, the local files are missing (e.g. a deploy that
 // skipped `npm install`), we fall back to loading from a public CDN instead.
 const LOCAL_CORE_BASE = "/ffmpeg";
-const CDN_CORE_BASE = "https://unpkg.com/@ffmpeg/[email protected]/dist/umd";
+const CDN_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
 
 let instance: FFmpeg | null = null;
 let loadingPromise: Promise<FFmpeg> | null = null;

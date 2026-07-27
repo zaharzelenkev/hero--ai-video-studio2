@@ -24,14 +24,9 @@ export default function GenerationScreenV2() {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
-  const [groqApiKey, setGroqApiKey] = useState("");
-  const [showApiSettings, setShowApiSettings] = useState(false);
-
+    
   useEffect(() => {
     listProjects().then(setRecentProjects).catch(() => {});
-    // Load API key from localStorage
-    const savedKey = localStorage.getItem("montiq_groq_api_key");
-    if (savedKey) setGroqApiKey(savedKey);
   }, []);
 
   const canGenerate = items.length > 0 && stage !== "generating" && stage !== "reading";
@@ -95,7 +90,7 @@ export default function GenerationScreenV2() {
         assets,
         filesByAssetId,
         style,
-        groqApiKey: groqApiKey || undefined,
+        
       });
       
       await saveProject(project);
@@ -129,15 +124,7 @@ export default function GenerationScreenV2() {
     }
   };
 
-  const saveApiKey = () => {
-    if (groqApiKey) {
-      localStorage.setItem("montiq_groq_api_key", groqApiKey);
-    } else {
-      localStorage.removeItem("montiq_groq_api_key");
-    }
-    setShowApiSettings(false);
-  };
-
+  
   const busy = stage === "generating";
 
   return (
@@ -162,53 +149,12 @@ export default function GenerationScreenV2() {
             Загрузите материалы — искусственный интеллект создаст профессиональный монтаж.<br />
             Доработайте результат в редакторе с продвинутыми инструментами.
           </p>
-
-          {/* Settings */}
-          <div className="mt-6 flex items-center justify-center gap-3">
-            <button
-              onClick={() => setShowApiSettings(!showApiSettings)}
-              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 backdrop-blur-sm transition-all hover:bg-white/10"
-            >
-              <span>⚙️</span>
-              <span>{groqApiKey ? "AI настроен" : "Настроить AI"}</span>
-            </button>
-          </div>
-
-          {showApiSettings && (
-            <div className="mx-auto mt-4 max-w-md rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-              <h3 className="mb-2 text-sm font-semibold text-slate-300">Groq API Key (опционально)</h3>
-              <p className="mb-3 text-xs text-slate-400">
-                Для интеллектуального анализа видео и улучшенного монтажа
-              </p>
-              <input
-                type="password"
-                value={groqApiKey}
-                onChange={(e) => setGroqApiKey(e.target.value)}
-                placeholder="gsk_..."
-                className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-100 outline-none focus:border-violet-500/50"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={saveApiKey}
-                  className="flex-1 rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700"
-                >
-                  Сохранить
-                </button>
-                <button
-                  onClick={() => setShowApiSettings(false)}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5"
-                >
-                  Отмена
-                </button>
-              </div>
-            </div>
-          )}
         </header>
 
         {/* Main Content */}
-        <div className="mb-12 grid gap-8 lg:grid-cols-3">
+        <div className="mb-12 flex justify-center">
           {/* Upload Section */}
-          <div className="lg:col-span-2">
+          <div className="w-full max-w-2xl">
             <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 shadow-2xl backdrop-blur-sm">
               <UploadZone items={items} onAdd={onAdd} onRemove={onRemove} />
               <div className="mt-6">
@@ -244,61 +190,6 @@ export default function GenerationScreenV2() {
               <p className="mt-3 text-center text-[10px] text-slate-500">
                 Все данные обрабатываются локально на вашем устройстве
               </p>
-            </div>
-          </div>
-
-          {/* Features Section */}
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-sm">
-              <h3 className="mb-3 text-sm font-bold text-slate-300">✨ Возможности AI</h3>
-              <ul className="space-y-2 text-xs text-slate-400">
-                <li className="flex items-start gap-2">
-                  <span className="text-violet-400">•</span>
-                  <span>Интеллектуальный выбор лучших моментов</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-violet-400">•</span>
-                  <span>Анализ эмоций и настроения контента</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-violet-400">•</span>
-                  <span>Синхронизация с музыкальными битами</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-violet-400">•</span>
-                  <span>Оптимизация под формат (Shorts, Reels, YouTube)</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-violet-400">•</span>
-                  <span>Автоматические переходы и цветокоррекция</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-sm">
-              <h3 className="mb-3 text-sm font-bold text-slate-300">🎨 Профессиональный редактор</h3>
-              <ul className="space-y-2 text-xs text-slate-400">
-                <li className="flex items-start gap-2">
-                  <span className="text-fuchsia-400">•</span>
-                  <span>Multi-track таймлайн с кейфреймами</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-fuchsia-400">•</span>
-                  <span>Продвинутая цветокоррекция и LUT</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-fuchsia-400">•</span>
-                  <span>25+ профессиональных эффектов</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-fuchsia-400">•</span>
-                  <span>Аудио EQ, компрессор, шумоподавление</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-fuchsia-400">•</span>
-                  <span>Chroma key и маски</span>
-                </li>
-              </ul>
             </div>
           </div>
         </div>

@@ -442,7 +442,7 @@ export interface ExportSettings {
 }
 
 export interface GenerationStyle {
-  pace: "slow" | "medium" | "fast";
+  pace: "slow" | "medium" | "fast" | "dynamic";
   bw: boolean;
   colorGrade: LutPreset;
   kenBurns: boolean;

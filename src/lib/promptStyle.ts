@@ -42,10 +42,11 @@ export function parsePromptToStyle(prompt: string): GenerationStyle {
   return { pace, bw, colorGrade, kenBurns, beatSync, transition, addCaptions, rawPrompt: prompt };
 }
 
-export const PACE_CLIP_SECONDS: Record<GenerationStyle["pace"], number> = {
+export const PACE_CLIP_SECONDS: Record<GenerationStyle["pace"] | "dynamic", number> = {
   fast: 2.2,
   medium: 3.6,
   slow: 5.5,
+  dynamic: 2.8,
 };
 
 export const STYLE_CHIPS: { label: string; hint: string }[] = [

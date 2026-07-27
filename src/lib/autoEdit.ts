@@ -3,14 +3,14 @@ import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeats, snapToBeat } from "./beatDetection";
 import { analyzeWithAI, transcribeAudio, type AIAnalysisRequest } from "./ai/aiService";
+import { AI_CONFIG } from "@/config/ai";
 
 export interface AutoEditInput {
   title: string;
   assets: MediaAsset[];
   filesByAssetId: Map<string, File>;
   style: GenerationStyle;
-  groqApiKey?: string; // Optional AI API key for intelligent analysis
-}
+  }
 
 /**
  * MONTIQ Professional Auto-Editor with AI Integration
@@ -24,7 +24,7 @@ export interface AutoEditInput {
  * - Applies professional color grading and transitions
  */
 export async function autoEditToProject(input: AutoEditInput): Promise<Project> {
-  const { title, assets, filesByAssetId, style, groqApiKey } = input;
+  const { title, assets, filesByAssetId, style } = input;
   const project = createEmptyProject(title);
   project.style = style;
   project.assets = assets;
@@ -62,7 +62,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // AI-powered analysis (if API key provided and intelligent cuts enabled)
   let aiDecision: Awaited<ReturnType<typeof analyzeWithAI>> | null = null;
   
-  if (style.intelligentCuts && groqApiKey) {
+    if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
     try {
       const analysisRequest: AIAnalysisRequest = {
         userPrompt: style.rawPrompt,
@@ -75,7 +75,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         })),
       };
       
-      aiDecision = await analyzeWithAI(analysisRequest, groqApiKey);
+      aiDecision = await analyzeWithAI(analysisRequest);
       
       // Apply AI recommendations
       if (aiDecision.pace) style.pace = aiDecision.pace as any;

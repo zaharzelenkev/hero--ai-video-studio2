@@ -2,8 +2,8 @@
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import { useProjectStore } from "@/store/projectStore";
-import { createTrack, createTextClip } from "@/lib/factories";
-import type { Clip, Track, Marker } from "@/lib/types";
+import { createTrack } from "@/lib/factories";
+import type { Clip, Track } from "@/lib/types";
 
 const TRACK_HEIGHT = 64;
 const RULER_HEIGHT = 28;
@@ -44,7 +44,9 @@ function clipLabel(clip: Clip) {
 function PlayheadTimeDisplay() {
   const playhead = useProjectStore((s) => s.playhead);
   return (
-    <PlayheadTimeDisplay />
+    <span className="font-mono text-slate-300">
+      {Math.floor(playhead / 60)}:{String(Math.floor(playhead % 60)).padStart(2, "0")}.{String(Math.floor((playhead % 1) * 100)).padStart(2, "0")}
+    </span>
   );
 }
 
@@ -440,7 +442,7 @@ export default function TimelineV2() {
           ))}
 
           {/* Tracks */}
-          {project.tracks.map((track, trackIndex) => (
+          {project.tracks.map((track) => (
             <div
               key={track.id}
               className="flex border-b border-white/5"

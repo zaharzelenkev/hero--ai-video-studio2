@@ -88,7 +88,7 @@ export default function MontagePanelV2() {
         </div>
       </div>
 
-      {/* Speed & Reverse */}
+      {/* Скорость и реверс */}
       {(clip.type === "video" || clip.type === "audio") && (
         <div className="mb-6">
           <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Скорость</h4>
@@ -144,7 +144,7 @@ export default function MontagePanelV2() {
         </div>
       )}
 
-      {/* Transform (Video/Image only) */}
+      {/* Трансформация (только видео/фото) */}
       {isVideo && (
         <div className="mb-6">
           <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Трансформация</h4>
@@ -194,7 +194,7 @@ export default function MontagePanelV2() {
         </div>
       )}
 
-      {/* Crop (Video/Image only) */}
+      {/* Обрезка (только видео/фото) */}
       {isVideo && (
         <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
           <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Обрезка</h4>
@@ -312,7 +312,7 @@ export default function MontagePanelV2() {
         </div>
       )}
 
-      {/* Transitions */}
+      {/* Переходы */}
       {hasTransitions && (
         <div className="mb-6">
           <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Переходы</h4>

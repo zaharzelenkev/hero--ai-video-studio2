@@ -68,7 +68,7 @@ export default function ColorPanelV2() {
 
       {/* LUT Presets */}
       <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-        <label className="mb-2 block text-[11px] font-medium text-slate-300">LUT Preset</label>
+        <label className="mb-2 block text-[11px] font-medium text-slate-300">Прест (LUT)</label>
         <select
           value={color.lut}
           onChange={(e) => updateColor((c) => ({ ...c, lut: e.target.value as LutPreset }))}
@@ -111,7 +111,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Vibrance"
+          label="Сочность"
           value={color.vibrance}
           min={-1}
           max={1}
@@ -133,7 +133,7 @@ export default function ColorPanelV2() {
         <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Экспозиция и тон</h4>
         
         <ParamControl
-          label="Exposure"
+          label="Экспозиция"
           value={color.exposure}
           min={-3}
           max={3}
@@ -142,7 +142,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Highlights"
+          label="Светлые участки"
           value={color.highlights}
           min={-100}
           max={100}
@@ -150,7 +150,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Shadows"
+          label="Тени"
           value={color.shadows}
           min={-100}
           max={100}
@@ -158,7 +158,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Whites"
+          label="Точка белого"
           value={color.whites}
           min={-100}
           max={100}
@@ -166,7 +166,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Blacks"
+          label="Точка черного"
           value={color.blacks}
           min={-100}
           max={100}
@@ -174,7 +174,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Gamma"
+          label="Гамма"
           value={color.gamma}
           min={0.1}
           max={3}
@@ -187,7 +187,7 @@ export default function ColorPanelV2() {
         <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Баланс белого</h4>
         
         <ParamControl
-          label="Temperature"
+          label="Температура"
           value={color.temperature}
           min={-1}
           max={1}
@@ -195,7 +195,7 @@ export default function ColorPanelV2() {
         />
         
         <ParamControl
-          label="Tint"
+          label="Оттенок (Tint)"
           value={color.tint}
           min={-1}
           max={1}

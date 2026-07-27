@@ -1,4 +1,4 @@
-import type { AudioClip, Clip, ExportSettings, Project, TextClip, VideoClip } from "./types";
+import type { AudioClip, ExportSettings, Project, TextClip, VideoClip } from "./types";
 import { paramToFfmpegExpr } from "./keyframes";
 import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, transitionToXfade } from "./presets";
 

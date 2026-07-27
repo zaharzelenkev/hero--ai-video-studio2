@@ -270,7 +270,7 @@ export default function SoundPanelV2() {
               <div className="space-y-2">
                 <div>
                   <label className="mb-1 block text-[10px] text-slate-400">
-                    Threshold: {(clip as AudioClip).compressor!.threshold} dB
+                    Порог (Threshold): {(clip as AudioClip).compressor!.threshold} dB
                   </label>
                   <input
                     type="range"
@@ -290,7 +290,7 @@ export default function SoundPanelV2() {
 
                 <div>
                   <label className="mb-1 block text-[10px] text-slate-400">
-                    Ratio: {(clip as AudioClip).compressor!.ratio}:1
+                    Сжатие (Ratio): {(clip as AudioClip).compressor!.ratio}:1
                   </label>
                   <input
                     type="range"

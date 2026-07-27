@@ -2,7 +2,7 @@ import type { GenerationStyle, MediaAsset, Project } from "./types";
 import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeats, snapToBeat } from "./beatDetection";
-import { analyzeWithAI, transcribeAudio, type AIAnalysisRequest } from "./ai/aiService";
+import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { AI_CONFIG } from "@/config/ai";
 
 export interface AutoEditInput {

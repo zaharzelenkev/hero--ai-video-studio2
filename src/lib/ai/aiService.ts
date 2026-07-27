@@ -392,12 +392,12 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
   };
 }
 
-export async function transcribeAudio(audioBlob: Blob, apiKey?: string): Promise<string> {
+export async function transcribeAudio(_audioBlob: Blob, _apiKey?: string): Promise<string> {
   // TODO: Integrate Whisper API
   return "";
 }
 
-export async function analyzeEmotionalTone(videoBlob: Blob): Promise<{
+export async function analyzeEmotionalTone(_videoBlob: Blob): Promise<{
   overall: "positive" | "negative" | "neutral";
   timeline: Array<{ time: number; emotion: string; confidence: number }>;
 }> {

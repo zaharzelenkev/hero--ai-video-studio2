@@ -257,7 +257,7 @@ export default function EffectsPanelV2() {
 
             <div>
               <label className="mb-1 block text-[10px] text-slate-400">
-                Similarity: {(clip.chroma.similarity * 100).toFixed(0)}%
+                Чувствительность: {(clip.chroma.similarity * 100).toFixed(0)}%
               </label>
               <input
                 type="range"
@@ -277,7 +277,7 @@ export default function EffectsPanelV2() {
 
             <div>
               <label className="mb-1 block text-[10px] text-slate-400">
-                Blend: {(clip.chroma.blend * 100).toFixed(0)}%
+                Смягчение краев: {(clip.chroma.blend * 100).toFixed(0)}%
               </label>
               <input
                 type="range"
@@ -301,7 +301,7 @@ export default function EffectsPanelV2() {
       {/* Mask */}
       <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
         <div className="mb-2 flex items-center justify-between">
-          <label className="text-[11px] font-medium text-slate-300">Mask</label>
+          <label className="text-[11px] font-medium text-slate-300">Маска</label>
           <input
             type="checkbox"
             checked={clip.mask.enabled}
@@ -337,7 +337,7 @@ export default function EffectsPanelV2() {
 
             <div>
               <label className="mb-1 block text-[10px] text-slate-400">
-                Feather: {clip.mask.feather}px
+                Размытие (Feather): {clip.mask.feather}px
               </label>
               <input
                 type="range"

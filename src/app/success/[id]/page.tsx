@@ -33,7 +33,7 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
           }
         }
       } catch (error) {
-        console.error("Failed to load project:", error);
+        console.error("Не удалось загрузить проект:", error);
         router.push("/");
       } finally {
         setLoading(false);

@@ -44,9 +44,12 @@ export default function PreviewCanvas() {
   const setPlaying = useProjectStore((s) => s.setPlaying);
 
   const projectRef = useRef(project);
-  projectRef.current = project;
   const playheadRef = useRef(playhead);
-  playheadRef.current = playhead;
+
+  useEffect(() => {
+    projectRef.current = project;
+    playheadRef.current = playhead;
+  }, [project, playhead]);
 
   // Playback ticker.
   useEffect(() => {

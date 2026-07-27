@@ -14,6 +14,7 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
   const [showVideo, setShowVideo] = useState(false);
 
   useEffect(() => {
+    let objectUrl = "";
     const load = async () => {
       try {
         const proj = await loadProject(params.id);
@@ -27,7 +28,8 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
         if (proj.previewBlobKey) {
           const blob = await loadBlob(proj.previewBlobKey);
           if (blob) {
-            setPreviewUrl(URL.createObjectURL(blob));
+            objectUrl = URL.createObjectURL(blob);
+            setPreviewUrl(objectUrl);
           }
         }
       } catch (error) {
@@ -41,9 +43,8 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
     load();
 
     return () => {
-      // Cleanup preview URL
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
       }
     };
   }, [params.id, router]);

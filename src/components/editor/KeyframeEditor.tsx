@@ -244,7 +244,7 @@ export default function KeyframeEditor({
             </div>
           ) : (
             <p className="text-center text-[10px] text-slate-500">
-              Нет кейфреймов. Нажмите "Добавить" для создания анимации.
+              Нет кейфреймов. Нажмите &quot;Добавить&quot; для создания анимации.
             </p>
           )}
 

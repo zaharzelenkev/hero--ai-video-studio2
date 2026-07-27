@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useProjectStore } from "@/store/projectStore";
 import { renderProject } from "@/lib/render";
 import type { ExportSettings } from "@/lib/types";
@@ -31,6 +31,12 @@ export default function ExportPanelV2() {
   const [progress, setProgress] = useState(0);
   const [log, setLog] = useState("");
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resultUrl) URL.revokeObjectURL(resultUrl);
+    };
+  }, [resultUrl]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   if (!project) return null;

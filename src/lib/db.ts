@@ -70,5 +70,15 @@ export async function listProjects(): Promise<Project[]> {
 
 export async function deleteProject(id: string): Promise<void> {
   const db = await getDb();
+  const proj = await db.get("projects", id);
+  if (proj) {
+    // Delete associated blobs
+    for (const asset of proj.assets) {
+      if (asset.blobKey) await db.delete("assets", asset.blobKey);
+    }
+    if (proj.previewBlobKey) {
+      await db.delete("assets", proj.previewBlobKey);
+    }
+  }
   await db.delete("projects", id);
 }

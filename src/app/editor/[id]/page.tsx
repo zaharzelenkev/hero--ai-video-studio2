@@ -15,7 +15,6 @@ export default function EditorPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
     loadProject(params.id)
       .then((p) => {
         if (cancelled) return;

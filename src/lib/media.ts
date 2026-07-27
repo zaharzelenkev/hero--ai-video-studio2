@@ -98,6 +98,10 @@ export function inferKind(file: File): "video" | "image" | "audio" {
 
 /** Downsampled amplitude envelope, used to draw waveforms cheaply. */
 export async function computeWaveformPeaks(file: Blob, buckets = 400): Promise<number[]> {
+  // Avoid crashing the browser on huge files
+  if (file.size > 100 * 1024 * 1024) {
+    return Array(buckets).fill(0.1);
+  }
   const arrayBuffer = await file.arrayBuffer();
   const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new AudioCtx();

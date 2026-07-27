@@ -31,8 +31,14 @@ export async function renderProject(
       }
     }
     for (const fontFile of usedFontFiles) {
-      const fontResp = await fetch(`/fonts/${fontFile}`);
-      if (!fontResp.ok) throw new Error(`Не удалось загрузить шрифт: ${fontFile}`);
+      const fontUrl = new URL(`/fonts/${fontFile}`, window.location.origin).href;
+      let fontResp: Response | null = null;
+      try {
+        fontResp = await fetch(fontUrl);
+      } catch (err) {
+        throw new Error(`Сетевая ошибка при загрузке шрифта: ${fontFile}`);
+      }
+      if (!fontResp.ok) throw new Error(`Не удалось загрузить шрифт: ${fontFile} (HTTP ${fontResp.status})`);
       const fontBlob = await fontResp.blob();
       // Use fetchFileFromBlob to avoid ArrayBuffer detachment issues
       const fontBytes = await fetchFileFromBlob(fontBlob);
@@ -84,7 +90,20 @@ export async function renderProject(
     args.push(...buildOutputArgs(project.exportSettings, outName));
 
     onLog?.(`Запуск: ffmpeg ${args.join(" ")}`);
-    await ffmpeg.exec(args);
+    let lastLogs = [];
+    const logInterceptor = (msg: string) => {
+      lastLogs.push(msg);
+      if (lastLogs.length > 20) lastLogs.shift();
+      onLog?.(msg);
+    };
+    
+    // We already passed onLog to getFFmpeg, but we can't easily intercept it there without refactoring.
+    // Instead, just check the return code.
+    const code = await ffmpeg.exec(args);
+    if (code !== 0) {
+      throw new Error("FFmpeg failed with exit code " + code + ". The filter graph might be invalid or assets are missing.");
+    }
+    
     const data = await ffmpeg.readFile(outName);
     const mime =
       project.exportSettings.format === "webm"

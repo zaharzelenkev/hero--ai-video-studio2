@@ -99,8 +99,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       const asset = assets.find((a) => a.id === aiClip.assetId);
       if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return;
       
-      const duration = aiClip.duration;
-      const inPoint = aiClip.startTime;
+      const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
+      const inPoint = Math.max(0, Math.min(aiClip.startTime, maxDur - 0.5));
+      const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime || (inPoint + aiClip.duration), maxDur));
+      const duration = outPoint - inPoint;
       
       if (beats.length) {
         const rawEnd = cursor + duration;
@@ -113,7 +115,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
             start: cursor,
             duration: adjusted,
             inPoint,
-            outPoint: inPoint + adjusted,
+            outPoint: Math.min(inPoint + adjusted, maxDur),
             transitionIn: i === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
           });
           
@@ -130,7 +132,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         start: cursor,
         duration,
         inPoint,
-        outPoint: aiClip.endTime,
+        outPoint,
         transitionIn: i === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
       });
       

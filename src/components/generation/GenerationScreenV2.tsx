@@ -113,12 +113,12 @@ export default function GenerationScreenV2() {
       // Redirect to success page
       router.push(`/success/${project.id}`);
     } catch (err) {
-      console.error(err);
+      console.error("Generation error:", err);
       const raw = err instanceof Error ? err.message : "";
-      const friendly =
-        raw.includes("fetch") || raw.includes("network")
-          ? "Не удалось загрузить видеодвижок. Проверьте подключение к интернету и попробуйте ещё раз."
-          : raw || "Не удалось создать видео. Попробуйте ещё раз.";
+      const isNetwork = raw.includes("fetch") || raw.includes("network") || raw.includes("Сетевая ошибка");
+      const friendly = isNetwork
+        ? "Похоже, пропало подключение к интернету. Пожалуйста, проверьте сеть и попробуйте снова."
+        : "Что-то пошло не так при создании видео. Пожалуйста, попробуйте изменить материалы или настройки.";
       setErrorMsg(friendly);
       setStage("error");
     }
@@ -162,8 +162,18 @@ export default function GenerationScreenV2() {
               </div>
 
               {stage === "error" && (
-                <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                  {errorMsg}
+                <div className="mt-6 flex flex-col items-center justify-center rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-center backdrop-blur-sm animate-in fade-in zoom-in-95 duration-300">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 text-2xl shadow-inner border border-red-500/20">
+                    ⚠️
+                  </div>
+                  <h3 className="mb-2 text-base font-bold text-slate-200">Произошла заминка</h3>
+                  <p className="mb-4 text-xs text-slate-400 max-w-sm">{errorMsg}</p>
+                  <button
+                    onClick={() => { setStage("idle"); setErrorMsg(""); }}
+                    className="rounded-xl bg-white/10 px-6 py-2.5 text-xs font-semibold text-white transition-all hover:bg-white/20 active:scale-95"
+                  >
+                    Попробовать снова
+                  </button>
                 </div>
               )}
 

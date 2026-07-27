@@ -1,0 +1,23 @@
+import Link from "next/link";
+
+export default function NotFound() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12] px-4 text-center text-slate-100">
+      <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-white/5 text-5xl shadow-inner border border-white/10">
+        🧭
+      </div>
+      <h1 className="mb-3 text-2xl font-bold text-slate-200 sm:text-3xl">
+        Страница не найдена
+      </h1>
+      <p className="mb-8 max-w-md text-sm text-slate-400">
+        Похоже, вы перешли по неверной ссылке или страница была удалена.
+      </p>
+      <Link
+        href="/"
+        className="rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-900/40 transition-all hover:scale-105 hover:shadow-xl hover:shadow-violet-900/50 active:scale-95"
+      >
+        Вернуться на главную
+      </Link>
+    </div>
+  );
+}

@@ -55,16 +55,22 @@ export default function ExportPanelV2() {
       const blob = await renderProject(
         project,
         (r) => setProgress(r),
-        (m) => setLog(m)
+        (m) => {
+          // hide raw ffmpeg logs, only update occasionally if needed, or just let progress bar do the talking
+          if (m.includes("Error") || m.includes("Failed")) {
+             console.error("FFmpeg log:", m);
+          }
+        }
       );
       setResultUrl(URL.createObjectURL(blob));
     } catch (err) {
+      console.error("Export error:", err);
       const raw = err instanceof Error ? err.message : "";
-      setLog(
-        raw.includes("fetch") || raw.includes("network")
-          ? "Не удалось загрузить видеодвижок — проверьте подключение к интернету и попробуйте ещё раз."
-          : raw || "Ошибка экспорта"
-      );
+      const isNetwork = raw.includes("fetch") || raw.includes("network") || raw.includes("Сетевая ошибка");
+      const friendly = isNetwork
+        ? "Похоже, пропало подключение к интернету. Проверьте сеть и попробуйте снова."
+        : "Что-то пошло не так при экспорте. Возможно, некоторые клипы повреждены или настройки несовместимы.";
+      setLog(friendly); // we reuse log for the friendly error display
     } finally {
       setRendering(false);
     }
@@ -320,11 +326,14 @@ export default function ExportPanelV2() {
         </div>
       )}
 
-      {/* Log */}
+      {/* Log (Errors) */}
       {log && (
-        <p className={`mt-2 break-all text-[10px] ${log.includes("Ошибка") || log.includes("удалось") ? "text-red-400" : "text-slate-500"}`}>
-          {log}
-        </p>
+        <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-center backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10 text-lg shadow-inner border border-red-500/20">
+            ⚠️
+          </div>
+          <p className="text-xs text-red-300">{log}</p>
+        </div>
       )}
 
       {/* Result */}

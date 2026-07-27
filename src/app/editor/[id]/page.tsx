@@ -52,16 +52,16 @@ export default function EditorPage() {
   if (status === "not-found") {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-6 bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12] text-center">
-        <div className="text-6xl">😔</div>
+        <div className="mb-2 flex h-24 w-24 items-center justify-center rounded-3xl bg-white/5 text-5xl shadow-inner border border-white/10">🧭</div>
         <div>
           <h1 className="mb-2 text-xl font-bold text-slate-200">Проект не найден</h1>
           <p className="text-sm text-slate-400">Этот проект не существует или был удалён</p>
         </div>
         <Link
           href="/"
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 text-sm font-bold text-white shadow-lg hover:shadow-xl"
+          className="rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-900/40 transition-all hover:scale-105 hover:shadow-xl hover:shadow-violet-900/50 active:scale-95"
         >
-          ← Вернуться на главную
+          Вернуться на главную
         </Link>
       </div>
     );

@@ -57,9 +57,9 @@ export async function renderProject(
       const cached = assetBytesCache.get(assetId);
       if (cached) return cached;
       const asset = project.assets.find((a) => a.id === assetId);
-      if (!asset) throw new Error(`Asset not found: ${assetId}`);
+      if (!asset) throw new Error(`Не найден исходный файл (Asset: ${assetId})`);
       const blob = await loadBlob(asset.blobKey);
-      if (!blob) throw new Error(`Missing source file for "${asset.name}"`);
+      if (!blob) throw new Error(`Отсутствует исходный файл для "${asset.name}"`);
       const bytes = await fetchFileFromBlob(blob);
       assetBytesCache.set(assetId, bytes);
       return bytes;

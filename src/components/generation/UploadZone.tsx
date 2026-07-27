@@ -52,11 +52,11 @@ export default function UploadZone({
           handleFiles(e.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
-          dragOver ? "border-violet-400 bg-violet-500/10" : "border-white/15 bg-white/[0.03] hover:border-white/25"
+        className={`flex cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed px-6 py-12 text-center transition-all duration-300 ${
+          dragOver ? "border-violet-400 bg-violet-500/10" : "border-white/10 bg-white/[0.02] hover:border-violet-500/30 hover:bg-violet-500/5 shadow-inner"
         }`}
       >
-        <div className="mb-3 text-4xl">📥</div>
+        <div className={`mb-4 text-5xl transition-transform duration-300 ${dragOver ? "scale-110 -translate-y-2" : ""}`}>📥</div>
         <p className="text-sm font-medium text-slate-200">
           Перетащите видео, фото или аудио сюда — или нажмите, чтобы выбрать файлы
         </p>
@@ -77,7 +77,7 @@ export default function UploadZone({
       {items.length > 0 && (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {items.map((item) => (
-            <div key={item.id} className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/5">
+            <div key={item.id} className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-all duration-300 hover:scale-[1.02] hover:border-violet-500/50 hover:shadow-lg hover:shadow-violet-500/10">
               <div className="flex h-24 items-center justify-center overflow-hidden bg-black/40">
                 {item.thumbnail ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -97,7 +97,7 @@ export default function UploadZone({
                   e.stopPropagation();
                   onRemove(item.id);
                 }}
-                className="absolute right-1 top-1 hidden h-6 w-6 items-center justify-center rounded-full bg-black/70 text-xs text-white group-hover:flex"
+                className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full bg-black/60 text-xs text-white opacity-0 backdrop-blur-md transition-all hover:bg-red-500 hover:text-white group-hover:opacity-100 flex"
                 aria-label="Удалить"
               >
                 ✕

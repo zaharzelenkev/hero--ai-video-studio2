@@ -36,9 +36,14 @@ export default function EditorPage() {
   if (status === "loading") {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12]">
-        <div className="text-center">
-          <div className="mb-4 inline-block h-12 w-12 animate-spin rounded-full border-4 border-violet-500/30 border-t-violet-500"></div>
-          <p className="text-sm text-slate-400">Открываем проект MONTIQ...</p>
+        <div className="text-center animate-pulse">
+          <div className="relative mb-6 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 shadow-lg shadow-violet-500/20">
+            <span className="text-4xl">🎬</span>
+            <div className="absolute inset-0 rounded-2xl border border-white/10" />
+            <div className="absolute -inset-1 rounded-[20px] border-2 border-violet-500/30 border-t-violet-500 animate-spin" />
+          </div>
+          <h2 className="mb-2 text-xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Загрузка рабочей среды</h2>
+          <p className="text-sm text-slate-400">Подготавливаем инструменты MONTIQ...</p>
         </div>
       </div>
     );

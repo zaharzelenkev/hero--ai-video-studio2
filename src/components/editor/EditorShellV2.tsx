@@ -81,7 +81,7 @@ export default function EditorShellV2() {
             <button
               key={p.id}
               onClick={() => setActivePage(p.id)}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold transition-all duration-300 ${
                 activePage === p.id
                   ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-900/40"
                   : "text-slate-400 hover:bg-white/5 hover:text-slate-200"

@@ -171,9 +171,11 @@ export default function GenerationScreenV2() {
                 <div className="mt-4 space-y-3">
                   <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-violet-500 transition-all"
+                      className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-violet-500 transition-all duration-300 relative overflow-hidden"
                       style={{ width: `${Math.max(6, progress * 100)}%` }}
-                    />
+                    >
+                      <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                    </div>
                   </div>
                   <p className="text-center text-xs text-slate-400">{progressLabel}</p>
                 </div>
@@ -182,7 +184,7 @@ export default function GenerationScreenV2() {
               <button
                 disabled={!canGenerate}
                 onClick={handleGenerate}
-                className="mt-6 w-full rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-4 text-sm font-bold text-white shadow-lg shadow-violet-900/40 transition-all hover:shadow-xl hover:shadow-violet-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="mt-6 w-full rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-violet-900/40 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-violet-900/50 focus:outline-none focus:ring-4 focus:ring-violet-500/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
               >
                 {busy ? "🎬 Создаём ваше видео..." : "🚀 Создать видео с AI"}
               </button>

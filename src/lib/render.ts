@@ -113,6 +113,7 @@ export async function renderProject(
     onLog?.(`Запуск: ffmpeg ${args.join(" ")}`);
         const code = await ffmpeg.exec(args);
     if (code !== 0) {
+      console.error("FFmpeg Error! Args used:", args);
       throw new Error("FFmpeg failed: " + lastLogs.join(" | "));
     }
     

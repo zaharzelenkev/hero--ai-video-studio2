@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useProjectStore } from "@/store/projectStore";
 import type { TextClip, TextAnimation, TextStyle } from "@/lib/types";
-import { ParamControl } from "../ParamControl";
+import ParamControl from "../ParamControl";
 import { createTextClip } from "@/lib/factories";
 
 const FONT_FAMILIES = [
@@ -99,7 +99,7 @@ export default function TextPanelV2() {
     );
   }
 
-  const style = clip.style || {};
+  const style = clip.style || ({} as TextStyle);
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -112,7 +112,7 @@ export default function TextPanelV2() {
         <label className="mb-2 block text-[11px] font-medium text-slate-300">Текст</label>
         <textarea
           value={clip.text}
-          onChange={(e) => updateClip(selectedClipId, (c) => ({ ...c, text: e.target.value }))}
+          onChange={(e) => updateClip(selectedClipId!, (c) => ({ ...c, text: e.target.value }))}
           rows={4}
           className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-100 outline-none focus:border-violet-500/50"
           placeholder="Введите текст..."
@@ -128,7 +128,7 @@ export default function TextPanelV2() {
           <select
             value={clip.fontFamily}
             onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({ ...c, fontFamily: e.target.value }))
+              updateClip(selectedClipId!, (c) => ({ ...c, fontFamily: e.target.value }))
             }
             className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-slate-100"
           >
@@ -149,7 +149,7 @@ export default function TextPanelV2() {
             step={2}
             value={clip.fontSize}
             onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({ ...c, fontSize: parseInt(e.target.value) }))
+              updateClip(selectedClipId!, (c) => ({ ...c, fontSize: parseInt(e.target.value) }))
             }
             className="h-1 w-full accent-violet-500"
           />
@@ -160,7 +160,7 @@ export default function TextPanelV2() {
           <select
             value={style.fontWeight || 400}
             onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({
+              updateClip(selectedClipId!, (c) => ({
                 ...c,
                 style: { ...style, fontWeight: parseInt(e.target.value) },
               }))
@@ -179,7 +179,7 @@ export default function TextPanelV2() {
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() =>
-              updateClip(selectedClipId, (c) => ({
+              updateClip(selectedClipId!, (c) => ({
                 ...c,
                 style: { ...style, fontStyle: style.fontStyle === "italic" ? "normal" : "italic" },
               }))
@@ -201,7 +201,7 @@ export default function TextPanelV2() {
               step={0.5}
               value={style.letterSpacing || 0}
               onChange={(e) =>
-                updateClip(selectedClipId, (c) => ({
+                updateClip(selectedClipId!, (c) => ({
                   ...c,
                   style: { ...style, letterSpacing: parseFloat(e.target.value) || 0 },
                 }))
@@ -221,7 +221,7 @@ export default function TextPanelV2() {
           <input
             type="color"
             value={clip.color}
-            onChange={(e) => updateClip(selectedClipId, (c) => ({ ...c, color: e.target.value }))}
+            onChange={(e) => updateClip(selectedClipId!, (c) => ({ ...c, color: e.target.value } as any))}
             className="h-10 w-full rounded-md border border-white/10"
           />
         </div>
@@ -233,17 +233,17 @@ export default function TextPanelV2() {
               type="color"
               value={clip.backgroundColor === "transparent" ? "#000000" : clip.backgroundColor}
               onChange={(e) =>
-                updateClip(selectedClipId, (c) => ({ ...c, backgroundColor: e.target.value }))
+                updateClip(selectedClipId!, (c) => ({ ...c, backgroundColor: e.target.value } as any))
               }
               className="h-10 flex-1 rounded-md border border-white/10"
               disabled={clip.backgroundColor === "transparent"}
             />
             <button
               onClick={() =>
-                updateClip(selectedClipId, (c) => ({
-                  ...c,
-                  backgroundColor: c.backgroundColor === "transparent" ? "#000000" : "transparent",
-                }))
+                updateClip(selectedClipId!, (c) => ({
+                    ...c,
+                    backgroundColor: (c as any).backgroundColor === "transparent" ? "#000000" : "transparent",
+                  } as any))
               }
               className={`rounded-md border px-3 text-[10px] ${
                 clip.backgroundColor === "transparent"
@@ -264,7 +264,7 @@ export default function TextPanelV2() {
           {(["left", "center", "right"] as const).map((align) => (
             <button
               key={align}
-              onClick={() => updateClip(selectedClipId, (c) => ({ ...c, align }))}
+              onClick={() => updateClip(selectedClipId!, (c) => ({ ...c, align }))}
               className={`rounded-md border px-2 py-2 text-[10px] font-medium ${
                 clip.align === align
                   ? "border-violet-500/50 bg-violet-500/20 text-violet-300"
@@ -286,7 +286,7 @@ export default function TextPanelV2() {
           value={clip.x}
           min={-1}
           max={1}
-          onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, x: v }))}
+          onChange={(v) => updateClip(selectedClipId!, (c) => ({ ...c, x: v }))}
         />
 
         <ParamControl
@@ -294,7 +294,7 @@ export default function TextPanelV2() {
           value={clip.y}
           min={-1}
           max={1}
-          onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, y: v }))}
+          onChange={(v) => updateClip(selectedClipId!, (c) => ({ ...c, y: v }))}
         />
 
         <ParamControl
@@ -302,7 +302,7 @@ export default function TextPanelV2() {
           value={clip.scale}
           min={0.1}
           max={3}
-          onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, scale: v }))}
+          onChange={(v) => updateClip(selectedClipId!, (c) => ({ ...c, scale: v }))}
           displayFn={(v) => `${(v * 100).toFixed(0)}%`}
         />
 
@@ -312,7 +312,7 @@ export default function TextPanelV2() {
             value={clip.rotation}
             min={-180}
             max={180}
-            onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, rotation: v }))}
+            onChange={(v) => updateClip(selectedClipId!, (c) => ({ ...c, rotation: v }))}
             unit="°"
           />
         )}
@@ -322,7 +322,7 @@ export default function TextPanelV2() {
           value={clip.opacity}
           min={0}
           max={1}
-          onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, opacity: v }))}
+          onChange={(v) => updateClip(selectedClipId!, (c) => ({ ...c, opacity: v }))}
           displayFn={(v) => `${(v * 100).toFixed(0)}%`}
         />
       </div>
@@ -336,7 +336,7 @@ export default function TextPanelV2() {
           <select
             value={clip.animationIn}
             onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({
+              updateClip(selectedClipId!, (c) => ({
                 ...c,
                 animationIn: e.target.value as TextAnimation,
               }))
@@ -356,7 +356,7 @@ export default function TextPanelV2() {
           <select
             value={clip.animationOut}
             onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({
+              updateClip(selectedClipId!, (c) => ({
                 ...c,
                 animationOut: e.target.value as TextAnimation,
               }))
@@ -392,7 +392,7 @@ export default function TextPanelV2() {
                   type="checkbox"
                   checked={style.shadow?.enabled || false}
                   onChange={(e) =>
-                    updateClip(selectedClipId, (c) => ({
+                    updateClip(selectedClipId!, (c) => ({
                       ...c,
                       style: {
                         ...style,
@@ -417,7 +417,7 @@ export default function TextPanelV2() {
                     type="color"
                     value={style.shadow.color}
                     onChange={(e) =>
-                      updateClip(selectedClipId, (c) => ({
+                      updateClip(selectedClipId!, (c) => ({
                         ...c,
                         style: {
                           ...style,
@@ -433,7 +433,7 @@ export default function TextPanelV2() {
                       placeholder="X"
                       value={style.shadow.offsetX}
                       onChange={(e) =>
-                        updateClip(selectedClipId, (c) => ({
+                        updateClip(selectedClipId!, (c) => ({
                           ...c,
                           style: {
                             ...style,
@@ -448,7 +448,7 @@ export default function TextPanelV2() {
                       placeholder="Y"
                       value={style.shadow.offsetY}
                       onChange={(e) =>
-                        updateClip(selectedClipId, (c) => ({
+                        updateClip(selectedClipId!, (c) => ({
                           ...c,
                           style: {
                             ...style,
@@ -465,7 +465,7 @@ export default function TextPanelV2() {
                     max={20}
                     value={style.shadow.blur}
                     onChange={(e) =>
-                      updateClip(selectedClipId, (c) => ({
+                      updateClip(selectedClipId!, (c) => ({
                         ...c,
                         style: {
                           ...style,
@@ -487,7 +487,7 @@ export default function TextPanelV2() {
                   type="checkbox"
                   checked={style.stroke?.enabled || false}
                   onChange={(e) =>
-                    updateClip(selectedClipId, (c) => ({
+                    updateClip(selectedClipId!, (c) => ({
                       ...c,
                       style: {
                         ...style,
@@ -510,7 +510,7 @@ export default function TextPanelV2() {
                     type="color"
                     value={style.stroke.color}
                     onChange={(e) =>
-                      updateClip(selectedClipId, (c) => ({
+                      updateClip(selectedClipId!, (c) => ({
                         ...c,
                         style: {
                           ...style,
@@ -530,7 +530,7 @@ export default function TextPanelV2() {
                       max={20}
                       value={style.stroke.width}
                       onChange={(e) =>
-                        updateClip(selectedClipId, (c) => ({
+                        updateClip(selectedClipId!, (c) => ({
                           ...c,
                           style: {
                             ...style,

@@ -2,7 +2,7 @@
 
 import { useProjectStore } from "@/store/projectStore";
 import type { VideoClip, AudioClip, TransitionType } from "@/lib/types";
-import { ParamControl } from "../ParamControl";
+import ParamControl from "../ParamControl";
 
 const TRANSITIONS: { id: TransitionType; label: string }[] = [
   { id: "cut", label: "Cut (без перехода)" },
@@ -459,7 +459,7 @@ export default function MontagePanelV2() {
                   updateClip(selectedClipId, (c) => ({
                     ...c,
                     inPoint: Math.max(0, parseFloat(e.target.value) || 0),
-                  }))
+                  } as any))
                 }
                 className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-slate-100"
               />
@@ -477,8 +477,8 @@ export default function MontagePanelV2() {
                 onChange={(e) =>
                   updateClip(selectedClipId, (c) => ({
                     ...c,
-                    outPoint: Math.max(c.inPoint, parseFloat(e.target.value) || c.inPoint),
-                  }))
+                    outPoint: Math.max((c as any).inPoint, parseFloat(e.target.value) || (c as any).inPoint),
+                  } as any))
                 }
                 className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-slate-100"
               />

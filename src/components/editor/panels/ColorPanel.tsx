@@ -14,6 +14,11 @@ const LUT_LABELS: Record<LutPreset, string> = {
   bw: "Ч/Б",
   vintage: "Винтаж",
   vivid: "Сочный",
+  moody: "Мрачный",
+  dramatic: "Драматичный",
+  neutral: "Нейтральный",
+  "teal-orange": "Тил-Оранж",
+  "film-noir": "Нуар"
 };
 
 export default function ColorPanel() {

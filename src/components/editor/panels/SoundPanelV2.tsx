@@ -2,7 +2,7 @@
 
 import { useProjectStore } from "@/store/projectStore";
 import type { AudioClip, VideoClip } from "@/lib/types";
-import { ParamControl } from "../ParamControl";
+import ParamControl from "../ParamControl";
 
 export default function SoundPanelV2() {
   const project = useProjectStore((s) => s.project);

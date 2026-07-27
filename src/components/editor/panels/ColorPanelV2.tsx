@@ -2,7 +2,7 @@
 
 import { useProjectStore } from "@/store/projectStore";
 import type { VideoClip, LutPreset } from "@/lib/types";
-import { ParamControl } from "../ParamControl";
+import ParamControl from "../ParamControl";
 
 const LUT_PRESETS: { id: LutPreset; label: string }[] = [
   { id: "none", label: "Без LUT" },

@@ -78,7 +78,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       aiDecision = await analyzeWithAI(analysisRequest, groqApiKey);
       
       // Apply AI recommendations
-      if (aiDecision.pace) style.pace = aiDecision.pace;
+      if (aiDecision.pace) style.pace = aiDecision.pace as any;
       if (aiDecision.colorGrade && aiDecision.colorGrade !== "none") {
         style.colorGrade = aiDecision.colorGrade as any;
       }

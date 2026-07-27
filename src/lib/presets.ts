@@ -21,6 +21,11 @@ export const LUT_PRESETS: Record<LutPreset, Partial<ColorGrade> & { css: string 
   vivid: {
     css: "saturate(1.45) contrast(1.1)",
   },
+  moody: { css: "" },
+  dramatic: { css: "" },
+  neutral: { css: "" },
+  "teal-orange": { css: "" },
+  "film-noir": { css: "" }
 };
 
 /** FFmpeg filter fragment applied for a LUT preset (chained after manual eq/hue). */

@@ -6,44 +6,55 @@ import type { AnimParam } from "@/lib/types";
 export default function ParamControl({
   label,
   param,
-  localTime,
-  clipDuration,
+  value: valueProp,
+  localTime = 0,
+  clipDuration = 0,
   min,
   max,
   step = 0.01,
   onChange,
   format,
+  displayFn,
+  unit,
 }: {
   label: string;
-  param: AnimParam;
-  localTime: number;
-  clipDuration: number;
+  param?: AnimParam;
+  value?: AnimParam;
+  localTime?: number;
+  clipDuration?: number;
   min: number;
   max: number;
   step?: number;
   onChange: (p: AnimParam) => void;
   format?: (v: number) => string;
+  displayFn?: (v: number) => string | number;
+  unit?: string;
 }) {
-  const value = evalParam(param, localTime);
-  const animated = param.keyframes.length > 0;
+  const p = param ?? valueProp;
+  if (!p) return null;
+
+  const value = evalParam(p, localTime);
+  const animated = p.keyframes.length > 0;
 
   const handleSlide = (v: number) => {
     if (animated) {
-      onChange(addKeyframe(param, Math.max(0, localTime), v));
+      onChange(addKeyframe(p, Math.max(0, localTime), v));
     } else {
-      onChange({ ...param, value: v });
+      onChange({ ...p, value: v });
     }
   };
 
-  const addKf = () => onChange(addKeyframe(param, Math.max(0, localTime), value));
+  const addKf = () => onChange(addKeyframe(p, Math.max(0, localTime), value));
   const clearKfs = () => onChange({ value, keyframes: [] });
+
+  const displayValue = displayFn ? displayFn(value) : format ? format(value) : value.toFixed(2) + (unit || "");
 
   return (
     <div className="mb-3">
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[11px] font-medium text-slate-300">{label}</span>
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[10px] text-slate-400">{format ? format(value) : value.toFixed(2)}</span>
+          <span className="font-mono text-[10px] text-slate-400">{displayValue}</span>
           <button
             title="Добавить ключевой кадр на плейхеде"
             onClick={addKf}
@@ -69,11 +80,11 @@ export default function ParamControl({
       />
       {animated && (
         <div className="relative mt-1 h-3 rounded bg-white/5">
-          {param.keyframes.map((kf) => (
+          {p.keyframes.map((kf) => (
             <button
               key={kf.id}
               title={`t=${kf.time.toFixed(2)}s, v=${kf.value.toFixed(2)}`}
-              onClick={() => onChange(removeKeyframe(param, kf.id))}
+              onClick={() => onChange(removeKeyframe(p, kf.id))}
               className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-amber-400 hover:bg-red-400"
               style={{ left: `${clipDuration > 0 ? (kf.time / clipDuration) * 100 : 0}%` }}
             />

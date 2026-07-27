@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { loadProject, loadBlob } from "@/lib/db";
 import type { Project } from "@/lib/types";
 
-export default function SuccessPage({ params }: { params: { id: string } }) {
+export default function SuccessPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -255,98 +256,6 @@ export default function SuccessPage({ params }: { params: { id: string } }) {
           >
             ← Вернуться на главную
           </button>
-        </div>
-      </div>
-    </main>
-  );
-}
-              <div className="flex items-center gap-2">
-                <span>🎬</span>
-                <span>{project.tracks.reduce((n, t) => n + t.clips.length, 0)} клипов</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>📐</span>
-                <span>{project.resolution.width}×{project.resolution.height}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>🎨</span>
-                <span>{project.assets.length} ассетов</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="mb-8 space-y-4">
-          <button
-            onClick={() => router.push(`/editor/${project.id}`)}
-            className="w-full rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-5 text-base font-bold text-white shadow-lg shadow-violet-900/40 transition-all hover:shadow-xl hover:shadow-violet-900/50"
-          >
-            <span className="mr-2 text-2xl">✂️</span>
-            Открыть редактор MONTIQ
-          </button>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {previewUrl && (
-              <a
-                href={previewUrl}
-                download={`${project.title || "montiq-video"}.mp4`}
-                className="flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-200 backdrop-blur-sm transition-all hover:bg-white/10"
-              >
-                <span>⬇️</span>
-                <span>Скачать видео</span>
-              </a>
-            )}
-            
-            <button
-              onClick={() => router.push("/")}
-              className="flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-slate-200 backdrop-blur-sm transition-all hover:bg-white/10"
-            >
-              <span>🏠</span>
-              <span>Создать новый проект</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Features Highlight */}
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 p-6 backdrop-blur-sm">
-          <h3 className="mb-4 text-lg font-bold text-slate-200">
-            Что дальше? Доведите видео до совершенства в редакторе
-          </h3>
-          
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-2 text-2xl">🎨</div>
-              <h4 className="mb-1 text-sm font-semibold text-slate-200">Цветокоррекция</h4>
-              <p className="text-xs text-slate-400">
-                Профессиональная коррекция с LUT, кривыми, color wheels
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-2 text-2xl">✨</div>
-              <h4 className="mb-1 text-sm font-semibold text-slate-200">Эффекты</h4>
-              <p className="text-xs text-slate-400">
-                25+ эффектов: blur, glitch, chroma key, motion blur
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-2 text-2xl">🎵</div>
-              <h4 className="mb-1 text-sm font-semibold text-slate-200">Звук</h4>
-              <p className="text-xs text-slate-400">
-                EQ, компрессор, шумоподавление, voice enhance
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-2 text-2xl">📝</div>
-              <h4 className="mb-1 text-sm font-semibold text-slate-200">Текст и титры</h4>
-              <p className="text-xs text-slate-400">
-                Кастомные шрифты, тени, обводки, анимации
-              </p>
-            </div>
-          </div>
         </div>
       </div>
     </main>

@@ -64,9 +64,12 @@ export default function EffectsPanelV2() {
 
   if (!project || !selectedClipId) {
     return (
-      <div className="p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Эффекты</h3>
-        <p className="text-xs text-slate-500">Выберите видео- или фото-клип на таймлайне</p>
+      <div className="flex h-full flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-3xl shadow-inner border border-white/5">
+          ✨
+        </div>
+        <h3 className="mb-2 text-sm font-bold text-slate-200">Ничего не выбрано</h3>
+        <p className="text-xs text-slate-500 max-w-[200px]">Выберите клип на таймлайне внизу, чтобы открыть его параметры.</p>
       </div>
     );
   }

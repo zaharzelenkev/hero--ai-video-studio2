@@ -19,7 +19,14 @@ export async function renderProject(
   onProgress?: (ratio: number) => void,
   onLog?: LogListener,
 ): Promise<Blob> {
-  const ffmpeg = await getFFmpeg(onLog);
+  const ffmpeg = await getFFmpeg();
+  let lastLogs: string[] = [];
+  const logHandler = ({ message }: { message: string }) => {
+    lastLogs.push(message);
+    if (lastLogs.length > 20) lastLogs.shift();
+    onLog?.(message);
+  };
+  ffmpeg.on("log", logHandler);
   const off = onProgress ? onFFmpegProgress(ffmpeg, onProgress) : () => {};
 
   try {
@@ -72,6 +79,20 @@ export async function renderProject(
       const fname = `in_${clip.id}.${extFor(asset)}`;
       await ffmpeg.writeFile(fname, bytes);
       clipFileNames.set(clip.id, fname);
+      
+      if (asset.kind === "video" && asset.hasAudio === undefined) {
+        let hasAudio = false;
+        const probeLog = ({ message }: { message: string }) => {
+          if (message.includes("Audio:") || message.match(/Stream #\d+:\d+.*Audio:/)) {
+            hasAudio = true;
+          }
+        };
+        ffmpeg.on("log", probeLog);
+        await ffmpeg.exec(["-i", fname]);
+        ffmpeg.off("log", probeLog);
+        asset.hasAudio = hasAudio;
+        if (!hasAudio) clip.muted = true; // Ensure the clip knows it has no audio!
+      }
     }
 
     const fileNameFor = (clip: VideoClip | AudioClip) => clipFileNames.get(clip.id) || "";
@@ -90,18 +111,9 @@ export async function renderProject(
     args.push(...buildOutputArgs(project.exportSettings, outName));
 
     onLog?.(`Запуск: ffmpeg ${args.join(" ")}`);
-    let lastLogs = [];
-    const logInterceptor = (msg: string) => {
-      lastLogs.push(msg);
-      if (lastLogs.length > 20) lastLogs.shift();
-      onLog?.(msg);
-    };
-    
-    // We already passed onLog to getFFmpeg, but we can't easily intercept it there without refactoring.
-    // Instead, just check the return code.
-    const code = await ffmpeg.exec(args);
+        const code = await ffmpeg.exec(args);
     if (code !== 0) {
-      throw new Error("FFmpeg failed with exit code " + code + ". The filter graph might be invalid or assets are missing.");
+      throw new Error("FFmpeg failed: " + lastLogs.join(" | "));
     }
     
     const data = await ffmpeg.readFile(outName);
@@ -129,6 +141,7 @@ export async function renderProject(
 
     return blob;
   } finally {
+    ffmpeg.off("log", logHandler);
     off();
   }
 }

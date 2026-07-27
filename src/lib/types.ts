@@ -43,6 +43,7 @@ export interface MediaAsset {
   height?: number;
   /** Small data-URL preview used across the UI. */
   thumbnail?: string;
+  hasAudio?: boolean;
   createdAt: number;
 }
 

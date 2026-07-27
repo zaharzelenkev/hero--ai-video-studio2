@@ -371,7 +371,7 @@ export default function TimelineV2() {
       {/* Timeline Content */}
       <div
         ref={scrollRef}
-        className="relative flex-1 overflow-auto"
+        className="relative flex-1 overflow-auto scroll-smooth custom-scrollbar"
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerLeave={endDrag}
@@ -521,7 +521,7 @@ export default function TimelineV2() {
                         e.stopPropagation();
                         onClipPointerDown(e, clip, "trim-left");
                       }}
-                      className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-white/20 hover:bg-white/40"
+                      className="absolute left-0 top-0 h-full w-3 cursor-ew-resize bg-black/40 hover:bg-white/40 transition-colors z-20 flex items-center justify-center border-r border-white/20 hover:border-violet-400"
                     />
                     
                     {/* Clip label */}
@@ -538,7 +538,7 @@ export default function TimelineV2() {
                         e.stopPropagation();
                         onClipPointerDown(e, clip, "trim-right");
                       }}
-                      className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-white/20 hover:bg-white/40"
+                      className="absolute right-0 top-0 h-full w-3 cursor-ew-resize bg-black/40 hover:bg-white/40 transition-colors z-20 flex items-center justify-center border-l border-white/20 hover:border-violet-400"
                     />
                   </div>
                 ))}

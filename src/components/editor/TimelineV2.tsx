@@ -39,13 +39,36 @@ function clipLabel(clip: Clip) {
   return `🎬 ${clip.name}`;
 }
 
+
+
+function PlayheadTimeDisplay() {
+  const playhead = useProjectStore((s) => s.playhead);
+  return (
+    <PlayheadTimeDisplay />
+  );
+}
+
+function PlayheadIndicator({ pxPerSecond }: { pxPerSecond: number }) {
+  const playhead = useProjectStore((s) => s.playhead);
+  return (
+    <div
+      className="pointer-events-none absolute top-0 z-30 h-full w-px bg-gradient-to-b from-fuchsia-400 to-fuchsia-600"
+      style={{ left: 180 + playhead * pxPerSecond }}
+    >
+      <div className="h-4 w-4 -translate-x-1/2 rounded-full bg-fuchsia-400 shadow-lg shadow-fuchsia-500/50" />
+      <div className="absolute left-1/2 top-4 -translate-x-1/2 text-[9px] font-bold text-fuchsia-300">
+        <PlayheadTimeDisplay />
+      </div>
+    </div>
+  );
+}
+
 export default function TimelineV2() {
   const project = useProjectStore((s) => s.project);
   const pxPerSecond = useProjectStore((s) => s.pxPerSecond);
   const setZoom = useProjectStore((s) => s.setZoom);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const selectClip = useProjectStore((s) => s.selectClip);
-  const playhead = useProjectStore((s) => s.playhead);
   const setPlayhead = useProjectStore((s) => s.setPlayhead);
   const updateClip = useProjectStore((s) => s.updateClip);
   const updateProject = useProjectStore((s) => s.updateProject);
@@ -78,7 +101,7 @@ export default function TimelineV2() {
       if (!magnetEnabled || !project) return time;
       
       const threshold = 10 / pxPerSecond; // 10px threshold
-      const snapPoints: number[] = [playhead];
+      const snapPoints: number[] = [useProjectStore.getState().playhead];
       
       // Add all clip boundaries as snap points
       project.tracks.forEach((track) => {
@@ -99,7 +122,7 @@ export default function TimelineV2() {
       
       return time;
     },
-    [magnetEnabled, project, playhead, pxPerSecond]
+    [magnetEnabled, project, pxPerSecond]
   );
 
   const onClipPointerDown = useCallback(
@@ -220,7 +243,7 @@ export default function TimelineV2() {
       // Split at playhead (S)
       if (e.key === "s" && selectedClipId) {
         e.preventDefault();
-        splitClipAt(selectedClipId, playhead);
+        splitClipAt(selectedClipId, useProjectStore.getState().playhead);
       }
       
       // Toggle snap (N)
@@ -235,7 +258,7 @@ export default function TimelineV2() {
         setMagnetEnabled((v) => !v);
       }
     },
-    [selection, selectedClipId, removeClip, duplicateClip, splitClipAt, playhead]
+    [selection, selectedClipId, removeClip, duplicateClip, splitClipAt]
   );
 
   useEffect(() => {
@@ -308,7 +331,7 @@ export default function TimelineV2() {
           {selectedClip && (
             <>
               <button
-                onClick={() => splitClipAt(selectedClip.id, playhead)}
+                onClick={() => splitClipAt(selectedClip.id, useProjectStore.getState().playhead)}
                 className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
                 title="Разрезать на плейхеде (S)"
               >
@@ -547,15 +570,7 @@ export default function TimelineV2() {
           ))}
 
           {/* Playhead */}
-          <div
-            className="pointer-events-none absolute top-0 z-30 h-full w-px bg-gradient-to-b from-fuchsia-400 to-fuchsia-600"
-            style={{ left: 180 + playhead * pxPerSecond }}
-          >
-            <div className="h-4 w-4 -translate-x-1/2 rounded-full bg-fuchsia-400 shadow-lg shadow-fuchsia-500/50" />
-            <div className="absolute left-1/2 top-4 -translate-x-1/2 text-[9px] font-bold text-fuchsia-300">
-              {Math.floor(playhead / 60)}:{String(Math.floor(playhead % 60)).padStart(2, "0")}.{String(Math.floor((playhead % 1) * 100)).padStart(2, "0")}
-            </div>
-          </div>
+          <PlayheadIndicator pxPerSecond={pxPerSecond} />
         </div>
       </div>
 
@@ -578,7 +593,7 @@ export default function TimelineV2() {
               </button>
               <button
                 onClick={() => {
-                  splitClipAt(contextMenu.clipId!, playhead);
+                  splitClipAt(contextMenu.clipId!, useProjectStore.getState().playhead);
                   setContextMenu(null);
                 }}
                 className="w-full px-3 py-1.5 text-left text-[11px] text-slate-300 hover:bg-white/5"
@@ -601,7 +616,7 @@ export default function TimelineV2() {
               onClick={() => {
                 updateProject((p) => ({
                   ...p,
-                  markers: [...(p.markers || []), { id: `marker_${Date.now()}`, time: playhead, label: "Маркер" }],
+                  markers: [...(p.markers || []), { id: `marker_${Date.now()}`, time: useProjectStore.getState().playhead, label: "Маркер" }],
                 }));
                 setContextMenu(null);
               }}

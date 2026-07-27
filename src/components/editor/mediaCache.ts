@@ -46,3 +46,14 @@ export function getImageElement(assetId: string, url: string): HTMLImageElement 
   }
   return el;
 }
+
+
+export function clearMediaCache() {
+  for (const url of urlCache.values()) {
+    URL.revokeObjectURL(url);
+  }
+  urlCache.clear();
+  videoCache.clear();
+  imageCache.clear();
+  loading.clear();
+}

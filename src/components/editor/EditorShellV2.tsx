@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useProjectStore, type EditorPage } from "@/store/projectStore";
+import { clearMediaCache } from "./mediaCache";
 import PreviewCanvas from "./PreviewCanvas";
 import Transport from "./Transport";
 import TimelineV2 from "./TimelineV2";
@@ -11,7 +12,7 @@ import ColorPanelV2 from "./panels/ColorPanelV2";
 import EffectsPanelV2 from "./panels/EffectsPanelV2";
 import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
-import ExportPanel from "./panels/ExportPanel";
+import ExportPanelV2 from "./panels/ExportPanelV2";
 
 const PAGES: { id: EditorPage; label: string; icon: string }[] = [
   { id: "montage", label: "Монтаж", icon: "✂️" },
@@ -38,6 +39,13 @@ export default function EditorShellV2() {
     const t = setTimeout(() => persist(), 800);
     return () => clearTimeout(t);
   }, [dirty, persist]);
+
+  // Clean up media cache when leaving editor
+  useEffect(() => {
+    return () => {
+      clearMediaCache();
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -129,7 +137,7 @@ export default function EditorShellV2() {
           {activePage === "effects" && <EffectsPanelV2 />}
           {activePage === "sound" && <SoundPanelV2 />}
           {activePage === "text" && <TextPanelV2 />}
-          {activePage === "export" && <ExportPanel />}
+          {activePage === "export" && <ExportPanelV2 />}
         </aside>
       </div>
 

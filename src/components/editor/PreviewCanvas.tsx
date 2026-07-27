@@ -211,8 +211,7 @@ export default function PreviewCanvas() {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, playhead, isPlaying]);
+      }, [project, isPlaying]);
 
   return (
     <div className="flex h-full w-full items-center justify-center bg-black/60 p-4">

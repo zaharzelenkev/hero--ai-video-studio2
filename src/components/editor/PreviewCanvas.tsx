@@ -38,18 +38,14 @@ export default function PreviewCanvas() {
   const lastTsRef = useRef<number | null>(null);
 
   const project = useProjectStore((s) => s.project);
-  const playhead = useProjectStore((s) => s.playhead);
-  const isPlaying = useProjectStore((s) => s.isPlaying);
+    const isPlaying = useProjectStore((s) => s.isPlaying);
   const setPlayhead = useProjectStore((s) => s.setPlayhead);
   const setPlaying = useProjectStore((s) => s.setPlaying);
 
   const projectRef = useRef(project);
-  const playheadRef = useRef(playhead);
-
   useEffect(() => {
     projectRef.current = project;
-    playheadRef.current = playhead;
-  }, [project, playhead]);
+  }, [project]);
 
   // Playback ticker.
   useEffect(() => {
@@ -64,7 +60,7 @@ export default function PreviewCanvas() {
       lastTsRef.current = ts;
       const p = projectRef.current;
       if (p) {
-        const next = playheadRef.current + dt;
+        const next = useProjectStore.getState().playhead + dt;
         if (next >= p.duration) {
           setPlayhead(0);
           setPlaying(false);
@@ -94,7 +90,7 @@ export default function PreviewCanvas() {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const time = playheadRef.current;
+      const time = useProjectStore.getState().playhead;
       const videoTracks = p.tracks.filter((t) => t.type === "video" && !t.hidden);
       const textTracks = p.tracks.filter((t) => t.type === "text" && !t.hidden);
 

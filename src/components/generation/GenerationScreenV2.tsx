@@ -90,7 +90,7 @@ export default function GenerationScreenV2() {
         assets,
         filesByAssetId,
         style,
-        
+        onProgress: setProgressLabel
       });
       
       await saveProject(project);

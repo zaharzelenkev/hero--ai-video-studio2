@@ -4,8 +4,10 @@ import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } 
 import { detectBeats, snapToBeat } from "./beatDetection";
 import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { AI_CONFIG } from "@/config/ai";
+import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
 
 export interface AutoEditInput {
+  onProgress?: (msg: string) => void;
   title: string;
   assets: MediaAsset[];
   filesByAssetId: Map<string, File>;
@@ -24,7 +26,7 @@ export interface AutoEditInput {
  * - Applies professional color grading and transitions
  */
 export async function autoEditToProject(input: AutoEditInput): Promise<Project> {
-  const { title, assets, filesByAssetId, style } = input;
+  const { title, assets, filesByAssetId, style, onProgress } = input;
   const project = createEmptyProject(title);
   project.style = style;
   project.assets = assets;
@@ -59,7 +61,40 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
+  
+  // 1. Transcribe audio from videos
+  const transcripts = new Map<string, string>();
+  // Store raw segments for auto-subtitling
+  const segmentsByAssetId = new Map<string, import("./transcribe").TranscriptSegment[]>();
+  if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
+    for (const asset of visualAssets) {
+      if (asset.kind === "video") {
+        onProgress?.(`Распознавание речи: ${asset.name}...`);
+        try {
+          const file = filesByAssetId.get(asset.id);
+          if (file && file.size < 100 * 1024 * 1024) { // skip giant files
+            const audioBlob = await extractAudioForTranscription(file, asset);
+            const segments = await transcribeAudio(audioBlob);
+            if (segments && segments.length > 0) {
+              const fullText = segments.map(s => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s] ${s.text}`).join("\n");
+              segmentsByAssetId.set(asset.id, segments);
+              transcripts.set(asset.id, fullText);
+              
+              // If autoSubtitles is true, we might want to store segments somewhere or let the AI decision return them.
+              // Actually, AI Edit Decision can return textOverlays with exact timings!
+            }
+          }
+        } catch (err) {
+          console.warn("Transcription failed for", asset.name, err);
+        }
+      }
+    }
+  }
+
+  onProgress?.("Интеллектуальный анализ...");
+  
   // AI-powered analysis (if API key provided and intelligent cuts enabled)
+
   let aiDecision: Awaited<ReturnType<typeof analyzeWithAI>> | null = null;
   
     if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
@@ -71,7 +106,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           name: a.name,
           type: a.kind,
           duration: a.duration,
-          // In production, add transcript from speech recognition here
+          transcript: transcripts.get(a.id),
         })),
       };
       
@@ -151,7 +186,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       videoTrack.clips.push(clip);
       cursor += duration;
     });
-  } else {
+  }
+  
+  if (videoTrack.clips.length === 0) {
+
     // Rule-based clip selection (original logic)
     // Rule-based clip selection (original logic)
     visualAssets.forEach((asset, i) => {
@@ -193,6 +231,49 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   const totalDuration = style.targetDuration || Math.max(cursor, 1);
   project.duration = totalDuration;
+
+  // Add auto-subtitles mapped to the final video cuts
+  if (style.autoSubtitles) {
+    const textTrack = project.tracks.find((t) => t.type === "text")!;
+    for (const clip of videoTrack.clips) {
+      if (clip.type !== "video") continue;
+      const vClip = clip as import("./types").VideoClip;
+      const segs = segmentsByAssetId.get(vClip.assetId);
+      if (!segs) continue;
+      
+      for (const seg of segs) {
+        // Check overlap
+        const maxStart = Math.max(vClip.inPoint, seg.start);
+        const minEnd = Math.min(vClip.outPoint, seg.end);
+        
+        if (minEnd > maxStart) { // There is overlap
+          // Map to global timeline
+          const globalStart = vClip.start + (maxStart - vClip.inPoint);
+          const globalDuration = minEnd - maxStart;
+          
+          if (globalDuration > 0.2) {
+            const txtClip = createTextClip({
+              trackId: textTrack.id,
+              start: globalStart,
+              duration: globalDuration,
+              text: seg.text,
+            });
+            // Style it nicely for shorts
+            txtClip.y.value = 0.35; // lower third
+            txtClip.fontSize = 54;
+            txtClip.color = "#ffffff";
+            txtClip.backgroundColor = "transparent";
+            
+            // Add a punchy pop animation
+            txtClip.animationIn = "pop";
+            txtClip.animationOut = "fade";
+            
+            textTrack.clips.push(txtClip);
+          }
+        }
+      }
+    }
+  }
 
   // Add music
   if (musicAsset) {

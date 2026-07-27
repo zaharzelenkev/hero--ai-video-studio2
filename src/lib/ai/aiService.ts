@@ -118,6 +118,8 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
 - Для коротких форматов - хватай внимание в первые 3 секунды
 - Для длинных форматов - строй постепенное вовлечение
 
+ВАЖНО: В поле "assetId" для каждого клипа (clips) ты ОБЯЗАТЕЛЬНО должен использовать точное значение "assetId" из списка материалов. Выбирай время (startTime и endTime) строго основываясь на предоставленных таймкодах речи, если они есть. ВЫРЕЗАЙ тишину и неинтересные моменты.
+
 Ответь ТОЛЬКО в формате JSON:`;
 
     const exampleResponse = {
@@ -127,7 +129,7 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
       colorGrade: "cinematic",
       clips: [
         {
-          assetId: "asset_123",
+          assetId: request.assets[0]?.id || "asset_123",
           startTime: 5.2,
           endTime: 18.5,
           duration: 13.3,
@@ -162,10 +164,11 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
 ${request.assets.map((a, i) => {
   const info = [
     `${i + 1}. ${a.name}`,
+    `   assetId: "${a.id}"`,
     `   Тип: ${a.type}`,
     a.duration ? `   Длительность: ${a.duration.toFixed(1)}с` : "   Статичное",
     a.width && a.height ? `   Размер: ${a.width}×${a.height}` : "",
-    a.transcript ? `   Текст: "${a.transcript.slice(0, 300)}"` : ""
+    a.transcript ? `   Текст/Речь (с таймкодами):\n${a.transcript.slice(0, 3500)}` : ""
   ];
   return info.filter(Boolean).join("\n");
 }).join("\n\n")}

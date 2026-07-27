@@ -544,42 +544,6 @@ export default function TextPanelV2() {
                 </div>
               )}
             </div>
-
-            {/* Gradient */}
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <label className="text-[10px] font-medium text-slate-300">Градиент</label>
-                <input
-                  type="checkbox"
-                  checked={style.gradient?.enabled || false}
-                  onChange={(e) =>
-                    updateClip(selectedClipId, (c) => ({
-                      ...c,
-                      style: {
-                        ...style,
-                        gradient: {
-                          enabled: e.target.checked,
-                          type: "linear",
-                          colors: [
-                            { color: "#ff0000", position: 0 },
-                            { color: "#0000ff", position: 1 },
-                          ],
-                          angle: 45,
-                          ...style.gradient,
-                        },
-                      },
-                    }))
-                  }
-                  className="h-4 w-4 accent-violet-500"
-                />
-              </div>
-
-              {style.gradient?.enabled && (
-                <p className="ml-2 text-[9px] text-slate-500">
-                  Расширенная настройка градиентов в разработке
-                </p>
-              )}
-            </div>
           </div>
         )}
       </div>

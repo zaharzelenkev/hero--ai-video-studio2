@@ -147,11 +147,11 @@ export default function GenerationScreen() {
     <main className="min-h-screen bg-[#0b0b14] px-4 py-10 text-slate-100 sm:px-8">
       <div className="mx-auto max-w-4xl">
         <header className="mb-8">
-          <p className="text-3xl font-black uppercase tracking-[0.08em] text-violet-400 sm:text-5xl">AI Video Studio</p>
-          <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Загрузите материалы — мы соберём из них готовое видео</h1>
+          <p className="text-3xl font-black uppercase tracking-[0.08em] text-violet-400 sm:text-5xl">MONTIQ</p>
+          <h1 className="mt-3 text-3xl font-bold sm:text-4xl">AI-Powered Professional Video Editor</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Автоматический монтаж из ваших клипов, фото и музыки — а если что-то захочется изменить, доработайте
-            результат вручную в профессиональном редакторе: таймлайн, цвет, эффекты, звук и титры.
+            Загрузите материалы — искусственный интеллект создаст профессиональный монтаж.
+            Доработайте результат в редакторе с продвинутыми инструментами.
           </p>
         </header>
 

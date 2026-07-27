@@ -202,31 +202,6 @@ export default function ColorPanelV2() {
         />
       </div>
 
-      {/* Advanced Tools (placeholder for future) */}
-      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.02] p-3">
-        <h4 className="mb-2 text-[11px] font-semibold text-slate-300">Продвинутые инструменты</h4>
-        <div className="space-y-2 text-[10px] text-slate-500">
-          <div className="flex items-center justify-between">
-            <span>RGB Curves</span>
-            <button className="rounded bg-white/5 px-2 py-1 text-slate-400 hover:bg-white/10">
-              Скоро
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>HSL Controls</span>
-            <button className="rounded bg-white/5 px-2 py-1 text-slate-400 hover:bg-white/10">
-              Скоро
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Color Wheels</span>
-            <button className="rounded bg-white/5 px-2 py-1 text-slate-400 hover:bg-white/10">
-              Скоро
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Reset button */}
       <button
         onClick={() =>

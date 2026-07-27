@@ -33,7 +33,9 @@ export async function renderProject(
     for (const fontFile of usedFontFiles) {
       const fontResp = await fetch(`/fonts/${fontFile}`);
       if (!fontResp.ok) throw new Error(`Не удалось загрузить шрифт: ${fontFile}`);
-      const fontBytes = new Uint8Array(await fontResp.arrayBuffer());
+      const fontBlob = await fontResp.blob();
+      // Use fetchFileFromBlob to avoid ArrayBuffer detachment issues
+      const fontBytes = await fetchFileFromBlob(fontBlob);
       await ffmpeg.writeFile(fontFile, fontBytes);
     }
 

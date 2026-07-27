@@ -1,5 +1,6 @@
 {
-  "name": "aiv-video-studio",
+  "name": "montiq-ai-video-studio",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/copy-ffmpeg-core.mjs || node scripts/copy-ffmpeg-core-fallback.js || echo 'FFmpeg copy failed, will use CDN fallback'",
-    "copy-ffmpeg": "node scripts/copy-ffmpeg-core.mjs"
+    "copy-ffmpeg": "node scripts/copy-ffmpeg-core.mjs",
+    "vercel-build": "npm run build"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.6",

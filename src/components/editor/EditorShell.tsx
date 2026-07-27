@@ -62,7 +62,7 @@ export default function EditorShell() {
     <div className="flex h-screen flex-col bg-[#0b0b14] text-slate-100">
       <header className="flex items-center gap-4 border-b border-white/10 bg-[#0d0d16] px-4 py-2">
         <Link href="/" className="text-sm font-semibold text-violet-400 hover:text-violet-300">
-          ← AI Video Studio
+          ← MONTIQ
         </Link>
         <nav className="flex flex-1 items-center gap-1">
           {PAGES.map((p) => (

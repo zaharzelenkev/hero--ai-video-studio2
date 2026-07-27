@@ -378,14 +378,6 @@ export default function SoundPanelV2() {
           </div>
         </div>
       )}
-
-      {/* Audio Visualization Placeholder */}
-      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.02] p-3">
-        <h4 className="mb-2 text-[11px] font-semibold text-slate-300">Визуализация</h4>
-        <div className="flex h-20 items-center justify-center rounded-lg bg-black/30">
-          <span className="text-[10px] text-slate-500">Осциллограмма · Скоро</span>
-        </div>
-      </div>
     </div>
   );
 }

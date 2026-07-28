@@ -304,8 +304,71 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
-  
-    // Add music
+  // --- SUBTITLES & AI TEXT OVERLAYS ---
+  const textTrack = project.tracks.find((t) => t.type === "text") || project.tracks[project.tracks.push(require("./factories").createTrack("text", "Текст")) - 1];
+
+  if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
+    for (const overlay of aiDecision.textOverlays) {
+      const clip = createTextClip({
+        trackId: textTrack.id,
+        start: overlay.time || 0,
+        duration: overlay.duration || 2,
+        text: overlay.text,
+      });
+      clip.y.value = activeTemplate.text.yPosition;
+      clip.fontSize = activeTemplate.text.fontSize;
+      clip.fontFamily = activeTemplate.text.fontFamily;
+      clip.color = activeTemplate.text.color;
+      clip.backgroundColor = activeTemplate.text.backgroundColor;
+      clip.animationIn = (overlay.animation as import("./types").TextAnimation) || activeTemplate.text.animation;
+      textTrack.clips.push(clip);
+    }
+  } else if (segmentsByAssetId.size > 0) {
+    // Generate Hormozi-style subtitles from Whisper words
+    for (const track of project.tracks) {
+      if (track.type === "video") {
+        for (const clip of track.clips as import("./types").VideoClip[]) {
+           const segs = segmentsByAssetId.get(clip.assetId);
+           if (segs) {
+              for (const s of segs) {
+                 const wordStartInAsset = s.start;
+                 const wordEndInAsset = s.end;
+                 
+                 // Check if the spoken word falls inside the trimmed clip
+                 if (wordStartInAsset >= clip.inPoint && wordStartInAsset < clip.outPoint) {
+                    const timelineStart = clip.start + (wordStartInAsset - clip.inPoint);
+                    const durInAsset = wordEndInAsset - wordStartInAsset;
+                    const durOnTimeline = Math.min(durInAsset, clip.outPoint - wordStartInAsset);
+                    
+                    if (durOnTimeline > 0.1) {
+                      const textClip = createTextClip({
+                        trackId: textTrack.id,
+                        start: timelineStart,
+                        duration: durOnTimeline,
+                        text: (s as any).word || (s as any).text,
+                      });
+                      
+                      // Hormozi Style
+                      textClip.y.value = 50;
+                      textClip.fontSize = 72;
+                      textClip.fontFamily = "Montserrat";
+                      textClip.color = "#FFFFFF";
+                      textClip.backgroundColor = "transparent";
+                      textClip.strokeWidth = 3;
+                      textClip.strokeColor = "#000000";
+                      textClip.animationIn = "pop";
+                      
+                      textTrack.clips.push(textClip);
+                    }
+                 }
+              }
+           }
+        }
+      }
+    }
+  }
+
+  // Add music
   if (musicAsset) {
     const audioTrack = project.tracks.find((t) => t.type === "audio")!;
     const musicDuration = Math.min(musicAsset.duration || project.duration, project.duration);

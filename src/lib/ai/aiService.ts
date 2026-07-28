@@ -39,6 +39,7 @@ export interface AIEditDecision {
     effects?: string[];
     zoom?: boolean;
     speedRamp?: { start: number; end: number; factor: number };
+    speed?: number;
   }>;
   
   musicSync: boolean;
@@ -109,6 +110,7 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
 - ИГНОРИРУЙ БРАК: Избегай фрагментов с качеством ниже 5, пометками РАЗМЫТО, ТЕМНО или тряской (shake).
 - ВЫБИРАЙ ЛУЧШЕЕ: Отдавай высший приоритет кадрам с пометкой "ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" и "ЕСТЬ ЛЮДИ/ЛИЦА".
 - ЧЕРЕДУЙ: Старайся не ставить подряд кадры с одной и той же камеры без смены ракурса.
+- СКОРОСТЬ (SPEED RAMPING): Если кадр сверхэпичный (в Climax), ты можешь замедлить его (speed: 0.5) для эффекта слоу-мо. Если это длинный скучный кадр, ускорь его (speed: 2.0).
 
 ${hasTranscript 
   ? "В материалах есть Речь (с таймкодами). ВЫБИРАЙ самые смысловые фразы и строй историю вокруг них. Указывай точные startTime и endTime. Вырезай тишину!" 

@@ -1,7 +1,7 @@
 import type { GenerationStyle, MediaAsset, Project } from "./types";
 import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createTextClip, createVideoClip, createEmptyProject } from "./factories";
-import { detectBeats, snapToBeat } from "./beatDetection";
+import { detectBeats } from "./beatDetection";
 import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
 import { AI_CONFIG } from "@/config/ai";
@@ -232,7 +232,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
       if (!isBroll && beats.length) {
         const rawEnd = cursor + duration;
-        const snappedEnd = snapToBeat(rawEnd, beats, targetClipLen * 0.6);
+        const closeBeat = beats.find(b => Math.abs(b - rawEnd) < targetClipLen * 0.6);
+        const snappedEnd = closeBeat !== undefined ? closeBeat : rawEnd;
         const adjusted = Math.min(snappedEnd - cursor, duration);
         if (adjusted > 0.5) {
           const clip = createVideoClip({

@@ -141,8 +141,16 @@ export default function PreviewCanvas() {
             const coverScale = Math.max(canvas.width / naturalW, canvas.height / naturalH) * scale;
             const w = naturalW * coverScale;
             const h = naturalH * coverScale;
-            const cx = canvas.width / 2 + x * canvas.width * 0.5;
-            const cy = canvas.height / 2 + y * canvas.height * 0.5;
+            
+            // x represents the focus point (-1 to 1). 
+            // A shift of x=-1 means we want to show the LEFT side of the image, 
+            // which means we must shift the image to the RIGHT.
+            const shiftX = -x * Math.max(0, w - canvas.width) / 2;
+            const shiftY = -y * Math.max(0, h - canvas.height) / 2;
+            
+            const cx = canvas.width / 2 + shiftX;
+            const cy = canvas.height / 2 + shiftY;
+            
             ctx.translate(cx, cy);
             ctx.rotate((rotation * Math.PI) / 180);
             ctx.drawImage(el, -w / 2, -h / 2, w, h);

@@ -18,6 +18,8 @@ export interface VideoSegmentMetadata {
   isDark: boolean;
   isBlurry: boolean;
   hasFaces: boolean;
+  faceX?: number;
+  faceY?: number;
   qualityScore: number; // 1-10
   isSceneChange: boolean;
   hasAction: boolean;
@@ -150,10 +152,21 @@ export async function analyzeVideoLocally(
 
         // Detect Faces (if supported by browser natively)
         let hasFaces = false;
+        let faceX: number | undefined;
+        let faceY: number | undefined;
+        
         if (faceDetector) {
           try {
              const faces = await faceDetector.detect(canvas);
-             hasFaces = faces.length > 0;
+             if (faces.length > 0) {
+               hasFaces = true;
+               // Get the largest face
+               const largest = faces.reduce((p: any, c: any) => 
+                 (c.boundingBox.width * c.boundingBox.height > p.boundingBox.width * p.boundingBox.height) ? c : p
+               );
+               faceX = (largest.boundingBox.x + largest.boundingBox.width / 2) / W;
+               faceY = (largest.boundingBox.y + largest.boundingBox.height / 2) / H;
+             }
           } catch { /* fallback */ }
         }
 
@@ -208,6 +221,8 @@ export async function analyzeVideoLocally(
           isDark,
           isBlurry,
           hasFaces,
+          faceX,
+          faceY,
           qualityScore: qScore,
           isSceneChange,
           hasAction: actionScore > 0,
@@ -274,7 +289,11 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       current.qualityScore = Math.round((current.qualityScore + next.qualityScore) / 2);
       (current as any).aestheticScore = Math.round(((current as any).aestheticScore + (next as any).aestheticScore) / 2);
       // If any frame had faces or motion, keep the higher priority tags
-      if (next.hasFaces) current.hasFaces = true;
+      if (next.hasFaces) {
+        current.hasFaces = true;
+        if (next.faceX !== undefined) (current as any).faceX = next.faceX;
+        if (next.faceY !== undefined) (current as any).faceY = next.faceY;
+      }
       if (next.hasAction) current.hasAction = true;
       if (next.motionLevel === "high" && current.motionLevel !== "shake") current.motionLevel = "high";
     }

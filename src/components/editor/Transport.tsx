@@ -24,6 +24,9 @@ function TransportScrubber() {
   const playhead = useProjectStore((s) => s.playhead);
   const duration = useProjectStore((s) => s.project?.duration || 0);
   const setPlayhead = useProjectStore((s) => s.setPlayhead);
+  const setPlaying = useProjectStore((s) => s.setPlaying);
+  const isPlaying = useProjectStore((s) => s.isPlaying);
+  
   return (
     <input
       type="range"
@@ -31,8 +34,11 @@ function TransportScrubber() {
       max={Math.max(0.1, duration)}
       step={0.01}
       value={Math.min(playhead, duration)}
+      onPointerDown={() => {
+         if (isPlaying) setPlaying(false);
+      }}
       onChange={(e) => setPlayhead(parseFloat(e.target.value))}
-      className="mx-2 h-1 flex-1 accent-violet-500"
+      className="mx-2 h-1 flex-1 cursor-pointer accent-violet-500 hover:accent-violet-400"
     />
   );
 }

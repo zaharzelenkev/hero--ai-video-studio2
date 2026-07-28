@@ -52,12 +52,41 @@ function PlayheadTimeDisplay() {
 
 function PlayheadIndicator({ pxPerSecond }: { pxPerSecond: number }) {
   const playhead = useProjectStore((s) => s.playhead);
+  const setPlayhead = useProjectStore((s) => s.setPlayhead);
+  const setPlaying = useProjectStore((s) => s.setPlaying);
+  const isPlaying = useProjectStore((s) => s.isPlaying);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (isPlaying) setPlaying(false);
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+
+    const onMove = (moveEv: PointerEvent) => {
+      // Find the ruler's left boundary
+      const ruler = document.getElementById("timeline-ruler");
+      if (!ruler) return;
+      const rect = ruler.getBoundingClientRect();
+      const x = moveEv.clientX - rect.left;
+      setPlayhead(Math.max(0, x / pxPerSecond));
+    };
+
+    const onUp = (upEv: PointerEvent) => {
+      el.releasePointerCapture(upEv.pointerId);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+    };
+
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+  };
+
   return (
     <div
-      className="pointer-events-none absolute top-0 z-30 h-full w-px bg-gradient-to-b from-fuchsia-400 to-fuchsia-600"
+      className="absolute top-0 z-30 h-full w-px bg-gradient-to-b from-fuchsia-400 to-fuchsia-600"
       style={{ left: 180 + playhead * pxPerSecond }}
     >
-      <div className="h-4 w-4 -translate-x-1/2 rounded-full bg-fuchsia-400 shadow-lg shadow-fuchsia-500/50" />
+      <div onPointerDown={handlePointerDown} className="h-4 w-4 -translate-x-1/2 cursor-grab active:cursor-grabbing rounded-full bg-fuchsia-400 shadow-lg shadow-fuchsia-500/50 hover:scale-125 transition-transform" />
       <div className="absolute left-1/2 top-4 -translate-x-1/2 text-[9px] font-bold text-fuchsia-300">
         <PlayheadTimeDisplay />
       </div>
@@ -224,6 +253,33 @@ export default function TimelineV2() {
     if (drag) persist();
     setDrag(null);
   }, [drag, persist]);
+
+
+  const handleRulerPointerDown = (e: React.PointerEvent) => {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    
+    const updatePlayhead = (clientX: number) => {
+      const rect = el.getBoundingClientRect();
+      const x = clientX - rect.left;
+      setPlayhead(Math.max(0, x / pxPerSecond));
+    };
+    
+    updatePlayhead(e.clientX);
+    
+    const onMove = (moveEv: PointerEvent) => {
+      updatePlayhead(moveEv.clientX);
+    };
+    
+    const onUp = (upEv: PointerEvent) => {
+      el.releasePointerCapture(upEv.pointerId);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+    };
+    
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+  };
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -405,13 +461,10 @@ export default function TimelineV2() {
         <div style={{ width: totalWidth + 180, position: "relative" }}>
           {/* Ruler */}
           <div
-            className="sticky top-0 z-20 flex cursor-pointer border-b border-white/10 bg-[#0d0d16]"
+              id="timeline-ruler"
+              className="sticky top-0 z-20 flex cursor-pointer border-b border-white/10 bg-[#0d0d16]"
             style={{ height: RULER_HEIGHT, paddingLeft: 180 }}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = e.clientX - rect.left;
-              setPlayhead(Math.max(0, x / pxPerSecond));
-            }}
+            onPointerDown={handleRulerPointerDown}
           >
             {Array.from({ length: Math.ceil(totalWidth / pxPerSecond) + 1 }).map((_, i) => (
               <div key={i} style={{ width: pxPerSecond }} className="relative shrink-0 border-r border-white/5">

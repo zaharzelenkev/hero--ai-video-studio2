@@ -119,7 +119,7 @@ export default function GenerationScreenV2() {
       const isNetwork = raw.includes("fetch") || raw.includes("network") || raw.includes("Сетевая ошибка");
       const friendly = isNetwork
         ? "Похоже, пропало подключение к интернету. Пожалуйста, проверьте сеть и попробуйте снова."
-        : "Что-то пошло не так при создании видео. Пожалуйста, попробуйте изменить материалы или настройки.";
+        : "Ошибка: " + raw;
       setErrorMsg(friendly);
       setStage("error");
     }

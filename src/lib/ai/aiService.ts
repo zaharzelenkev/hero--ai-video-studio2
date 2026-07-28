@@ -28,8 +28,8 @@ export interface AIEditDecision {
   
   clips: Array<{
     assetId: string;
-    startTime: number;
-    endTime: number;
+    startTime?: number;
+    endTime?: number;
     duration: number;
     reason?: string;
     importance: number;
@@ -184,12 +184,18 @@ ${request.assets.map((a, i) => {
       targetDuration: Math.max(5, Math.min(decision.targetDuration || 30, 600)),
       pace: decision.pace || "medium",
       colorGrade: decision.colorGrade || "cinematic",
-      clips: (decision.clips || []).map(clip => ({
-        ...clip,
-        importance: Math.max(0, Math.min(1, clip.importance || 0.5)),
-        startTime: Math.max(0, clip.startTime || 0),
-        endTime: clip.endTime || clip.startTime + clip.duration,
-      })),
+      clips: (decision.clips || []).map(clip => {
+        const dur = typeof clip.duration === "number" ? clip.duration : 3;
+        const st = typeof clip.startTime === "number" ? Math.max(0, clip.startTime) : undefined;
+        const et = typeof clip.endTime === "number" ? clip.endTime : (st !== undefined ? st + dur : undefined);
+        return {
+          ...clip,
+          importance: Math.max(0, Math.min(1, clip.importance || 0.5)),
+          startTime: st,
+          duration: dur,
+          endTime: et,
+        };
+      }),
       musicSync: decision.musicSync !== false,
       transitions: decision.transitions || "crossfade",
       textOverlays: decision.textOverlays,

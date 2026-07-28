@@ -144,7 +144,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       if (beats.length) {
         const rawEnd = cursor + duration;
         const snappedEnd = snapToBeat(rawEnd, beats, targetClipLen * 0.6);
-        const adjusted = Math.min(snappedEnd - cursor, aiClip.endTime - aiClip.startTime);
+        const adjusted = Math.min(snappedEnd - cursor, duration);
         if (adjusted > 0.5) {
           const clip = createVideoClip({
             trackId: videoTrack.id,

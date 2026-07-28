@@ -36,6 +36,7 @@ export interface AIEditDecision {
     reason?: string;
     importance: number;
     emotion?: "energetic" | "calm" | "dramatic" | "funny" | "inspiring" | "neutral";
+    trackType?: "main" | "b-roll";
     effects?: string[];
     zoom?: boolean;
     speedRamp?: { start: number; end: number; factor: number };
@@ -93,62 +94,56 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
   }
 
   try {
-    
     const hasTranscript = request.assets.some(a => !!a.transcript);
     
-    const systemPrompt = `Ты — элитный режиссер монтажа (Senior Video Editor). Твоя задача — создать идеальный сценарий монтажа в JSON.
+    const systemPrompt = `Ты — элитный режиссер монтажа (Senior Video Editor). Твоя задача — создать идеальный сценарий монтажа.
 Твоя главная цель — ДРАМАТУРГИЯ и РИТМ. Ты не просто склеиваешь кадры, ты рассказываешь ИСТОРИЮ.
 
 ПРАВИЛА ПОСТРОЕНИЯ ИСТОРИИ (STORY ARC):
-1. Вступление (Hook): Первые 2-4 секунды. Захват внимания. Используй самый качественный и эстетичный кадр (Эстетика 8+, Quality 8+), интригующее действие или крупный план лица.
-2. J-Cut / L-Cut Эффект: Обязательно вставляй "перебивки" (B-roll). Если человек говорит длинную мысль, переключи визуальный ряд на связанный видеоряд, не прерывая его голос!
+1. Вступление (Hook): Первые 2-4 секунды. Захват внимания. Используй самый качественный кадр (Quality 8+), яркое действие или эмоцию.
+2. J-Cut / L-Cut Эффект (Перебивки): Вставляй перебивки (trackType: "b-roll"). Если спикер говорит длинную мысль, переключи визуальный ряд на связанный видеоряд, не прерывая голос!
 3. Развитие (Build-up): Раскрытие темы. Чередование крупных планов с общими. 
 4. Кульминация (Climax): Самый эстетичный и эмоциональный визуальный фрагмент. Быстрая смена кадров.
-5. Финал (Outro): Главная мысль или Call to Action. Спокойный, красивый кадр.
+5. Финал (Outro): Главная мысль. Спокойный, красивый кадр.
+
+АДАПТАЦИЯ ПОД ФОРМАТ:
+- TikTok / Shorts / Reels: Сверхбыстрый Hook (1-2 сек), удержание внимания, частая смена планов.
+- Travel / Cinematic: Плавный ритм, эстетика, длинные пейзажные кадры, взрывы динамики в кульминации.
+- Podcast / Interview: Внимание на спикера, жесткое вырезание пауз, акцент на самых сильных фразах.
 
 КАК ВЫБИРАТЬ КАДРЫ (используя Визуальную раскадровку):
 - ИГНОРИРУЙ БРАК: Избегай фрагментов с качеством ниже 5, пометками РАЗМЫТО, ТЕМНО или тряской (shake).
-- ВЫБИРАЙ ЛУЧШЕЕ: Отдавай высший приоритет кадрам с пометкой "ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" и "ЕСТЬ ЛЮДИ/ЛИЦА".
-- ЧЕРЕДУЙ: Старайся не ставить подряд кадры с одной и той же камеры без смены ракурса.
+- ВЫБИРАЙ ЛУЧШЕЕ: Отдавай высший приоритет кадрам с пометкой "ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" и "ЕСТЬ ЛИЦА".
 - СКОРОСТЬ (SPEED RAMPING): Если кадр сверхэпичный (в Climax), ты можешь замедлить его (speed: 0.5) для эффекта слоу-мо. Если это длинный скучный кадр, ускорь его (speed: 2.0).
 
 ${hasTranscript 
   ? "В материалах есть Речь (с таймкодами). ВЫБИРАЙ самые смысловые фразы и строй историю вокруг них. Указывай точные startTime и endTime. Вырезай тишину!" 
   : "В материалах НЕТ речи. Работай только с визуальным рядом, выбирая лучшие моменты."}
 
-ОБЯЗАТЕЛЬНО используй только те assetId, которые есть в списке материалов. СУММАРНАЯ ДЛИТЕЛЬНОСТЬ всех клипов в массиве должна быть примерно равна targetDuration!
-`;
+ОБЯЗАТЕЛЬНО используй только те assetId, которые есть в списке материалов. СУММАРНАЯ ДЛИТЕЛЬНОСТЬ всех main клипов должна быть примерно равна targetDuration!
 
-    const exampleResponse = hasTranscript ? {
-      contentType: "podcast",
-      targetDuration: 30,
-      pace: "medium",
-      colorGrade: "cinematic",
-      clips: [
-        { assetId: request.assets[0]?.id || "v1", startTime: 12.5, endTime: 16.0, duration: 3.5, reason: "Важная мысль", importance: 0.9 }
-      ],
-      musicSync: true,
-      transitions: "cut",
-      textOverlays: [{ text: "Главная мысль", time: 0, duration: 3, style: "title" }],
-      audioEnhancements: { normalize: true, denoise: true, voiceEnhance: true, removeSilence: true, ducking: true },
-      suggestions: ["Удалена тишина"],
-      analysisQuality: "ai"
-    } : {
-      contentType: "youtube",
-      targetDuration: 15,
-      pace: "dynamic",
-      colorGrade: "vivid",
-      clips: [
-        { assetId: request.assets[0]?.id || "v1", duration: 2.5, reason: "Вступление", importance: 0.9, zoom: true },
-        { assetId: request.assets[0]?.id || "v1", duration: 1.5, reason: "Динамика", importance: 0.8, zoom: false }
-      ],
-      musicSync: true,
-      transitions: "crossfade",
-      textOverlays: [{ text: "Летний вайб", time: 0, duration: 2, style: "title" }],
-      audioEnhancements: { normalize: true, denoise: false, voiceEnhance: false, removeSilence: false, ducking: true },
-      suggestions: ["Синхрон под музыку"],
-      analysisQuality: "ai"
-    };
+Верни ответ СТРОГО в формате JSON с такой структурой:
+{
+  "step1_analysis": { "coreMessage": "...", "audience": "...", "bestHookAssetId": "..." },
+  "step2_storyStructure": { "hook": "...", "buildup": "...", "climax": "...", "outro": "..." },
+  "step3_selfCritique": "Проверь: нет ли джамп-катов? Логичен ли ритм? Хватает ли перебивок (b-roll)?",
+  "finalDecision": {
+     "contentType": "...",
+     "targetDuration": 15,
+     "pace": "dynamic",
+     "colorGrade": "vivid",
+     "clips": [
+        { "assetId": "...", "trackType": "main", "duration": 2.5, "startTime": 10.0, "endTime": 12.5, "reason": "Hook", "importance": 0.9, "zoom": true, "speed": 1 },
+        { "assetId": "...", "trackType": "b-roll", "duration": 1.5, "startTime": 0.0, "endTime": 1.5, "reason": "Перебивка", "importance": 0.7, "zoom": false, "speed": 1 }
+     ],
+     "musicSync": true,
+     "transitions": "crossfade",
+     "textOverlays": [],
+     "audioEnhancements": { "normalize": true, "denoise": true, "voiceEnhance": true, "removeSilence": true, "ducking": true },
+     "suggestions": [],
+     "analysisQuality": "ai"
+  }
+}`;
 
     const userMessage = `Запрос: "${request.userPrompt}"
 
@@ -160,46 +155,10 @@ ${request.assets.map((a, i) => {
     `   Тип: ${a.type}`,
     a.duration ? `   Длительность: ${a.duration.toFixed(1)}с` : "   Статичное",
     a.transcript ? `   Речь:\n${a.transcript.slice(0, 3500)}` : "",
-    a.segments && a.segments.length > 0 ? `   Визуальная раскадровка:\n${a.segments.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Качество: ${s.qualityScore}/10, Движение: ${s.motionLevel}${s.hasAction ? ", ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" : ""}${s.isSceneChange ? ", СМЕНА РАКУРСА" : ""}${s.isDark ? ", ТЕМНО" : ""}${s.isBlurry ? ", РАЗМЫТО" : ""}${s.hasFaces ? ", ЕСТЬ ЛИЦА" : ""}`).join("\n")}` : "",
+    a.segments && a.segments.length > 0 ? `   Визуальная раскадровка:\n${a.segments.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Эстетика: ${(s as any).aestheticScore}/10, Качество: ${s.qualityScore}/10, Движение: ${s.motionLevel}${s.hasAction ? ", ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" : ""}${s.isSceneChange ? ", СМЕНА РАКУРСА" : ""}${s.isDark ? ", ТЕМНО" : ""}${s.isBlurry ? ", РАЗМЫТО" : ""}${s.hasFaces ? ", ЕСТЬ ЛИЦА" : ""}`).join("\n")}` : "",
     a.audioEnergy && a.audioEnergy.length > 0 ? `   Энергия аудио (ритм):\n${a.audioEnergy.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Уровень: ${s.energyLevel}`).join("\n")}` : ""
   ].filter(Boolean).join("\n");
 }).join("\n\n")}`;
-
-    // Agent 1: The Creative Director
-    // Let's ask the LLM to write a treatment first (Chain of Thought)
-    let treatment = "";
-    try {
-      const directorPrompt = `Ты креативный директор. Твоя задача — проанализировать запрос и сырые метаданные видео/аудио, и написать подробный режиссерский сценарий (treatment).
-Опиши, как будет строиться история (Вступление, Развитие, Кульминация, Финал).
-Опиши, как видеоряд будет реагировать на изменения "Энергии аудио". Если есть дроп (уровень: drop), что мы там покажем?
-Не пиши JSON. Напиши текст на 3-4 абзаца с таймкодами из исходников, которые стоит взять.`;
-      
-      const dirResponse = await fetch(AI_CONFIG.apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: AI_CONFIG.model,
-          messages: [
-            { role: "system", content: directorPrompt },
-            { role: "user", content: userMessage }
-          ],
-          temperature: 0.7,
-          max_tokens: 1500
-        })
-      });
-      if (dirResponse.ok) {
-        const dirData = await dirResponse.json();
-        treatment = dirData.choices[0]?.message?.content || "";
-        console.log("🎬 Режиссерский сценарий готов:", treatment.slice(0, 150) + "...");
-      }
-    } catch(e) {
-      console.warn("Director agent failed, falling back to one-shot", e);
-    }
-
-    // Agent 2: The Technical Editor
-    const finalUserMessage = `${userMessage}
-    
-${treatment ? `\nРЕЖИССЕРСКИЙ ПЛАН (TREATMENT):\n${treatment}\n\nОпираясь на этот план, ` : ""}Верни ТОЛЬКО валидный JSON по примеру: ${JSON.stringify(exampleResponse, null, 2)}`;
 
     const response = await fetch(AI_CONFIG.apiUrl, {
       method: "POST",
@@ -211,11 +170,10 @@ ${treatment ? `\nРЕЖИССЕРСКИЙ ПЛАН (TREATMENT):\n${treatment}\n\
         model: AI_CONFIG.model,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: finalUserMessage },
+          { role: "user", content: userMessage },
         ],
-        temperature: 0.8,
-        max_tokens: 3000,
-        top_p: 0.95,
+        temperature: 0.6,
+        max_tokens: 4000,
         response_format: { type: "json_object" },
       }),
     });
@@ -232,7 +190,8 @@ ${treatment ? `\nРЕЖИССЕРСКИЙ ПЛАН (TREATMENT):\n${treatment}\n\
       return generateRuleBasedDecision(request);
     }
 
-    const decision: AIEditDecision = JSON.parse(content);
+    const parsed = JSON.parse(content);
+    const decision: AIEditDecision = parsed.finalDecision || parsed;
     
     return {
       contentType: decision.contentType || "generic",
@@ -372,6 +331,25 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
 
   const clips: AIEditDecision["clips"] = [];
   let currentTime = 0;
+
+  // Rule-based Intelligent Cold Open (Hook)
+  if (pool.length > 0 && (contentType === "tiktok" || contentType === "shorts" || contentType === "reels" || contentType === "youtube")) {
+    const hookCandidates = [...pool].sort((a,b) => (b.quality + (b.hasFaces?5:0) + (b.hasAction?5:0)) - (a.quality + (a.hasFaces?5:0) + (a.hasAction?5:0)));
+    const hook = hookCandidates[0];
+    const hookDur = pace === "fast" ? 1.5 : 2.5;
+    clips.push({
+      assetId: hook.assetId,
+      trackType: "main",
+      startTime: hook.startTime,
+      endTime: hook.startTime + hookDur,
+      duration: hookDur,
+      importance: 1.0,
+      emotion: "energetic",
+      zoom: true,
+      reason: "Smart Rule-based Hook"
+    });
+    currentTime += hookDur;
+  }
   let phase = "hook"; // hook -> buildup -> climax -> outro
 
   const getCandidates = (phase: string) => {
@@ -437,7 +415,7 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     const maxStart = best.duration - shotDur;
     const actualStart = best.startTime + (maxStart > 0 ? Math.random() * maxStart : 0);
 
-    clips.push({
+    clips.push({ trackType: "main" as const,
       assetId: best.assetId,
       startTime: actualStart,
       endTime: actualStart + shotDur,

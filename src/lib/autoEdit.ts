@@ -134,36 +134,26 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   // AI-powered analysis (if API key provided and intelligent cuts enabled)
 
-  let aiDecision: Awaited<ReturnType<typeof analyzeWithAI>> | null = null;
-  
-    if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
-    try {
-      const analysisRequest: AIAnalysisRequest = {
-        userPrompt: style.rawPrompt,
-        assets: assets.map((a) => ({
-          id: a.id,
-          name: a.name,
-          type: a.kind,
-          duration: a.duration,
-          transcript: transcripts.get(a.id),
-          segments: localSegments.get(a.id),
-          audioEnergy: audioEnergyMap.get(a.id),
-        })),
-      };
-      
-      aiDecision = await analyzeWithAI(analysisRequest);
-      
-      // Apply AI recommendations
-      if (aiDecision.pace) style.pace = aiDecision.pace as any;
-      if (aiDecision.colorGrade && aiDecision.colorGrade !== "none") {
-        style.colorGrade = aiDecision.colorGrade as any;
-      }
-    } catch (error) {
-      console.warn("AI analysis failed, using rule-based approach:", error);
-    }
+  onProgress?.("Интеллектуальный анализ и планирование...");
+  const analysisRequest: AIAnalysisRequest = {
+    userPrompt: style.rawPrompt,
+    assets: assets.map((a) => ({
+      id: a.id,
+      name: a.name,
+      type: a.kind,
+      duration: a.duration,
+      transcript: transcripts.get(a.id),
+      segments: localSegments.get(a.id),
+      audioEnergy: audioEnergyMap.get(a.id),
+    })),
+  };
+  const aiDecision = await analyzeWithAI(analysisRequest);
+
+  if (aiDecision.pace) style.pace = aiDecision.pace as any;
+  if (aiDecision.colorGrade && aiDecision.colorGrade !== "none") {
+    style.colorGrade = aiDecision.colorGrade as any;
   }
 
-  
   // --- TEMPLATE ENGINE APPLICATION ---
   // If auto, resolve based on AI decision content type
   let activeTemplate = TEMPLATES.find(t => t.id === style.templateId);

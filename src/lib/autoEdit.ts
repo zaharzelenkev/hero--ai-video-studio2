@@ -65,6 +65,21 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   
   
+
+  // 0.1 Analyze Audio Energy
+  const audioEnergyMap = new Map<string, import("./media").AudioEnergySegment[]>();
+  if (style.intelligentCuts && musicAsset) {
+    onProgress?.("Слушаем музыку...");
+    const file = filesByAssetId.get(musicAsset.id);
+    if (file) {
+      try {
+        const { analyzeAudioEnergy } = await import("./media");
+        const energies = await analyzeAudioEnergy(file);
+        audioEnergyMap.set(musicAsset.id, energies);
+      } catch (e) { console.warn(e); }
+    }
+  }
+
   // 0. Local Fast Vision Analysis
   const localSegments = new Map<string, VideoSegmentMetadata[]>();
   if (style.intelligentCuts) {
@@ -132,6 +147,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           duration: a.duration,
           transcript: transcripts.get(a.id),
           segments: localSegments.get(a.id),
+          audioEnergy: audioEnergyMap.get(a.id),
         })),
       };
       

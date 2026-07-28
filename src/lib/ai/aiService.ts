@@ -18,6 +18,7 @@ export interface AIAnalysisRequest {
     width?: number;
     height?: number;
     segments?: import("../localAnalyzer").VideoSegmentMetadata[];
+    audioEnergy?: import("../media").AudioEnergySegment[];
   }>;
 }
 
@@ -157,11 +158,46 @@ ${request.assets.map((a, i) => {
     `   Тип: ${a.type}`,
     a.duration ? `   Длительность: ${a.duration.toFixed(1)}с` : "   Статичное",
     a.transcript ? `   Речь:\n${a.transcript.slice(0, 3500)}` : "",
-    a.segments && a.segments.length > 0 ? `   Визуальная раскадровка (динамика/свет):\n${a.segments.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Движение: ${s.motionLevel}${s.isSceneChange ? ", НОВАЯ СЦЕНА" : ""}${s.isDark ? ", ТЕМНЫЙ КАДР" : ""}`).join("\n")}` : ""
+    a.segments && a.segments.length > 0 ? `   Визуальная раскадровка:\n${a.segments.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Качество: ${s.qualityScore}/10, Движение: ${s.motionLevel}${s.hasAction ? ", ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" : ""}${s.isSceneChange ? ", СМЕНА РАКУРСА" : ""}${s.isDark ? ", ТЕМНО" : ""}${s.isBlurry ? ", РАЗМЫТО" : ""}${s.hasFaces ? ", ЕСТЬ ЛИЦА" : ""}`).join("\n")}` : "",
+    a.audioEnergy && a.audioEnergy.length > 0 ? `   Энергия аудио (ритм):\n${a.audioEnergy.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Уровень: ${s.energyLevel}`).join("\n")}` : ""
   ].filter(Boolean).join("\n");
-}).join("\n\n")}
+}).join("\n\n")}`;
 
-Верни ТОЛЬКО валидный JSON по примеру: ${JSON.stringify(exampleResponse, null, 2)}`;
+    // Agent 1: The Creative Director
+    // Let's ask the LLM to write a treatment first (Chain of Thought)
+    let treatment = "";
+    try {
+      const directorPrompt = `Ты креативный директор. Твоя задача — проанализировать запрос и сырые метаданные видео/аудио, и написать подробный режиссерский сценарий (treatment).
+Опиши, как будет строиться история (Вступление, Развитие, Кульминация, Финал).
+Опиши, как видеоряд будет реагировать на изменения "Энергии аудио". Если есть дроп (уровень: drop), что мы там покажем?
+Не пиши JSON. Напиши текст на 3-4 абзаца с таймкодами из исходников, которые стоит взять.`;
+      
+      const dirResponse = await fetch(AI_CONFIG.apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: AI_CONFIG.model,
+          messages: [
+            { role: "system", content: directorPrompt },
+            { role: "user", content: userMessage }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500
+        })
+      });
+      if (dirResponse.ok) {
+        const dirData = await dirResponse.json();
+        treatment = dirData.choices[0]?.message?.content || "";
+        console.log("🎬 Режиссерский сценарий готов:", treatment.slice(0, 150) + "...");
+      }
+    } catch(e) {
+      console.warn("Director agent failed, falling back to one-shot", e);
+    }
+
+    // Agent 2: The Technical Editor
+    const finalUserMessage = `${userMessage}
+    
+${treatment ? `\nРЕЖИССЕРСКИЙ ПЛАН (TREATMENT):\n${treatment}\n\nОпираясь на этот план, ` : ""}Верни ТОЛЬКО валидный JSON по примеру: ${JSON.stringify(exampleResponse, null, 2)}`;
 
     const response = await fetch(AI_CONFIG.apiUrl, {
       method: "POST",
@@ -173,7 +209,7 @@ ${request.assets.map((a, i) => {
         model: AI_CONFIG.model,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
+          { role: "user", content: finalUserMessage },
         ],
         temperature: 0.8,
         max_tokens: 3000,

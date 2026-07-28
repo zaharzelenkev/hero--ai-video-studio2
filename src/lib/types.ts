@@ -44,6 +44,7 @@ export interface MediaAsset {
   /** Small data-URL preview used across the UI. */
   thumbnail?: string;
   hasAudio?: boolean;
+  audioEnergy?: import("./media").AudioEnergySegment[];
   createdAt: number;
 }
 

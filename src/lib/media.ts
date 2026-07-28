@@ -123,3 +123,71 @@ export async function computeWaveformPeaks(file: Blob, buckets = 400): Promise<n
     ctx.close();
   }
 }
+
+
+export interface AudioEnergySegment {
+  startTime: number;
+  endTime: number;
+  energyLevel: "low" | "medium" | "high" | "drop";
+}
+
+/** Analyzes an audio file and returns a timeline of energy levels (drops, buildups) */
+export async function analyzeAudioEnergy(file: Blob): Promise<AudioEnergySegment[]> {
+  if (file.size > 100 * 1024 * 1024) return []; // Skip heavy files
+
+  const arrayBuffer = await file.arrayBuffer();
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new AudioCtx();
+  try {
+    const buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const data = buffer.getChannelData(0);
+    const sampleRate = buffer.sampleRate;
+    
+    const windowSec = 2; // analyze 2-second chunks
+    const windowSamples = sampleRate * windowSec;
+    const duration = buffer.duration;
+    
+    const energies: number[] = [];
+    
+    for (let i = 0; i < data.length; i += windowSamples) {
+      const end = Math.min(i + windowSamples, data.length);
+      let sumSq = 0;
+      // take a fast sample every 10th frame to save CPU
+      let count = 0;
+      for (let j = i; j < end; j += 10) {
+        sumSq += data[j] * data[j];
+        count++;
+      }
+      energies.push(Math.sqrt(sumSq / count));
+    }
+    
+    if (energies.length === 0) return [];
+    
+    const maxE = Math.max(...energies, 0.001);
+    const segments: AudioEnergySegment[] = [];
+    
+    for (let i = 0; i < energies.length; i++) {
+      const normalized = energies[i] / maxE;
+      let level: AudioEnergySegment["energyLevel"] = "medium";
+      if (normalized < 0.2) level = "low";
+      else if (normalized > 0.8) level = "drop";
+      else if (normalized > 0.5) level = "high";
+      
+      const startTime = i * windowSec;
+      const endTime = Math.min(startTime + windowSec, duration);
+      
+      // compact consecutive same-level segments
+      if (segments.length > 0 && segments[segments.length - 1].energyLevel === level) {
+         segments[segments.length - 1].endTime = endTime;
+      } else {
+         segments.push({ startTime, endTime, energyLevel: level });
+      }
+    }
+    
+    return segments;
+  } catch {
+    return [];
+  } finally {
+    ctx.close();
+  }
+}

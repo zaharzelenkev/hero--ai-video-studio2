@@ -146,7 +146,7 @@ export type TransitionType =
   | "cut"
   | "crossfade"
   | "fadeblack"
-  | "fadewhite"
+  | "fadewhite" // Flash
   | "wipeleft"
   | "wiperight"
   | "wipeup"
@@ -155,13 +155,21 @@ export type TransitionType =
   | "slidedown"
   | "slideleft"
   | "slideright"
-  | "zoom"
+  | "smoothleft" // Smooth Slide
+  | "smoothright"
+  | "zoom" // Zoom In
   | "zoomin"
   | "zoomout"
-  | "circleopen"
+  | "circleopen" // Mask Transition
   | "circleclose"
-  | "dissolve"
-  | "pixelize";
+  | "dissolve" // Morph / Match Cut
+  | "pixelize" // Glitch
+  | "hblur" // Whip Pan / Speed Blur
+  | "rectcrop" // Dynamic Crop
+  | "radial" // Parallax-ish / Spin
+  | "fadegrays" // Film Burn / Light Leak
+  | "squeezeh" // Push
+  | "hlslice"; // RGB Split (approx)
 
 export interface Transition {
   type: TransitionType;
@@ -244,6 +252,8 @@ export interface VideoClip extends BaseClip {
   scale: AnimParam; // 1 = 100%
   scaleX?: AnimParam; // Separate X scale for advanced users
   scaleY?: AnimParam; // Separate Y scale
+  focusX?: number; // 0..1 for smart auto-framing (crop center)
+  focusY?: number;
   rotation: AnimParam; // degrees
   rotationX?: AnimParam; // 3D rotation
   rotationY?: AnimParam;

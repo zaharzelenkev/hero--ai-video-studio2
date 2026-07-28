@@ -2,6 +2,7 @@ import type { GenerationStyle, MediaAsset, Project } from "./types";
 import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeats } from "./beatDetection";
+import { applyTextAnimation } from "./textAnimations";
 import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
 import { AI_CONFIG } from "@/config/ai";
@@ -184,78 +185,72 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   // Use AI-suggested clips if available, otherwise use rule-based approach
   if (aiDecision && aiDecision.clips.length > 0) {
-    // Determine if clips are sequential (main track) or overlapping (b-roll)
-    const mainClips: any[] = [];
-    const bRollClips: any[] = [];
+    const mainClips = aiDecision.clips.filter(c => c.trackType !== "b-roll");
+    const bRollClips = aiDecision.clips.filter(c => c.trackType === "b-roll");
     
-    // Sort clips by startTime
-    const sorted = [...aiDecision.clips].sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
-    
-    for (const aiClip of sorted) {
-      if (mainClips.length > 0) {
-        const lastMain = mainClips[mainClips.length - 1];
-        // If this clip starts before the last one ends, it's a B-Roll!
-        if (aiClip.startTime !== undefined && aiClip.startTime < (lastMain.startTime + lastMain.duration)) {
-          bRollClips.push({ ...aiClip, isBRoll: true });
-          continue;
-        }
-      }
-      mainClips.push(aiClip);
-    }
-    
-    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean) => {
+    // Вспомогательная функция для размещения
+    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean, timelineStart: number) => {
       const asset = assets.find((a) => a.id === aiClip.assetId);
-      if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return;
+      if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return null;
       
       const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
       const providedStart = aiClip.startTime !== undefined ? aiClip.startTime : Math.random() * Math.max(0, maxDur - aiClip.duration);
       const inPoint = Math.max(0, Math.min(providedStart, maxDur - 0.5));
       const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration), maxDur));
-      const duration = outPoint - inPoint;
+      let duration = outPoint - inPoint;
       
-      // Calculate start time on timeline
-      let start = cursor;
-      if (isBroll && aiClip.startTime !== undefined) {
-         // Place b-roll relatively
-         start = aiClip.startTime;
-      }
-
       if (!isBroll && beats.length) {
-        const rawEnd = cursor + duration;
+        const rawEnd = timelineStart + duration;
         const closeBeat = beats.find(b => Math.abs(b - rawEnd) < targetClipLen * 0.6);
         const snappedEnd = closeBeat !== undefined ? closeBeat : rawEnd;
-        const adjusted = Math.min(snappedEnd - cursor, duration);
-        if (adjusted > 0.5) {
-          const clip = createVideoClip({
-            trackId: track.id,
-            asset,
-            start: cursor,
-            duration: adjusted,
-            inPoint,
-            outPoint: Math.min(inPoint + adjusted, maxDur),
-            transitionIn: cursor === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
-          });
-          
-          clip.color.lut = style.bw ? "bw" : style.colorGrade;
-          track.clips.push(clip);
-          if (!isBroll) cursor += adjusted;
-          return;
-        }
+        const adjusted = Math.min(snappedEnd - timelineStart, duration);
+        if (adjusted > 0.5) duration = adjusted;
       }
       
       const clip = createVideoClip({
         trackId: track.id,
         asset,
-        start,
-        duration,
+        start: timelineStart,
+        duration: duration,
         inPoint,
-        outPoint,
-        transitionIn: start === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
+        outPoint: inPoint + duration,
+        transitionIn: timelineStart === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
       });
+      
+      // Auto-framing (Smart Reframe)
+      const segs = localSegments.get(asset.id);
+      if (segs && segs.length > 0) {
+        // Find segment overlapping with this clip's inPoint
+        const relevantSeg = segs.find(s => s.startTime <= inPoint && s.endTime > inPoint) || segs[0];
+        if (relevantSeg.hasFaces && relevantSeg.faceX !== undefined && relevantSeg.faceY !== undefined) {
+           clip.focusX = relevantSeg.faceX;
+           clip.focusY = relevantSeg.faceY;
+        }
+      }
+      
+      // Audio Enhancements
+      if (aiDecision?.audioEnhancements) {
+         // Apply to video audio layer if there is audio
+         if (clip.volume.value > 0) {
+            // Note: Currently denoise/voiceEnhance are in AudioClip, but VideoClip has audio properties too if we extend it, 
+            // but in current implementation, audio properties inside VideoClip are limited to `volume`.
+            // Wait, filterGraph uses buildAudioChain for VideoClip too! Let's pass denoise!
+            (clip as any).denoise = aiDecision.audioEnhancements.denoise;
+            if (aiDecision.audioEnhancements.voiceEnhance) {
+               (clip as any).eqLow = 2;
+               (clip as any).eqMid = 4;
+               (clip as any).eqHigh = 2;
+            }
+         }
+      }
       
       clip.color.lut = style.bw ? "bw" : style.colorGrade;
       
-      if (asset.kind === "image" && style.kenBurns) {
+      if (aiClip.speed && aiClip.speed !== 1) {
+         clip.speed = aiClip.speed;
+      }
+
+      if (aiClip.zoom || (asset.kind === "image" && style.kenBurns)) {
         clip.scale = {
           value: 1,
           keyframes: [
@@ -266,18 +261,28 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       }
       
       track.clips.push(clip);
-      if (!isBroll) cursor += duration;
+      return duration;
     };
 
-    mainClips.forEach(c => placeClip(c, videoTrack, false));
-    // Since B-roll relies on absolute timeline placement based on main clips, we approximate it:
-    // Right now B-roll start times are raw asset times. We need to map them to the timeline.
-    // To keep it robust without overcomplicating mapping, we simply put B-roll clips in the middle of long main clips.
-    bRollClips.forEach(c => {
-       // Place it randomly in the second half of the timeline
-       c.startTime = (cursor * 0.3) + Math.random() * (cursor * 0.5);
-       placeClip(c, bRollTrack!, true);
-    });
+    // 1. Сначала выстраиваем основной видеоряд
+    for (const mainClip of mainClips) {
+       const durationUsed = placeClip(mainClip, videoTrack, false, cursor);
+       if (durationUsed) {
+         cursor += durationUsed;
+       }
+    }
+
+    // 2. Затем накладываем B-Roll (они должны распределиться по таймлайну поверх длинных кусков)
+    // Так как в AIEditDecision B-Rolls могут не иметь абсолютного таймлайна, распределяем их умно:
+    let bRollCursor = 0.5; // Начинаем чуть позже первого кадра
+    for (const bClip of bRollClips) {
+       // Размещаем где-то поверх основного таймлайна
+       const bRollStart = (bClip as any).timeInTimeline !== undefined ? (bClip as any).timeInTimeline : bRollCursor;
+       const dur = placeClip(bClip, bRollTrack!, true, bRollStart);
+       if (dur) {
+          bRollCursor = bRollStart + dur + (Math.random() * 2 + 1); // Следующий б-ролл минимум через пару секунд
+       }
+    }
 
   } else {
     const textTrack = project.tracks.find((t) => t.type === "text")!;
@@ -304,8 +309,79 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
-  
-    // Add music
+  // --- SUBTITLES & AI TEXT OVERLAYS ---
+  const textTrack = project.tracks.find((t) => t.type === "text") || project.tracks[project.tracks.push(require("./factories").createTrack("text", "Текст")) - 1];
+
+  if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
+    for (const overlay of aiDecision.textOverlays) {
+      const clip = createTextClip({
+        trackId: textTrack.id,
+        start: overlay.time || 0,
+        duration: overlay.duration || 2,
+        text: overlay.text,
+      });
+      clip.y.value = activeTemplate.text.yPosition;
+      clip.fontSize = activeTemplate.text.fontSize;
+      clip.fontFamily = activeTemplate.text.fontFamily;
+      clip.color = activeTemplate.text.color;
+      clip.backgroundColor = activeTemplate.text.backgroundColor;
+      clip.strokeColor = activeTemplate.text.strokeColor;
+      clip.strokeWidth = activeTemplate.text.strokeWidth;
+      const anim = (overlay.animation as import("./types").TextAnimation) || activeTemplate.text.animation;
+      clip.animationIn = anim;
+      
+      applyTextAnimation(clip, anim, activeTemplate.text.yPosition, clip.duration);
+      
+      textTrack.clips.push(clip);
+    }
+  } else if (segmentsByAssetId.size > 0) {
+    // Generate Hormozi-style subtitles from Whisper words
+    for (const track of project.tracks) {
+      if (track.type === "video") {
+        for (const clip of track.clips as import("./types").VideoClip[]) {
+           const segs = segmentsByAssetId.get(clip.assetId);
+           if (segs) {
+              for (const s of segs) {
+                 const wordStartInAsset = s.start;
+                 const wordEndInAsset = s.end;
+                 
+                 // Check if the spoken word falls inside the trimmed clip
+                 if (wordStartInAsset >= clip.inPoint && wordStartInAsset < clip.outPoint) {
+                    const timelineStart = clip.start + (wordStartInAsset - clip.inPoint);
+                    const durInAsset = wordEndInAsset - wordStartInAsset;
+                    const durOnTimeline = Math.min(durInAsset, clip.outPoint - wordStartInAsset);
+                    
+                    if (durOnTimeline > 0.1) {
+                      const textClip = createTextClip({
+                        trackId: textTrack.id,
+                        start: timelineStart,
+                        duration: durOnTimeline,
+                        text: (s as any).word || (s as any).text,
+                      });
+                      
+                      // Template Driven Subtitles
+                      textClip.y.value = activeTemplate.text.yPosition;
+                      textClip.fontSize = activeTemplate.text.fontSize || 72;
+                      textClip.fontFamily = activeTemplate.text.fontFamily || "DejaVu Sans Bold";
+                      textClip.color = activeTemplate.text.color || "#FFFFFF";
+                      textClip.backgroundColor = activeTemplate.text.backgroundColor || "transparent";
+                      textClip.strokeWidth = activeTemplate.text.strokeWidth || 3;
+                      textClip.strokeColor = activeTemplate.text.strokeColor || "#000000";
+                      textClip.animationIn = activeTemplate.text.animation || "pop";
+                      
+                      applyTextAnimation(textClip, textClip.animationIn, textClip.y.value, durOnTimeline);
+                      
+                      textTrack.clips.push(textClip);
+                    }
+                 }
+              }
+           }
+        }
+      }
+    }
+  }
+
+  // Add music
   if (musicAsset) {
     const audioTrack = project.tracks.find((t) => t.type === "audio")!;
     const musicDuration = Math.min(musicAsset.duration || project.duration, project.duration);

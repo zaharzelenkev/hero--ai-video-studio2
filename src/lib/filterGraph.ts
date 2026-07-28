@@ -88,9 +88,30 @@ function buildVideoClipChain(
 
   if (fitMode === "cover") {
     const next = id(`c${tag}_`);
-    lines.push(
-      `[${current}]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH},setsar=1[${next}]`,
-    );
+    
+    let cropX = "(in_w-out_w)/2";
+    let cropY = "(in_h-out_h)/2";
+    
+    if (clip.focusX !== undefined) {
+      cropX = `clamp((in_w*${clip.focusX})-(out_w/2),0,in_w-out_w)`;
+    }
+    if (clip.focusY !== undefined) {
+      cropY = `clamp((in_h*${clip.focusY})-(out_h/2),0,in_h-out_h)`;
+    }
+    
+    // Animate zooming over the crop if scale.keyframes > 0 (Ken Burns emulation on cover)
+    if (clip.scale && (clip.scale.value !== 1 || clip.scale.keyframes.length)) {
+       const scaleExpr = paramToFfmpegExpr(clip.scale, "t");
+       // First scale keeping aspect ratio covering the target, PLUS our custom scale multiplier
+       // Then crop out the exact W:H
+       lines.push(
+         `[${current}]scale='iw*max(${canvasW}/iw\\,${canvasH}/ih)*(${scaleExpr})':'ih*max(${canvasW}/iw\\,${canvasH}/ih)*(${scaleExpr})',crop=${canvasW}:${canvasH}:${cropX}:${cropY},setsar=1[${next}]`,
+       );
+    } else {
+       lines.push(
+         `[${current}]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}:${cropX}:${cropY},setsar=1[${next}]`,
+       );
+    }
     current = next;
   } else {
     const scaleExpr = paramToFfmpegExpr(clip.scale, "t");
@@ -288,10 +309,10 @@ export function compileProjectToFfmpeg(
           clip.volume,
           0,
           0,
-          0,
-          0,
-          0,
-          false,
+          (clip as any).eqLow || 0,
+          (clip as any).eqMid || 0,
+          (clip as any).eqHigh || 0,
+          (clip as any).denoise || false,
           clip.duration,
           lines,
         );
@@ -364,10 +385,10 @@ export function compileProjectToFfmpeg(
           clip.volume,
           0,
           0,
-          0,
-          0,
-          0,
-          false,
+          (clip as any).eqLow || 0,
+          (clip as any).eqMid || 0,
+          (clip as any).eqHigh || 0,
+          (clip as any).denoise || false,
           clip.duration,
           lines,
         );

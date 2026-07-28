@@ -49,33 +49,30 @@ export function lutToFfmpeg(lut: LutPreset): string[] {
 }
 
 export const TRANSITIONS: { type: TransitionType; label: string; icon: string }[] = [
-  { type: "cut", label: "Резкая склейка", icon: "✂️" },
+  { type: "cut", label: "Резкая склейка (Cut)", icon: "✂️" },
   { type: "crossfade", label: "Наплыв (Crossfade)", icon: "🌫️" },
-  { type: "fadeblack", label: "Через чёрный", icon: "⬛" },
-  { type: "wipeleft", label: "Шторка влево", icon: "◀️" },
-  { type: "wiperight", label: "Шторка вправо", icon: "▶️" },
-  { type: "slideup", label: "Слайд вверх", icon: "🔼" },
-  { type: "zoom", label: "Зум", icon: "🔍" },
+  { type: "fadeblack", label: "Через чёрный (Fade to Black)", icon: "⬛" },
+  { type: "fadewhite", label: "Вспышка (Flash / Light Leak)", icon: "⚡" },
+  { type: "wipeleft", label: "Шторка влево (Wipe)", icon: "◀️" },
+  { type: "slideup", label: "Слайд вверх (Slide)", icon: "🔼" },
+  { type: "squeezeh", label: "Сдвиг (Push)", icon: "🫸" },
+  { type: "zoom", label: "Зум (Punch Zoom)", icon: "🔍" },
+  { type: "smoothleft", label: "Мягкий сдвиг (Smooth Slide)", icon: "💨" },
+  { type: "hblur", label: "Хлыст (Whip Pan / Speed Blur)", icon: "🌪️" },
+  { type: "pixelize", label: "Глитч (Glitch)", icon: "👾" },
+  { type: "dissolve", label: "Морфинг (Morph / Match Cut)", icon: "🧬" },
+  { type: "radial", label: "Вращение (Spin / Parallax)", icon: "🌀" },
+  { type: "circleopen", label: "Маска: Круг (Mask Transition)", icon: "⭕" },
+  { type: "rectcrop", label: "Динамичный кроп (Dynamic Crop)", icon: "🔲" },
+  { type: "fadegrays", label: "Плёнка (Film Burn)", icon: "🎞️" },
+  { type: "hlslice", label: "RGB Сплит (Split)", icon: "✂️" },
 ];
 
 /** Map our transition type to an ffmpeg `xfade` transition name. */
 export function transitionToXfade(type: TransitionType): string {
-  switch (type) {
-    case "crossfade":
-      return "fade";
-    case "fadeblack":
-      return "fadeblack";
-    case "wipeleft":
-      return "wipeleft";
-    case "wiperight":
-      return "wiperight";
-    case "slideup":
-      return "slideup";
-    case "zoom":
-      return "zoomin";
-    default:
-      return "fade";
-  }
+  if (type === "cut" || type === "crossfade") return "fade";
+  if (type === "zoom") return "zoomin";
+  return type; // All other types map 1:1 to xfade natively
 }
 
 export const EFFECT_PRESETS: { id: string; label: string; ffmpeg: string; css: string }[] = [

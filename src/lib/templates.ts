@@ -1,4 +1,4 @@
-export type TemplateId = "auto" | "minimal" | "travel" | "tiktok" | "luxury" | "podcast" | "promo";
+export type TemplateId = "auto" | "hormozi" | "mrbeast" | "apple" | "minimal" | "cinematic" | "documentary" | "tiktok" | "podcast" | "luxury" | "tech" | "reels" | "youtube";
 
 export interface VideoTemplate {
   id: TemplateId;
@@ -7,7 +7,7 @@ export interface VideoTemplate {
   description: string;
   pace: "slow" | "medium" | "fast" | "dynamic";
   colorGrade: string;
-  transition: "cut" | "crossfade" | "zoom" | "wipeleft";
+  transition: import("./types").TransitionType;
   kenBurns: boolean;
   text: {
     fontFamily: string;
@@ -18,7 +18,7 @@ export interface VideoTemplate {
     strokeWidth?: number;
     align: "center" | "left" | "right";
     yPosition: number; // 0 (top) to 1 (bottom), typically 0.5 is center
-    animation: "fade" | "slide-up" | "slide-left" | "pop";
+    animation: import("./types").TextAnimation;
   };
 }
 
@@ -35,79 +35,104 @@ export const TEMPLATES: VideoTemplate[] = [
     text: { fontFamily: "DejaVu Sans", fontSize: 60, color: "#ffffff", backgroundColor: "transparent", align: "center", yPosition: 0.5, animation: "fade" }
   },
   {
-    id: "tiktok",
-    name: "TikTok Viral",
-    icon: "📱",
-    description: "Быстрые склейки, желтые выпрыгивающие субтитры",
-    pace: "fast",
+    id: "hormozi",
+    name: "Hormozi Style",
+    icon: "💪",
+    description: "Желтый жирный шрифт, анимация Pop, по центру",
+    pace: "dynamic",
     colorGrade: "vivid",
     transition: "cut",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 75, color: "#FFE81A", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.2, animation: "pop" }
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 85, color: "#FFE81A", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.5, animation: "pop" }
   },
   {
-    id: "travel",
-    name: "Cinematic Travel",
-    icon: "✈️",
-    description: "Киношный цвет, плавные переходы, элегантный текст",
+    id: "mrbeast",
+    name: "MrBeast Style",
+    icon: "🤑",
+    description: "Ультрадинамика, зумы, глитчи, огромный текст с тенью",
+    pace: "fast",
+    colorGrade: "vivid",
+    transition: "hblur",
+    kenBurns: false,
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 95, color: "#00FF00", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 10, align: "center", yPosition: 0.8, animation: "bounce" }
+  },
+  {
+    id: "apple",
+    name: "Apple Style",
+    icon: "🍏",
+    description: "Минимализм, плавные сдвиги, чёрный/белый",
+    pace: "medium",
+    colorGrade: "bw",
+    transition: "smoothleft",
+    kenBurns: true,
+    text: { fontFamily: "Liberation Sans", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", align: "center", yPosition: 0.5, animation: "blur-in" }
+  },
+  {
+    id: "cinematic",
+    name: "Cinematic",
+    icon: "🍿",
+    description: "Киношный цвет, медленные кроссфейды, изящный шрифт",
     pace: "slow",
     colorGrade: "cinematic",
     transition: "crossfade",
     kenBurns: true,
-    text: { fontFamily: "Liberation Serif", fontSize: 65, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 2, align: "center", yPosition: 0.8, animation: "slide-up" }
+    text: { fontFamily: "Liberation Serif", fontSize: 50, color: "#F0F0F0", backgroundColor: "transparent", align: "center", yPosition: 0.85, animation: "fade" }
   },
   {
-    id: "minimal",
-    name: "Apple Minimal",
-    icon: "🍏",
-    description: "Чисто, строго, стильно. Ч/Б или контраст.",
-    pace: "dynamic",
-    colorGrade: "bw",
-    transition: "cut",
-    kenBurns: false,
-    text: { fontFamily: "Liberation Sans", fontSize: 90, color: "#ffffff", backgroundColor: "transparent", align: "center", yPosition: 0.5, animation: "fade" }
-  },
-  {
-    id: "luxury",
-    name: "Luxury Estate",
-    icon: "💎",
-    description: "Премиально, медленно, золотые оттенки",
+    id: "documentary",
+    name: "Documentary",
+    icon: "🌍",
+    description: "Серьезный тон, эффект пленки, аккуратные титры",
     pace: "slow",
-    colorGrade: "warm",
-    transition: "crossfade",
+    colorGrade: "vintage",
+    transition: "fadegrays",
     kenBurns: true,
-    text: { fontFamily: "Liberation Serif", fontSize: 70, color: "#D4AF37", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 3, align: "center", yPosition: 0.5, animation: "slide-up" }
+    text: { fontFamily: "Liberation Serif", fontSize: 45, color: "#ffffff", backgroundColor: "black@0.5", align: "center", yPosition: 0.9, animation: "slide-up" }
+  },
+  {
+    id: "tiktok",
+    name: "TikTok / Reels",
+    icon: "📱",
+    description: "Максимальное удержание, зумы, быстрые склейки",
+    pace: "dynamic",
+    colorGrade: "vivid",
+    transition: "zoom",
+    kenBurns: false,
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 6, align: "center", yPosition: 0.2, animation: "pop" }
   },
   {
     id: "podcast",
-    name: "Smart Podcast",
+    name: "Podcast",
     icon: "🎙️",
-    description: "Удержание внимания на спикере, умные субтитры",
+    description: "Фокус на лице, умные перебивки, субтитры",
     pace: "medium",
     colorGrade: "none",
     transition: "cut",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans", fontSize: 55, color: "#ffffff", backgroundColor: "black@0.4", align: "center", yPosition: 0.85, animation: "pop" }
+    text: { fontFamily: "DejaVu Sans", fontSize: 65, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 4, align: "center", yPosition: 0.8, animation: "word-highlight" as any }
   },
   {
-    id: "promo",
-    name: "Product Promo",
-    icon: "🛍️",
-    description: "Динамичная реклама, сочные цвета, выезжающий текст",
-    pace: "fast",
-    colorGrade: "vivid",
-    transition: "zoom",
+    id: "tech",
+    name: "Tech Review",
+    icon: "💻",
+    description: "Холодные тона, глитч-переходы",
+    pace: "medium",
+    colorGrade: "cool",
+    transition: "pixelize",
     kenBurns: true,
-    text: { fontFamily: "Liberation Sans", fontSize: 80, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 4, align: "center", yPosition: 0.5, animation: "slide-left" }
+    text: { fontFamily: "Liberation Mono", fontSize: 60, color: "#00FFFF", backgroundColor: "black@0.8", align: "left", yPosition: 0.8, animation: "typewriter" }
   }
 ];
 
 export function getTemplateForContentType(contentType: string): VideoTemplate {
   let id = "minimal";
   if (contentType === "shorts" || contentType === "tiktok" || contentType === "reels") id = "tiktok";
-  if (contentType === "travel" || contentType === "wedding") id = "travel";
-  if (contentType === "ad") id = "promo";
-  if (contentType === "podcast" || contentType === "interview") id = "podcast";
+  if (contentType === "travel" || contentType === "wedding") id = "cinematic";
+  if (contentType === "ad") id = "apple";
+  if (contentType === "podcast" || contentType === "interview") id = "hormozi";
+  if (contentType === "educational" || contentType === "tutorial") id = "tech";
+  if (contentType === "documentary") id = "documentary";
+  if (contentType === "youtube" || contentType === "vlog") id = "mrbeast";
   
-  return TEMPLATES.find(t => t.id === id) || TEMPLATES[1]; // fallback to auto/minimal
+  return TEMPLATES.find(t => t.id === id) || TEMPLATES[1];
 }

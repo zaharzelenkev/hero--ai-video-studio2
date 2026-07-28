@@ -110,6 +110,7 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
 
 КАК ВЫБИРАТЬ КАДРЫ (используя Визуальную раскадровку):
 - ИГНОРИРУЙ БРАК: Избегай фрагментов с качеством ниже 5, пометками РАЗМЫТО, ТЕМНО или тряской (shake).
+- ВЫБИРАЙ ЛУЧШЕЕ: Отдавай высший приоритет кадрам с пометкой "ИНТЕРЕСНОЕ ДЕЙСТВИЕ В КАДРЕ" и "ЕСТЬ ЛЮДИ/ЛИЦА".
 - ЧЕРЕДУЙ: Старайся не ставить подряд кадры с одной и той же камеры без смены ракурса.
 
 ${hasTranscript 
@@ -303,28 +304,29 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     motion: string;
     hasFaces: boolean;
     isImage: boolean;
+    hasAction: boolean;
   }
   const pool: PoolItem[] = [];
 
   for (const asset of allVisuals) {
     if (asset.type === "image") {
-      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 10, motion: "static", hasFaces: false, isImage: true });
+      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 10, motion: "static", hasFaces: false, isImage: true, hasAction: false });
     } else if (asset.segments && asset.segments.length > 0) {
       for (const seg of asset.segments) {
         if (seg.isDark || seg.isBlurry || seg.motionLevel === "shake" || seg.qualityScore < 4) continue;
         const dur = seg.endTime - seg.startTime;
         if (dur < 0.5) continue;
-        pool.push({ assetId: asset.id, startTime: seg.startTime, duration: dur, quality: seg.qualityScore, motion: seg.motionLevel, hasFaces: seg.hasFaces, isImage: false });
+        pool.push({ assetId: asset.id, startTime: seg.startTime, duration: dur, quality: seg.qualityScore, motion: seg.motionLevel, hasFaces: seg.hasFaces, isImage: false, hasAction: seg.hasAction || false });
       }
     } else {
-      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: false });
+      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: false, hasAction: false });
     }
   }
 
   // Fallback if strict filtering removed everything
   if (pool.length === 0) {
     for (const asset of allVisuals) {
-      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: asset.type === "image" });
+      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: asset.type === "image", hasAction: false });
     }
   }
 
@@ -347,11 +349,15 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
       // Phase modifiers
       if (phase === "hook") {
         if (a.hasFaces) scoreA += 50;
+        if (a.hasAction) scoreA += 30;
         if (a.motion === "medium" || a.motion === "high") scoreA += 20;
         if (b.hasFaces) scoreB += 50;
+        if (b.hasAction) scoreB += 30;
         if (b.motion === "medium" || b.motion === "high") scoreB += 20;
       } else if (phase === "climax") {
+        if (a.hasAction) scoreA += 40;
         if (a.motion === "high") scoreA += 50;
+        if (b.hasAction) scoreB += 40;
         if (b.motion === "high") scoreB += 50;
       } else if (phase === "outro") {
         if (a.motion === "static" || a.motion === "low") scoreA += 30;
@@ -404,7 +410,7 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
       duration: shotDur,
       importance: (phase === "climax" || phase === "hook") ? 0.9 : 0.6,
       emotion: phase === "climax" ? "energetic" : phase === "outro" ? "calm" : "neutral",
-      zoom: best.isImage || (phase === "climax" && Math.random() > 0.5) || phase === "hook",
+      zoom: best.isImage || (!best.hasAction && Math.random() > 0.4),
       reason: `[${phase.toUpperCase()}] Качество: ${best.quality}, Лица: ${best.hasFaces ? "Да" : "Нет"}`
     });
 

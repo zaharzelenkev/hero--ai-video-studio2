@@ -20,6 +20,7 @@ export interface VideoSegmentMetadata {
   hasFaces: boolean;
   qualityScore: number; // 1-10
   isSceneChange: boolean;
+  hasAction: boolean; // True if interesting localized movement occurs (not full frame panning)
 }
 
 // Lightweight Laplacian Variance for blur detection
@@ -155,8 +156,18 @@ export async function analyzeVideoLocally(
           } catch { /* fallback */ }
         }
 
+        
         // Motion metrics
         const motionRatio = changedPixels / pixelCount;
+        
+        // Let's determine if the motion is localized (interesting action) vs global (camera pan/shake)
+        // We do this by seeing if the changed pixels are concentrated or spread out.
+        let actionScore = 0;
+        if (motionRatio > 0.05 && motionRatio < 0.4) {
+          // If between 5% and 40% of the screen is moving, it's highly likely to be a subject moving, not the camera.
+          actionScore = 1;
+        }
+
         let motionLevel: "static" | "low" | "medium" | "high" | "shake" = "low";
         if (motionRatio < 0.01) motionLevel = "static";
         else if (motionRatio > 0.6) motionLevel = "shake"; // Massive full-frame changes often mean camera shake or bad tracking
@@ -172,6 +183,7 @@ export async function analyzeVideoLocally(
         if (!isDark) qScore += 1;
         if (!isBlurry) qScore += 2;
         if (hasFaces) qScore += 2;
+        if (actionScore > 0) qScore += 1; // Bonus for localized action
         if (avgSaturation > 30) qScore += 1; // colorful
         if (contrast > 120) qScore += 1; // good contrast
         if (motionLevel === "shake") qScore -= 3;
@@ -187,7 +199,8 @@ export async function analyzeVideoLocally(
           isBlurry,
           hasFaces,
           qualityScore: qScore,
-          isSceneChange
+          isSceneChange,
+          hasAction: actionScore > 0
         });
 
         prevData = new Uint8ClampedArray(data);
@@ -236,6 +249,7 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       (next.motionLevel !== current.motionLevel && (next.motionLevel === "shake" || current.motionLevel === "shake")) ||
       next.isDark !== current.isDark ||
       next.isBlurry !== current.isBlurry ||
+      next.hasAction !== current.hasAction ||
       next.hasFaces !== current.hasFaces ||
       Math.abs(next.qualityScore - current.qualityScore) > 3;
 
@@ -249,6 +263,7 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       current.qualityScore = Math.round((current.qualityScore + next.qualityScore) / 2);
       // If any frame had faces or motion, keep the higher priority tags
       if (next.hasFaces) current.hasFaces = true;
+      if (next.hasAction) current.hasAction = true;
       if (next.motionLevel === "high" && current.motionLevel !== "shake") current.motionLevel = "high";
     }
   }

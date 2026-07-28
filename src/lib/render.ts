@@ -52,33 +52,28 @@ export async function renderProject(
       await ffmpeg.writeFile(fontFile, fontBytes);
     }
 
-    const assetBytesCache = new Map<string, Uint8Array>();
-    async function getAssetBytes(assetId: string): Promise<Uint8Array> {
-      const cached = assetBytesCache.get(assetId);
-      if (cached) return cached;
+    const assetFileNames = new Map<string, string>();
+    const usedAssetIds = new Set<string>();
+    
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        if (clip.type === "video" || clip.type === "audio" || clip.type === "image") {
+          usedAssetIds.add((clip as any).assetId);
+        }
+      }
+    }
+
+    for (const assetId of usedAssetIds) {
       const asset = project.assets.find((a) => a.id === assetId);
-      if (!asset) throw new Error(`Не найден исходный файл (Asset: ${assetId})`);
+      if (!asset) continue;
+      
       const blob = await loadBlob(asset.blobKey);
       if (!blob) throw new Error(`Отсутствует исходный файл для "${asset.name}"`);
       const bytes = await fetchFileFromBlob(blob);
-      assetBytesCache.set(assetId, bytes);
-      return bytes;
-    }
-
-    const allMediaClips: (VideoClip | AudioClip)[] = [];
-    for (const track of project.tracks) {
-      if (track.type === "video") allMediaClips.push(...(track.clips as VideoClip[]));
-      if (track.type === "audio") allMediaClips.push(...(track.clips as AudioClip[]));
-    }
-
-    const clipFileNames = new Map<string, string>();
-    for (const clip of allMediaClips) {
-      const asset = project.assets.find((a) => a.id === clip.assetId);
-      if (!asset) continue;
-      const bytes = await getAssetBytes(asset.id);
-      const fname = `in_${clip.id}.${extFor(asset)}`;
+      
+      const fname = `asset_${asset.id}.${extFor(asset)}`;
       await ffmpeg.writeFile(fname, bytes);
-      clipFileNames.set(clip.id, fname);
+      assetFileNames.set(asset.id, fname);
       
       if (asset.kind === "video" && asset.hasAudio === undefined) {
         let hasAudio = false;
@@ -91,11 +86,21 @@ export async function renderProject(
         await ffmpeg.exec(["-i", fname]);
         ffmpeg.off("log", probeLog);
         asset.hasAudio = hasAudio;
-        if (!hasAudio) clip.muted = true; // Ensure the clip knows it has no audio!
       }
     }
 
-    const fileNameFor = (clip: VideoClip | AudioClip) => clipFileNames.get(clip.id) || "";
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        if (clip.type === "video") {
+          const asset = project.assets.find(a => a.id === (clip as VideoClip).assetId);
+          if (asset && asset.hasAudio === false) {
+            (clip as VideoClip).muted = true;
+          }
+        }
+      }
+    }
+
+    const fileNameFor = (clip: VideoClip | AudioClip) => assetFileNames.get(clip.assetId) || "";
     const compiled = compileProjectToFfmpeg(project, project.exportSettings, fileNameFor);
 
     const args: string[] = [];
@@ -127,7 +132,7 @@ export async function renderProject(
     const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
     const blob = new Blob([new Uint8Array(bytes)], { type: mime });
 
-    for (const fname of clipFileNames.values()) {
+    for (const fname of assetFileNames.values()) {
       try {
         await ffmpeg.deleteFile(fname);
       } catch {

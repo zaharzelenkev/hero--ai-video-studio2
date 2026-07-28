@@ -87,6 +87,8 @@ export interface AIEditDecision {
 
 import { AI_CONFIG } from "@/config/ai";
 
+import { DirectorBrain } from "../brain/director";
+
 export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditDecision> {
   const apiKey = AI_CONFIG.groqApiKey;
   if (!apiKey) {
@@ -231,46 +233,14 @@ ${request.assets.map((a, i) => {
   }
 }
 
-function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
-  const prompt = request.userPrompt.toLowerCase();
-  
-  let contentType: AIEditDecision["contentType"] = "generic";
-  const typeMatchers: Array<[AIEditDecision["contentType"], string[]]> = [
-    ["podcast", ["подкаст", "podcast", "интервью", "interview"]],
-    ["ad", ["реклам", "ad", "промо", "promo", "коммерц"]],
-    ["shorts", ["shorts", "шортс"]],
-    ["reels", ["reels", "рилс"]],
-    ["tiktok", ["tiktok", "тикток"]],
-    ["wedding", ["свадьб", "wedding", "love"]],
-    ["travel", ["тревел", "travel", "путешеств", "влог", "vlog"]],
-    ["tutorial", ["урок", "tutorial", "обучен", "how to"]],
-    ["youtube", ["youtube", "ютуб", "ролик"]],
-  ];
-  
-  for (const [type, keywords] of typeMatchers) {
-    if (keywords.some(kw => prompt.includes(kw))) {
-      contentType = type;
-      break;
-    }
-  }
-  
-  const durationMap: Record<string, number> = {
-    shorts: 30, reels: 30, tiktok: 15, ad: 15,
-    youtube: 120, podcast: 300, tutorial: 180, wedding: 60, travel: 45, generic: 30,
-  };
-  let targetDuration = durationMap[contentType] || 30;
-  const durationMatch = prompt.match(/(\d+)\s*(сек|мин)/);
-  if (durationMatch) {
-    const num = parseInt(durationMatch[1]);
-    targetDuration = durationMatch[2].startsWith("мин") ? num * 60 : num;
-  }
-  
-  let pace: AIEditDecision["pace"] = "medium";
-  if (prompt.match(/(динамич|быстр|энергич|экшен|action|fast)/)) pace = "fast";
-  else if (prompt.match(/(спокойн|медленн|расслабл|плавн|slow|chill)/)) pace = "slow";
-  else if (prompt.match(/(dynamic|меняющ)/) || contentType === "travel") pace = "dynamic";
+async function generateRuleBasedDecision(request: AIAnalysisRequest): Promise<AIEditDecision> {
+  const strategy = await DirectorBrain.defineStrategy(request.userPrompt);
+  const targetDuration = strategy.targetDuration;
+  const contentType = strategy.genre as any;
+  const pace = contentType === "tiktok" || contentType === "ad" ? "fast" : contentType === "travel" ? "slow" : "medium";
   
   let colorGrade = "cinematic";
+  const prompt = request.userPrompt.toLowerCase();
   const gradeMatchers: Array<[string, string[]]> = [
     ["bw", ["черн", "бел", "b&w", "ч/б", "чб"]],
     ["vintage", ["винтаж", "ретро", "старый", "retro"]],
@@ -288,7 +258,6 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     return { contentType, targetDuration, pace, colorGrade, clips: [], musicSync: true, transitions: "crossfade", suggestions: [], analysisQuality: "rule-based" };
   }
 
-  // Pre-process segments into a searchable pool
   interface PoolItem {
     assetId: string;
     startTime: number;
@@ -316,143 +285,87 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     }
   }
 
-  // Fallback if strict filtering removed everything
   if (pool.length === 0) {
     for (const asset of allVisuals) {
       pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: asset.type === "image", hasAction: false });
     }
   }
 
-  // Determine total available playable duration
-  let availableDur = pool.reduce((sum, p) => sum + p.duration, 0);
-  if (availableDur < targetDuration && allVisuals.every(a => a.type === "video")) {
-    targetDuration = availableDur;
-  }
-
   const clips: AIEditDecision["clips"] = [];
   let currentTime = 0;
-
-  // Rule-based Intelligent Cold Open (Hook)
-  if (pool.length > 0 && (contentType === "tiktok" || contentType === "shorts" || contentType === "reels" || contentType === "youtube")) {
-    const hookCandidates = [...pool].sort((a,b) => (b.quality + (b.hasFaces?5:0) + (b.hasAction?5:0)) - (a.quality + (a.hasFaces?5:0) + (a.hasAction?5:0)));
-    const hook = hookCandidates[0];
-    const hookDur = pace === "fast" ? 1.5 : 2.5;
-    clips.push({
-      assetId: hook.assetId,
-      trackType: "main",
-      startTime: hook.startTime,
-      endTime: hook.startTime + hookDur,
-      duration: hookDur,
-      importance: 1.0,
-      emotion: "energetic",
-      zoom: true,
-      reason: "Smart Rule-based Hook"
-    });
-    currentTime += hookDur;
-  }
-  let phase = "hook"; // hook -> buildup -> climax -> outro
+  let phase = "hook"; 
+  let usedClipCount = 0;
 
   const getCandidates = (phase: string) => {
     return [...pool].sort((a, b) => {
-      // Base score is quality
       let scoreA = a.quality * 10;
       let scoreB = b.quality * 10;
-      
-      // Phase modifiers
       if (phase === "hook") {
         if (a.hasFaces) scoreA += 50;
         if (a.hasAction) scoreA += 30;
-        if (a.motion === "medium" || a.motion === "high") scoreA += 20;
         if (b.hasFaces) scoreB += 50;
         if (b.hasAction) scoreB += 30;
-        if (b.motion === "medium" || b.motion === "high") scoreB += 20;
       } else if (phase === "climax") {
         if (a.hasAction) scoreA += 40;
         if (a.motion === "high") scoreA += 50;
         if (b.hasAction) scoreB += 40;
         if (b.motion === "high") scoreB += 50;
-      } else if (phase === "outro") {
-        if (a.motion === "static" || a.motion === "low") scoreA += 30;
-        if (b.motion === "static" || b.motion === "low") scoreB += 30;
       }
-      // Add random jitter to avoid taking the exact same clip over and over if it's top scored
       scoreA += Math.random() * 15;
       scoreB += Math.random() * 15;
       return scoreB - scoreA;
     });
   };
 
-  let usedClipCount = 0;
-
   while (currentTime < targetDuration) {
     const progress = currentTime / targetDuration;
-    
-    // Determine current story phase
     if (progress < 0.15) phase = "hook";
     else if (progress < 0.70) phase = "buildup";
     else if (progress < 0.90) phase = "climax";
     else phase = "outro";
 
     const candidates = getCandidates(phase);
-    // Pick the best candidate that isn't the EXACT same as the previous one (to force a cut)
     let best = candidates[0];
     if (usedClipCount > 0 && clips[clips.length - 1].assetId === best.assetId && candidates.length > 1) {
        best = candidates[1];
     }
 
-    // Determine duration for this shot based on phase and overall pace
     let shotDur = 3;
     if (phase === "hook") shotDur = pace === "slow" ? 4 : 2;
     else if (phase === "buildup") shotDur = pace === "fast" ? 3 : 5;
     else if (phase === "climax") shotDur = pace === "slow" ? 2.5 : 1.2;
     else if (phase === "outro") shotDur = 4;
     
-    // Add dynamic jitter
     shotDur += (Math.random() - 0.5) * 1.5;
     shotDur = Math.max(0.8, Math.min(shotDur, targetDuration - currentTime, best.duration));
 
-    // Calculate a random start time within the available segment
     const maxStart = best.duration - shotDur;
     const actualStart = best.startTime + (maxStart > 0 ? Math.random() * maxStart : 0);
 
-    clips.push({ trackType: "main" as const,
+    clips.push({
       assetId: best.assetId,
+      trackType: "main",
       startTime: actualStart,
       endTime: actualStart + shotDur,
       duration: shotDur,
       importance: (phase === "climax" || phase === "hook") ? 0.9 : 0.6,
       emotion: phase === "climax" ? "energetic" : phase === "outro" ? "calm" : "neutral",
       zoom: best.isImage || (!best.hasAction && Math.random() > 0.4),
-      reason: `[${phase.toUpperCase()}] Качество: ${best.quality}, Лица: ${best.hasFaces ? "Да" : "Нет"}`
+      reason: `[${phase.toUpperCase()}] Качество: ${best.quality}`
     });
 
     currentTime += shotDur;
     usedClipCount++;
-    
-    if (shotDur < 0.5) break; // safeguard
+    if (shotDur < 0.5) break;
   }
   
   let transitions: AIEditDecision["transitions"] = "crossfade";
-  if (pace === "fast" || contentType === "shorts" || contentType === "tiktok") {
-    transitions = "cut";
-  }
-  
-  const textOverlays: AIEditDecision["textOverlays"] = [];
-  const titleText = request.userPrompt.trim().slice(0, 50);
-  if (titleText && titleText.length > 5 && !titleText.toLowerCase().includes("сделай")) {
-    textOverlays.push({
-      text: titleText,
-      time: 0.5,
-      duration: Math.min(4, targetDuration * 0.3),
-      style: "title",
-      animation: "fade",
-    });
-  }
+  if (pace === "fast" || contentType === "shorts" || contentType === "tiktok") transitions = "cut";
   
   return {
-    contentType, targetDuration, pace, colorGrade, clips, musicSync: true, transitions, textOverlays,
+    contentType, targetDuration, pace, colorGrade, clips, musicSync: true, transitions, textOverlays: [],
     audioEnhancements: { normalize: true, denoise: contentType === "podcast", voiceEnhance: contentType === "podcast", removeSilence: pace === "fast", ducking: true },
-    suggestions: [`Создана профессиональная драматургия (${usedClipCount} сцен)`],
+    suggestions: [strategy.instructions],
     analysisQuality: "rule-based",
   };
 }

@@ -269,5 +269,82 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
+  
+    // Add music
+  if (musicAsset) {
+    const audioTrack = project.tracks.find((t) => t.type === "audio")!;
+    const musicDuration = Math.min(musicAsset.duration || project.duration, project.duration);
+    const { createAudioClip } = require("./factories");
+    const clip = createAudioClip({
+      trackId: audioTrack.id,
+      asset: musicAsset,
+      start: 0,
+      duration: project.duration,
+      inPoint: 0,
+      outPoint: musicDuration,
+    });
+    clip.fadeOut = Math.min(2, project.duration / 4);
+    audioTrack.clips.push(clip);
+  }
+
+  // Smart Audio Auto-Ducking
+  const audioTrack = project.tracks.find((t) => t.type === "audio");
+  if (audioTrack && audioTrack.clips.length > 0) {
+    const musicClip = audioTrack.clips[0] as import("./types").AudioClip;
+    
+    // Collect all speech intervals
+    const speechTimes: { start: number; end: number }[] = [];
+    for (const track of project.tracks) {
+      if (track.type === "video") {
+        for (const clip of track.clips as import("./types").VideoClip[]) {
+           const segs = segmentsByAssetId.get(clip.assetId);
+           if (segs) {
+              for (const s of segs) {
+                 const maxStart = Math.max(clip.inPoint, s.start);
+                 const minEnd = Math.min(clip.outPoint, s.end);
+                 if (minEnd > maxStart) {
+                    const gStart = clip.start + (maxStart - clip.inPoint);
+                    const gEnd = gStart + (minEnd - maxStart);
+                    speechTimes.push({ start: gStart, end: gEnd });
+                 }
+              }
+           }
+        }
+      }
+    }
+
+    if (speechTimes.length > 0) {
+      // Sort and merge close speech segments (< 1.5s apart)
+      speechTimes.sort((a, b) => a.start - b.start);
+      const mergedSpeech: { start: number; end: number }[] = [];
+      for (const s of speechTimes) {
+         if (mergedSpeech.length === 0) {
+           mergedSpeech.push(s);
+         } else {
+           const last = mergedSpeech[mergedSpeech.length - 1];
+           if (s.start - last.end < 1.5) {
+             last.end = Math.max(last.end, s.end);
+           } else {
+             mergedSpeech.push(s);
+           }
+         }
+      }
+      
+      // Generate keyframes
+            const randId = () => Math.random().toString(36).substring(7);
+      
+      const kfs: import("./types").Keyframe[] = [];
+      let lastTime = 0;
+      for (const m of mergedSpeech) {
+         kfs.push({ id: randId(), time: Math.max(lastTime, m.start - 0.5), value: 0.9, easing: "linear" });
+         kfs.push({ id: randId(), time: m.start, value: 0.15, easing: "linear" });
+         kfs.push({ id: randId(), time: m.end, value: 0.15, easing: "linear" });
+         kfs.push({ id: randId(), time: m.end + 1.0, value: 0.9, easing: "linear" });
+         lastTime = m.end + 1.0;
+      }
+      musicClip.volume = { value: 0.9, keyframes: kfs };
+    }
+  }
+
   return project;
 }

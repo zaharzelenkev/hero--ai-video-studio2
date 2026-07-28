@@ -96,7 +96,7 @@ function buildVideoClipChain(
     const scaleExpr = paramToFfmpegExpr(clip.scale, "t");
     const next = id(`c${tag}_`);
     lines.push(
-      `[${current}]scale=w='trunc(iw*(${scaleExpr})/2)*2':h='trunc(ih*(${scaleExpr})/2)*2',setsar=1[${next}]`,
+      `[${current}]scale=w='trunc(iw*(${scaleExpr})/2)*2':h='trunc(ih*(${scaleExpr})/2)*2':eval=frame,setsar=1[${next}]`,
     );
     current = next;
   }

@@ -3,6 +3,7 @@ import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeats, snapToBeat } from "./beatDetection";
 import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
+import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
 import { AI_CONFIG } from "@/config/ai";
 import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
 
@@ -62,7 +63,28 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   }
 
   
+  
+  // 0. Local Fast Vision Analysis
+  const localSegments = new Map<string, VideoSegmentMetadata[]>();
+  if (style.intelligentCuts) {
+    for (const asset of visualAssets) {
+      if (asset.kind === "video") {
+        onProgress?.(`Анализ динамики: ${asset.name}...`);
+        const file = filesByAssetId.get(asset.id);
+        if (file) {
+          try {
+             const segs = await analyzeVideoLocally(file);
+             localSegments.set(asset.id, segs);
+          } catch(e) {
+             console.warn("Local analysis failed for", asset.name, e);
+          }
+        }
+      }
+    }
+  }
+
   // 1. Transcribe audio from videos
+
   const transcripts = new Map<string, string>();
   // Store raw segments for auto-subtitling
   const segmentsByAssetId = new Map<string, import("./transcribe").TranscriptSegment[]>();
@@ -107,6 +129,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           type: a.kind,
           duration: a.duration,
           transcript: transcripts.get(a.id),
+          segments: localSegments.get(a.id),
         })),
       };
       

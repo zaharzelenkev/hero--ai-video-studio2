@@ -17,6 +17,7 @@ export interface AIAnalysisRequest {
     transcript?: string;
     width?: number;
     height?: number;
+    segments?: import("../localAnalyzer").VideoSegmentMetadata[];
   }>;
 }
 
@@ -140,7 +141,8 @@ ${request.assets.map((a, i) => {
     `   assetId: "${a.id}"`,
     `   Тип: ${a.type}`,
     a.duration ? `   Длительность: ${a.duration.toFixed(1)}с` : "   Статичное",
-    a.transcript ? `   Речь:\n${a.transcript.slice(0, 3500)}` : ""
+    a.transcript ? `   Речь:\n${a.transcript.slice(0, 3500)}` : "",
+    a.segments && a.segments.length > 0 ? `   Визуальная раскадровка (динамика/свет):\n${a.segments.map(s => `[${s.startTime.toFixed(1)}s - ${s.endTime.toFixed(1)}s] Движение: ${s.motionLevel}${s.isSceneChange ? ", НОВАЯ СЦЕНА" : ""}${s.isDark ? ", ТЕМНЫЙ КАДР" : ""}`).join("\n")}` : ""
   ].filter(Boolean).join("\n");
 }).join("\n\n")}
 

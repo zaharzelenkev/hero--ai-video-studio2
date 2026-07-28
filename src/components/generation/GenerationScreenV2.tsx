@@ -102,6 +102,7 @@ export default function GenerationScreenV2() {
       }
       
       await saveProject(project);
+      setRecentProjects(await listProjects());
 
       setProgressLabel("Подготовка видеодвижка...");
       const blob = await renderProject(
@@ -117,6 +118,7 @@ export default function GenerationScreenV2() {
       await saveBlob(previewKey, blob);
       project.previewBlobKey = previewKey;
       await saveProject(project);
+      setRecentProjects(await listProjects());
 
       // Redirect to success page
       router.push(`/success/${project.id}`);

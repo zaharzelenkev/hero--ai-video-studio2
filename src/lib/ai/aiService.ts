@@ -94,11 +94,29 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
     
     const hasTranscript = request.assets.some(a => !!a.transcript);
     
-    const systemPrompt = `Ты — опытный видеомонтажер. Твоя задача — составить план монтажа в формате JSON.
+    const systemPrompt = `Ты — элитный режиссер монтажа (Senior Video Editor). Твоя задача — создать идеальный сценарий монтажа в JSON.
+Твоя главная цель — ДРАМАТУРГИЯ и РИТМ. Ты не просто склеиваешь кадры, ты рассказываешь ИСТОРИЮ.
+
+ПРАВИЛА ПОСТРОЕНИЯ ИСТОРИИ (STORY ARC):
+1. Вступление (Hook): Первые 2-4 секунды. Захват внимания. Используй самый качественный кадр (Quality 8+), интригующее действие или крупный план лица.
+2. Развитие (Build-up): Раскрытие темы. Спокойный темп, более длинные сцены (3-6 сек), чередование ракурсов для погружения в атмосферу.
+3. Кульминация (Climax): Пик эмоций и экшена. Высокая динамика (motionLevel: high). Быстрая нарезка (кадры по 1-2 сек).
+4. Финал (Outro): Спокойное завершение. Красивый стабильный кадр, спад напряжения.
+
+АДАПТАЦИЯ ПОД ФОРМАТ:
+- TikTok / Shorts / Reels: Сверхбыстрый Hook (1-2 сек), удержание внимания, частая смена планов.
+- Travel / Cinematic: Плавный ритм, эстетика, длинные пейзажные кадры, взрывы динамики в кульминации.
+- Podcast / Interview: Внимание на спикера, жесткое вырезание пауз, акцент на самых сильных фразах.
+
+КАК ВЫБИРАТЬ КАДРЫ (используя Визуальную раскадровку):
+- ИГНОРИРУЙ БРАК: Избегай фрагментов с качеством ниже 5, пометками РАЗМЫТО, ТЕМНО или тряской (shake).
+- ЧЕРЕДУЙ: Старайся не ставить подряд кадры с одной и той же камеры без смены ракурса.
+
 ${hasTranscript 
-  ? "В материалах есть транскрипция с таймкодами. ВЫБЕРИ самые интересные фразы и укажи их точные startTime и endTime. Вырезай тишину!" 
-  : "В материалах НЕТ речи. НЕ ПЫТАЙСЯ угадывать startTime и endTime. Просто укажи 'assetId' и желаемую 'duration' (в секундах) для каждого клипа, а также эффекты."}
-ОБЯЗАТЕЛЬНО используй только те assetId, которые есть в списке материалов.
+  ? "В материалах есть Речь (с таймкодами). ВЫБИРАЙ самые смысловые фразы и строй историю вокруг них. Указывай точные startTime и endTime. Вырезай тишину!" 
+  : "В материалах НЕТ речи. Работай только с визуальным рядом, выбирая лучшие моменты."}
+
+ОБЯЗАТЕЛЬНО используй только те assetId, которые есть в списке материалов. СУММАРНАЯ ДЛИТЕЛЬНОСТЬ всех клипов в массиве должна быть примерно равна targetDuration!
 `;
 
     const exampleResponse = hasTranscript ? {
@@ -247,7 +265,6 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     youtube: 120, podcast: 300, tutorial: 180, wedding: 60, travel: 45, generic: 30,
   };
   let targetDuration = durationMap[contentType] || 30;
-  
   const durationMatch = prompt.match(/(\d+)\s*(сек|мин)/);
   if (durationMatch) {
     const num = parseInt(durationMatch[1]);
@@ -268,97 +285,133 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     ["dramatic", ["драматич", "темн", "dramatic"]],
     ["vivid", ["ярк", "vivid", "сочн", "красочн"]],
   ];
-  
   for (const [grade, keywords] of gradeMatchers) {
-    if (keywords.some(kw => prompt.includes(kw))) {
-      colorGrade = grade;
-      break;
-    }
+    if (keywords.some(kw => prompt.includes(kw))) { colorGrade = grade; break; }
   }
   
   const allVisuals = request.assets.filter(a => a.type === "video" || a.type === "image");
-  const clips: AIEditDecision["clips"] = [];
-  
-  // Base duration per clip based on pace
-  const paceSeconds = pace === "fast" ? 2.5 : pace === "slow" ? 6 : 4;
-  
   if (allVisuals.length === 0) {
-    return {
-      contentType, targetDuration, pace, colorGrade, clips: [], musicSync: true, transitions: "crossfade", suggestions: [], analysisQuality: "rule-based"
-    };
+    return { contentType, targetDuration, pace, colorGrade, clips: [], musicSync: true, transitions: "crossfade", suggestions: [], analysisQuality: "rule-based" };
   }
 
-  // Calculate total available media duration
-  const totalAvailable = allVisuals.reduce((acc, a) => acc + (a.duration || 5), 0);
-  
-  // If we have less media than requested, cap the target duration
-  if (totalAvailable < targetDuration * 0.8 && allVisuals.every(a => a.type !== "image")) {
-     targetDuration = totalAvailable;
+  // Pre-process segments into a searchable pool
+  interface PoolItem {
+    assetId: string;
+    startTime: number;
+    duration: number;
+    quality: number;
+    motion: string;
+    hasFaces: boolean;
+    isImage: boolean;
   }
+  const pool: PoolItem[] = [];
 
-  let currentTime = 0;
-  let assetIndex = 0;
-  
-  // Track how much of each video we've used to spread cuts across the whole video
-  const assetProgress = new Map<string, number>();
-  
-  // We want to loop until we hit targetDuration
-  let panic = 0;
-  while (currentTime < targetDuration && panic < 1000) {
-    panic++;
-    // Pick the next asset (round-robin)
-    const asset = allVisuals[assetIndex % allVisuals.length];
-    assetIndex++;
-    
-    let clipDuration = paceSeconds;
-    if (pace === "dynamic") {
-      // mix of short and medium clips
-      clipDuration = Math.random() > 0.6 ? 1.5 : 4 + Math.random() * 3;
-    }
-    
-    // Don't exceed target duration
-    clipDuration = Math.min(clipDuration, targetDuration - currentTime);
-    
-    if (clipDuration < 0.5) break;
-
-    let startTime = 0;
-    
-    if (asset.type === "video" && asset.duration) {
-      // Ensure we don't request more than the video has
-      clipDuration = Math.min(clipDuration, asset.duration);
-      clipDuration = Math.min(clipDuration, asset.duration);
-      
-      // Calculate where to take this chunk from
-      const lastUsedEnd = assetProgress.get(asset.id) || 0;
-      
-      if (lastUsedEnd + clipDuration <= asset.duration) {
-         // Continue from last point, maybe jump ahead slightly
-         startTime = lastUsedEnd + (Math.random() > 0.5 ? 0 : Math.random() * 2);
-         if (startTime + clipDuration > asset.duration) startTime = Math.max(0, asset.duration - clipDuration);
-      } else {
-         // We reached the end of this video. 
-         // If we only have 1 video, we loop back to start.
-         if (allVisuals.length === 1) {
-            startTime = Math.random() * Math.max(0, asset.duration - clipDuration);
-         } else {
-            // Skip this asset and try the next one
-            continue;
-         }
+  for (const asset of allVisuals) {
+    if (asset.type === "image") {
+      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 10, motion: "static", hasFaces: false, isImage: true });
+    } else if (asset.segments && asset.segments.length > 0) {
+      for (const seg of asset.segments) {
+        if (seg.isDark || seg.isBlurry || seg.motionLevel === "shake" || seg.qualityScore < 4) continue;
+        const dur = seg.endTime - seg.startTime;
+        if (dur < 0.5) continue;
+        pool.push({ assetId: asset.id, startTime: seg.startTime, duration: dur, quality: seg.qualityScore, motion: seg.motionLevel, hasFaces: seg.hasFaces, isImage: false });
       }
-      assetProgress.set(asset.id, startTime + clipDuration);
+    } else {
+      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: false });
     }
-    
-    clips.push({
-      assetId: asset.id,
-      startTime,
-      endTime: startTime + clipDuration,
-      duration: clipDuration,
-      importance: 0.7 + Math.random() * 0.3,
-      emotion: pace === "fast" ? "energetic" : pace === "slow" ? "calm" : "neutral",
-      zoom: asset.type === "image" || (Math.random() > 0.8), // Sometimes add subtle zoom to videos too
+  }
+
+  // Fallback if strict filtering removed everything
+  if (pool.length === 0) {
+    for (const asset of allVisuals) {
+      pool.push({ assetId: asset.id, startTime: 0, duration: asset.duration || 5, quality: 5, motion: "medium", hasFaces: false, isImage: asset.type === "image" });
+    }
+  }
+
+  // Determine total available playable duration
+  let availableDur = pool.reduce((sum, p) => sum + p.duration, 0);
+  if (availableDur < targetDuration && allVisuals.every(a => a.type === "video")) {
+    targetDuration = availableDur;
+  }
+
+  const clips: AIEditDecision["clips"] = [];
+  let currentTime = 0;
+  let phase = "hook"; // hook -> buildup -> climax -> outro
+
+  const getCandidates = (phase: string) => {
+    return [...pool].sort((a, b) => {
+      // Base score is quality
+      let scoreA = a.quality * 10;
+      let scoreB = b.quality * 10;
+      
+      // Phase modifiers
+      if (phase === "hook") {
+        if (a.hasFaces) scoreA += 50;
+        if (a.motion === "medium" || a.motion === "high") scoreA += 20;
+        if (b.hasFaces) scoreB += 50;
+        if (b.motion === "medium" || b.motion === "high") scoreB += 20;
+      } else if (phase === "climax") {
+        if (a.motion === "high") scoreA += 50;
+        if (b.motion === "high") scoreB += 50;
+      } else if (phase === "outro") {
+        if (a.motion === "static" || a.motion === "low") scoreA += 30;
+        if (b.motion === "static" || b.motion === "low") scoreB += 30;
+      }
+      // Add random jitter to avoid taking the exact same clip over and over if it's top scored
+      scoreA += Math.random() * 15;
+      scoreB += Math.random() * 15;
+      return scoreB - scoreA;
     });
+  };
+
+  let usedClipCount = 0;
+
+  while (currentTime < targetDuration) {
+    const progress = currentTime / targetDuration;
     
-    currentTime += clipDuration;
+    // Determine current story phase
+    if (progress < 0.15) phase = "hook";
+    else if (progress < 0.70) phase = "buildup";
+    else if (progress < 0.90) phase = "climax";
+    else phase = "outro";
+
+    const candidates = getCandidates(phase);
+    // Pick the best candidate that isn't the EXACT same as the previous one (to force a cut)
+    let best = candidates[0];
+    if (usedClipCount > 0 && clips[clips.length - 1].assetId === best.assetId && candidates.length > 1) {
+       best = candidates[1];
+    }
+
+    // Determine duration for this shot based on phase and overall pace
+    let shotDur = 3;
+    if (phase === "hook") shotDur = pace === "slow" ? 4 : 2;
+    else if (phase === "buildup") shotDur = pace === "fast" ? 3 : 5;
+    else if (phase === "climax") shotDur = pace === "slow" ? 2.5 : 1.2;
+    else if (phase === "outro") shotDur = 4;
+    
+    // Add dynamic jitter
+    shotDur += (Math.random() - 0.5) * 1.5;
+    shotDur = Math.max(0.8, Math.min(shotDur, targetDuration - currentTime, best.duration));
+
+    // Calculate a random start time within the available segment
+    const maxStart = best.duration - shotDur;
+    const actualStart = best.startTime + (maxStart > 0 ? Math.random() * maxStart : 0);
+
+    clips.push({
+      assetId: best.assetId,
+      startTime: actualStart,
+      endTime: actualStart + shotDur,
+      duration: shotDur,
+      importance: (phase === "climax" || phase === "hook") ? 0.9 : 0.6,
+      emotion: phase === "climax" ? "energetic" : phase === "outro" ? "calm" : "neutral",
+      zoom: best.isImage || (phase === "climax" && Math.random() > 0.5) || phase === "hook",
+      reason: `[${phase.toUpperCase()}] Качество: ${best.quality}, Лица: ${best.hasFaces ? "Да" : "Нет"}`
+    });
+
+    currentTime += shotDur;
+    usedClipCount++;
+    
+    if (shotDur < 0.5) break; // safeguard
   }
   
   let transitions: AIEditDecision["transitions"] = "crossfade";
@@ -378,27 +431,10 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     });
   }
   
-  const audioEnhancements: AIEditDecision["audioEnhancements"] = {
-    normalize: true,
-    denoise: contentType === "podcast" || contentType === "interview",
-    voiceEnhance: contentType === "podcast" || contentType === "interview",
-    removeSilence: pace === "fast",
-    ducking: request.assets.some(a => a.type === "audio"),
-  };
-  
   return {
-    contentType,
-    targetDuration,
-    pace,
-    colorGrade,
-    clips,
-    musicSync: true,
-    transitions,
-    textOverlays,
-    audioEnhancements,
-    suggestions: [
-      `Создан ${contentType} монтаж в ${pace} темпе.`,
-    ],
+    contentType, targetDuration, pace, colorGrade, clips, musicSync: true, transitions, textOverlays,
+    audioEnhancements: { normalize: true, denoise: contentType === "podcast", voiceEnhance: contentType === "podcast", removeSilence: pace === "fast", ducking: true },
+    suggestions: [`Создана профессиональная драматургия (${usedClipCount} сцен)`],
     analysisQuality: "rule-based",
   };
 }

@@ -396,6 +396,8 @@ export function compileProjectToFfmpeg(
           `text='${text}'`,
           `fontsize=${clip.fontSize}`,
           `fontcolor=${clip.color}@1`,
+          `borderw=${clip.strokeWidth ?? 0}`,
+          `bordercolor=${clip.strokeColor || "black"}@1`,
           `x='${xPos}'`,
           `y='${yPos}'`,
           `alpha='${opacityExpr}'`,

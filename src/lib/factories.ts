@@ -114,6 +114,8 @@ export function createTextClip(opts: { trackId: string; start: number; duration:
     fontSize: 54,
     color: "#ffffff",
     backgroundColor: "transparent",
+    strokeColor: "#000000",
+    strokeWidth: 0,
     align: "center",
     start: opts.start,
     duration: opts.duration,

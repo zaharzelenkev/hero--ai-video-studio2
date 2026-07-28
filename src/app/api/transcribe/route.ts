@@ -5,11 +5,6 @@ import { NextRequest, NextResponse } from "next/server";
 // client only ever talks to this same-origin route, never to Groq directly.
 export const runtime = "nodejs";
 
-interface GroqSegment {
-  start: number;
-  end: number;
-  text: string;
-}
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -36,6 +31,8 @@ export async function POST(req: NextRequest) {
   groqForm.append("file", audio, "audio.mp3");
   groqForm.append("model", "whisper-large-v3-turbo");
   groqForm.append("response_format", "verbose_json");
+  groqForm.append("timestamp_granularities[]", "word");
+  groqForm.append("timestamp_granularities[]", "segment");
 
   let groqResp: Response;
   try {
@@ -56,10 +53,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const data = (await groqResp.json()) as { segments?: GroqSegment[] };
+  
+  const data = (await groqResp.json()) as any;
   const segments = (data.segments || [])
-    .map((s) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }))
-    .filter((s) => s.text.length > 0);
+    .map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }))
+    .filter((s: any) => s.text.length > 0);
 
-  return NextResponse.json({ segments });
+  let words: { word: string; start: number; end: number }[] = data.words || [];
+
+  // If the API didn't return word-level timestamps (which Whisper often doesn't by default unless requested,
+  // and sometimes even then depending on the provider), we dynamically extrapolate them from segments.
+  if (words.length === 0 && segments.length > 0) {
+    for (const seg of segments) {
+      const segText = seg.text.trim();
+      if (!segText) continue;
+      const segWords = segText.split(/\s+/);
+      const totalChars = segWords.join("").length;
+      const dur = Math.max(0.1, seg.end - seg.start);
+      let currentStart = seg.start;
+      
+      for (const w of segWords) {
+        // Calculate duration based on character count proportion to make it more natural
+        const wDur = (w.length / totalChars) * dur;
+        words.push({ word: w, start: currentStart, end: currentStart + wDur });
+        currentStart += wDur;
+      }
+    }
+  }
+
+  return NextResponse.json({ segments, words });
+
 }

@@ -87,7 +87,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   const transcripts = new Map<string, string>();
   // Store raw segments for auto-subtitling
-  const segmentsByAssetId = new Map<string, import("./transcribe").TranscriptSegment[]>();
+  const segmentsByAssetId = new Map<string, import("./transcribe").TranscriptWord[] | import("./transcribe").TranscriptSegment[]>();
   if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
     for (const asset of visualAssets) {
       if (asset.kind === "video") {
@@ -96,9 +96,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           const file = filesByAssetId.get(asset.id);
           if (file && file.size < 100 * 1024 * 1024) { // skip giant files
             const audioBlob = await extractAudioForTranscription(file, asset);
-            const segments = await transcribeAudio(audioBlob);
+            const transcriptResult = await transcribeAudio(audioBlob);
+            const segments = transcriptResult.words.length > 0 ? transcriptResult.words : transcriptResult.segments;
             if (segments && segments.length > 0) {
-              const fullText = segments.map(s => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s] ${s.text}`).join("\n");
+              const fullText = segments.map(s => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s] ${(s as any).text || (s as any).word}`).join("\n");
               segmentsByAssetId.set(asset.id, segments);
               transcripts.set(asset.id, fullText);
               
@@ -266,36 +267,52 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       const segs = segmentsByAssetId.get(vClip.assetId);
       if (!segs) continue;
       
-      for (const seg of segs) {
-        // Check overlap
-        const maxStart = Math.max(vClip.inPoint, seg.start);
-        const minEnd = Math.min(vClip.outPoint, seg.end);
+      let i = 0;
+      while (i < segs.length) {
+        const seg1 = segs[i] as any;
+        let text = seg1.text || seg1.word;
+        let segEnd = seg1.end;
+        let step = 1;
         
-        if (minEnd > maxStart) { // There is overlap
-          // Map to global timeline
+        // Group up to 2 short words
+        if (i + 1 < segs.length && text.length < 6 && (segs[i+1] as any).text?.length < 6 || (segs[i+1] as any).word?.length < 6) {
+           text += " " + ((segs[i+1] as any).text || (segs[i+1] as any).word);
+           segEnd = segs[i+1].end;
+           step = 2;
+        }
+
+        // Check overlap
+        const maxStart = Math.max(vClip.inPoint, seg1.start);
+        const minEnd = Math.min(vClip.outPoint, segEnd);
+        
+        if (minEnd > maxStart) {
           const globalStart = vClip.start + (maxStart - vClip.inPoint);
           const globalDuration = minEnd - maxStart;
           
-          if (globalDuration > 0.2) {
+          if (globalDuration > 0.05) {
             const txtClip = createTextClip({
               trackId: textTrack.id,
               start: globalStart,
               duration: globalDuration,
-              text: seg.text,
+              text: text.toUpperCase(),
             });
-            // Style it nicely for shorts
-            txtClip.y.value = 0.35; // lower third
-            txtClip.fontSize = 54;
-            txtClip.color = "#ffffff";
-            txtClip.backgroundColor = "transparent";
             
-            // Add a punchy pop animation
+            txtClip.y.value = 0.15;
+            txtClip.fontSize = 75;
+            txtClip.fontFamily = "DejaVu Sans Bold";
+            txtClip.color = text.length > 7 || Math.random() > 0.7 ? "#FFE81A" : "#FFFFFF";
+            txtClip.backgroundColor = "transparent";
+            txtClip.strokeWidth = 6;
+            txtClip.strokeColor = "#000000";
+            
             txtClip.animationIn = "pop";
-            txtClip.animationOut = "fade";
+            txtClip.animationOut = "none";
+            txtClip.rotation = { value: (Math.random() - 0.5) * 6, keyframes: [] };
             
             textTrack.clips.push(txtClip);
           }
         }
+        i += step;
       }
     }
   }

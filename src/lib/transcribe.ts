@@ -9,6 +9,17 @@ export interface TranscriptSegment {
   text: string;
 }
 
+export interface TranscriptWord {
+  start: number;
+  end: number;
+  word: string;
+}
+
+export interface TranscriptResult {
+  segments: TranscriptSegment[];
+  words: TranscriptWord[];
+}
+
 function extForMime(mime: string): string {
   const sub = (mime.split("/")[1] || "bin").split(";")[0];
   if (sub.includes("quicktime")) return "mov";
@@ -43,7 +54,7 @@ export async function extractAudioForTranscription(sourceBlob: Blob, asset: Medi
 }
 
 /** Sends extracted audio to our server route, which forwards it to Groq's Whisper API. */
-export async function transcribeAudio(audio: Blob): Promise<TranscriptSegment[]> {
+export async function transcribeAudio(audio: Blob): Promise<TranscriptResult> {
   const form = new FormData();
   form.append("audio", audio, "audio.mp3");
   const resp = await fetch("/api/transcribe", { method: "POST", body: form });
@@ -51,5 +62,8 @@ export async function transcribeAudio(audio: Blob): Promise<TranscriptSegment[]>
   if (!resp.ok) {
     throw new Error(data.error || "Не удалось распознать речь");
   }
-  return Array.isArray(data.segments) ? data.segments : [];
+  return {
+    segments: Array.isArray(data.segments) ? data.segments : [],
+    words: Array.isArray(data.words) ? data.words : []
+  };
 }

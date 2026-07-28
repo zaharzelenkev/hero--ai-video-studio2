@@ -189,6 +189,11 @@ export default function PreviewCanvas() {
           ctx.fillStyle = clip.backgroundColor;
           ctx.fillRect(boxX, py - boxH / 2, boxW, boxH);
         }
+        if (clip.strokeWidth) {
+          ctx.lineWidth = clip.strokeWidth * (canvas.width / 1280);
+          ctx.strokeStyle = clip.strokeColor || "#000000";
+          ctx.strokeText(clip.text, px, py);
+        }
         ctx.fillStyle = clip.color;
         ctx.fillText(clip.text, px, py);
         ctx.restore();

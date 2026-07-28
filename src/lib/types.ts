@@ -367,6 +367,8 @@ export interface TextClip extends BaseClip {
   fontSize: number;
   color: string;
   backgroundColor: string;
+  strokeColor?: string;
+  strokeWidth?: number;
   align: "left" | "center" | "right";
   
   // Transform

@@ -90,71 +90,44 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
   }
 
   try {
-    const systemPrompt = `Ты — опытный профессиональный видеомонтажер с 15-летним стажем работы в ведущих продакшн-студиях.
-Твоя экспертиза: Adobe Premiere Pro, DaVinci Resolve, Final Cut Pro.
+    
+    const hasTranscript = request.assets.some(a => !!a.transcript);
+    
+    const systemPrompt = `Ты — опытный видеомонтажер. Твоя задача — составить план монтажа в формате JSON.
+${hasTranscript 
+  ? "В материалах есть транскрипция с таймкодами. ВЫБЕРИ самые интересные фразы и укажи их точные startTime и endTime. Вырезай тишину!" 
+  : "В материалах НЕТ речи. НЕ ПЫТАЙСЯ угадывать startTime и endTime. Просто укажи 'assetId' и желаемую 'duration' (в секундах) для каждого клипа, а также эффекты."}
+ОБЯЗАТЕЛЬНО используй только те assetId, которые есть в списке материалов.
+`;
 
-Ты специализируешься на:
-- Анализе контента и поиске лучших моментов
-- Эмоциональном storytelling
-- Адаптации видео под различные платформы
-- Профессиональной цветокоррекции
-- Синхронизации с музыкальными битами
-
-Задача: проанализируй запрос пользователя и материалы, создай детальный профессиональный план монтажа.
-
-Анализируй:
-1. Тип контента и платформу (YouTube, Shorts, Reels, Podcast)
-2. Целевую аудиторию
-3. Эмоциональную дугу
-4. Оптимальную длительность
-5. Визуальный стиль
-6. Темп и ритм
-7. Лучшие моменты (action, эмоции, ключевые фразы)
-
-При выборе клипов:
-- Избегай скучных моментов
-- Выбирай эмоционально сильные фрагменты
-- Создавай логическое повествование
-- Для коротких форматов - хватай внимание в первые 3 секунды
-- Для длинных форматов - строй постепенное вовлечение
-
-ВАЖНО: В поле "assetId" для каждого клипа (clips) ты ОБЯЗАТЕЛЬНО должен использовать точное значение "assetId" из списка материалов. Выбирай время (startTime и endTime) строго основываясь на предоставленных таймкодах речи, если они есть. ВЫРЕЗАЙ тишину и неинтересные моменты.
-
-Ответь ТОЛЬКО в формате JSON:`;
-
-    const exampleResponse = {
-      contentType: "youtube",
-      targetDuration: 120,
-      pace: "dynamic",
+    const exampleResponse = hasTranscript ? {
+      contentType: "podcast",
+      targetDuration: 30,
+      pace: "medium",
       colorGrade: "cinematic",
       clips: [
-        {
-          assetId: request.assets[0]?.id || "asset_123",
-          startTime: 5.2,
-          endTime: 18.5,
-          duration: 13.3,
-          reason: "Сильное эмоциональное вступление",
-          importance: 0.95,
-          emotion: "energetic",
-          zoom: true
-        }
+        { assetId: request.assets[0]?.id || "v1", startTime: 12.5, endTime: 16.0, duration: 3.5, reason: "Важная мысль", importance: 0.9 }
+      ],
+      musicSync: true,
+      transitions: "cut",
+      textOverlays: [{ text: "Главная мысль", time: 0, duration: 3, style: "title" }],
+      audioEnhancements: { normalize: true, denoise: true, voiceEnhance: true, removeSilence: true, ducking: true },
+      suggestions: ["Удалена тишина"],
+      analysisQuality: "ai"
+    } : {
+      contentType: "youtube",
+      targetDuration: 15,
+      pace: "dynamic",
+      colorGrade: "vivid",
+      clips: [
+        { assetId: request.assets[0]?.id || "v1", duration: 2.5, reason: "Вступление", importance: 0.9, zoom: true },
+        { assetId: request.assets[0]?.id || "v1", duration: 1.5, reason: "Динамика", importance: 0.8, zoom: false }
       ],
       musicSync: true,
       transitions: "crossfade",
-      textOverlays: [
-        { text: "Главная идея видео", time: 2, duration: 4, style: "title" }
-      ],
-      audioEnhancements: {
-        normalize: true,
-        denoise: true,
-        voiceEnhance: true,
-        removeSilence: false,
-        ducking: true
-      },
-      colorCorrection: {
-        global: { brightness: 5, contrast: 10, saturation: 5 }
-      },
-      suggestions: ["Используй кат-ы на beat drops"],
+      textOverlays: [{ text: "Летний вайб", time: 0, duration: 2, style: "title" }],
+      audioEnhancements: { normalize: true, denoise: false, voiceEnhance: false, removeSilence: false, ducking: true },
+      suggestions: ["Синхрон под музыку"],
       analysisQuality: "ai"
     };
 
@@ -162,21 +135,16 @@ export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditD
 
 Материалы:
 ${request.assets.map((a, i) => {
-  const info = [
+  return [
     `${i + 1}. ${a.name}`,
     `   assetId: "${a.id}"`,
     `   Тип: ${a.type}`,
     a.duration ? `   Длительность: ${a.duration.toFixed(1)}с` : "   Статичное",
-    a.width && a.height ? `   Размер: ${a.width}×${a.height}` : "",
-    a.transcript ? `   Текст/Речь (с таймкодами):\n${a.transcript.slice(0, 3500)}` : ""
-  ];
-  return info.filter(Boolean).join("\n");
+    a.transcript ? `   Речь:\n${a.transcript.slice(0, 3500)}` : ""
+  ].filter(Boolean).join("\n");
 }).join("\n\n")}
 
-Создай профессиональный план монтажа.
-Пример: ${JSON.stringify(exampleResponse, null, 2)}
-
-Верни ТОЛЬКО JSON.`;
+Верни ТОЛЬКО валидный JSON по примеру: ${JSON.stringify(exampleResponse, null, 2)}`;
 
     const response = await fetch(AI_CONFIG.apiUrl, {
       method: "POST",
@@ -248,15 +216,15 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
   
   let contentType: AIEditDecision["contentType"] = "generic";
   const typeMatchers: Array<[AIEditDecision["contentType"], string[]]> = [
-    ["podcast", ["подкаст", "podcast"]],
-    ["ad", ["реклам", "ad", "промо"]],
+    ["podcast", ["подкаст", "podcast", "интервью", "interview"]],
+    ["ad", ["реклам", "ad", "промо", "promo", "коммерц"]],
     ["shorts", ["shorts", "шортс"]],
     ["reels", ["reels", "рилс"]],
     ["tiktok", ["tiktok", "тикток"]],
-    ["wedding", ["свадьб", "wedding"]],
-    ["travel", ["тревел", "travel", "путешеств"]],
-    ["tutorial", ["урок", "tutorial", "обучен"]],
-    ["youtube", ["youtube", "ютуб"]],
+    ["wedding", ["свадьб", "wedding", "love"]],
+    ["travel", ["тревел", "travel", "путешеств", "влог", "vlog"]],
+    ["tutorial", ["урок", "tutorial", "обучен", "how to"]],
+    ["youtube", ["youtube", "ютуб", "ролик"]],
   ];
   
   for (const [type, keywords] of typeMatchers) {
@@ -267,10 +235,10 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
   }
   
   const durationMap: Record<string, number> = {
-    shorts: 45, reels: 45, tiktok: 30, ad: 20,
-    youtube: 180, podcast: 300, tutorial: 240, generic: 60,
+    shorts: 30, reels: 30, tiktok: 15, ad: 15,
+    youtube: 120, podcast: 300, tutorial: 180, wedding: 60, travel: 45, generic: 30,
   };
-  let targetDuration = durationMap[contentType] || 60;
+  let targetDuration = durationMap[contentType] || 30;
   
   const durationMatch = prompt.match(/(\d+)\s*(сек|мин)/);
   if (durationMatch) {
@@ -279,18 +247,18 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
   }
   
   let pace: AIEditDecision["pace"] = "medium";
-  if (prompt.match(/(динамич|быстр|энергич)/)) pace = "fast";
-  else if (prompt.match(/(спокойн|медленн|расслабл)/)) pace = "slow";
-  else if (prompt.match(/(dynamic|меняющ)/)) pace = "dynamic";
+  if (prompt.match(/(динамич|быстр|энергич|экшен|action|fast)/)) pace = "fast";
+  else if (prompt.match(/(спокойн|медленн|расслабл|плавн|slow|chill)/)) pace = "slow";
+  else if (prompt.match(/(dynamic|меняющ)/) || contentType === "travel") pace = "dynamic";
   
   let colorGrade = "cinematic";
   const gradeMatchers: Array<[string, string[]]> = [
-    ["bw", ["черн", "бел", "b&w"]],
-    ["vintage", ["винтаж", "ретро"]],
-    ["warm", ["тепл", "warm"]],
-    ["cool", ["холодн", "cool"]],
-    ["dramatic", ["драматич", "темн"]],
-    ["vivid", ["ярк", "vivid"]],
+    ["bw", ["черн", "бел", "b&w", "ч/б", "чб"]],
+    ["vintage", ["винтаж", "ретро", "старый", "retro"]],
+    ["warm", ["тепл", "warm", "уют", "закат"]],
+    ["cool", ["холодн", "cool", "мрачн"]],
+    ["dramatic", ["драматич", "темн", "dramatic"]],
+    ["vivid", ["ярк", "vivid", "сочн", "красочн"]],
   ];
   
   for (const [grade, keywords] of gradeMatchers) {
@@ -302,40 +270,74 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
   
   const allVisuals = request.assets.filter(a => a.type === "video" || a.type === "image");
   const clips: AIEditDecision["clips"] = [];
-  const paceSeconds = pace === "fast" ? 3 : pace === "slow" ? 8 : 5;
   
+  // Base duration per clip based on pace
+  const paceSeconds = pace === "fast" ? 2.5 : pace === "slow" ? 6 : 4;
+  
+  if (allVisuals.length === 0) {
+    return {
+      contentType, targetDuration, pace, colorGrade, clips: [], musicSync: true, transitions: "crossfade", suggestions: [], analysisQuality: "rule-based"
+    };
+  }
+
+  // Calculate total available media duration
+  const totalAvailable = allVisuals.reduce((acc, a) => acc + (a.duration || 5), 0);
+  
+  // If we have less media than requested, cap the target duration
+  if (totalAvailable < targetDuration * 0.8 && allVisuals.every(a => a.type !== "image")) {
+     targetDuration = totalAvailable;
+  }
+
   let currentTime = 0;
-  let clipIndex = 0;
+  let assetIndex = 0;
   
-  while (currentTime < targetDuration && clipIndex < allVisuals.length) {
-    const asset = allVisuals[clipIndex];
+  // Track how much of each video we've used to spread cuts across the whole video
+  const assetProgress = new Map<string, number>();
+  
+  // We want to loop until we hit targetDuration
+  let panic = 0;
+  while (currentTime < targetDuration && panic < 1000) {
+    panic++;
+    // Pick the next asset (round-robin)
+    const asset = allVisuals[assetIndex % allVisuals.length];
+    assetIndex++;
     
     let clipDuration = paceSeconds;
     if (pace === "dynamic") {
-      clipDuration = 2 + Math.random() * 6;
+      // mix of short and medium clips
+      clipDuration = Math.random() > 0.6 ? 1.5 : 4 + Math.random() * 3;
     }
     
-    clipDuration = Math.min(
-      clipDuration,
-      targetDuration - currentTime,
-      asset.type === "video" ? (asset.duration || clipDuration) : clipDuration
-    );
+    // Don't exceed target duration
+    clipDuration = Math.min(clipDuration, targetDuration - currentTime);
     
-    if (clipDuration < 1) {
-      clipIndex++;
-      continue;
-    }
-    
+    if (clipDuration < 0.5) break;
+
     let startTime = 0;
+    
     if (asset.type === "video" && asset.duration) {
-      const safeZoneStart = Math.min(2, asset.duration * 0.1);
-      const safeZoneEnd = Math.max(0, asset.duration - clipDuration - 2);
+      // Ensure we don't request more than the video has
+      clipDuration = Math.min(clipDuration, asset.duration);
+      clipDuration = Math.min(clipDuration, asset.duration);
       
-      if (safeZoneEnd > safeZoneStart) {
-        const midStart = safeZoneStart + (safeZoneEnd - safeZoneStart) * 0.3;
-        const midEnd = safeZoneStart + (safeZoneEnd - safeZoneStart) * 0.7;
-        startTime = midStart + Math.random() * (midEnd - midStart);
+      // Calculate where to take this chunk from
+      const lastUsedEnd = assetProgress.get(asset.id) || 0;
+      
+      if (lastUsedEnd + clipDuration <= asset.duration) {
+         // Continue from last point, maybe jump ahead slightly
+         startTime = lastUsedEnd + (Math.random() > 0.5 ? 0 : Math.random() * 2);
+         if (startTime + clipDuration > asset.duration) startTime = Math.max(0, asset.duration - clipDuration);
+      } else {
+         // We reached the end of this video. 
+         // If we only have 1 video, we loop back to start.
+         if (allVisuals.length === 1) {
+            startTime = Math.random() * Math.max(0, asset.duration - clipDuration);
+         } else {
+            // Skip this asset and try the next one
+            continue;
+         }
       }
+      assetProgress.set(asset.id, startTime + clipDuration);
     }
     
     clips.push({
@@ -345,25 +347,24 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
       duration: clipDuration,
       importance: 0.7 + Math.random() * 0.3,
       emotion: pace === "fast" ? "energetic" : pace === "slow" ? "calm" : "neutral",
-      zoom: asset.type === "image" || (Math.random() > 0.7),
+      zoom: asset.type === "image" || (Math.random() > 0.8), // Sometimes add subtle zoom to videos too
     });
     
     currentTime += clipDuration;
-    clipIndex++;
   }
   
   let transitions: AIEditDecision["transitions"] = "crossfade";
-  if (pace === "fast" || contentType === "shorts" || contentType === "reels") {
+  if (pace === "fast" || contentType === "shorts" || contentType === "tiktok") {
     transitions = "cut";
   }
   
   const textOverlays: AIEditDecision["textOverlays"] = [];
-  const titleText = request.userPrompt.trim().slice(0, 60);
-  if (titleText) {
+  const titleText = request.userPrompt.trim().slice(0, 50);
+  if (titleText && titleText.length > 5 && !titleText.toLowerCase().includes("сделай")) {
     textOverlays.push({
       text: titleText,
       time: 0.5,
-      duration: Math.min(4, targetDuration * 0.2),
+      duration: Math.min(4, targetDuration * 0.3),
       style: "title",
       animation: "fade",
     });
@@ -388,8 +389,7 @@ function generateRuleBasedDecision(request: AIAnalysisRequest): AIEditDecision {
     textOverlays,
     audioEnhancements,
     suggestions: [
-      `Создан ${contentType} в ${pace} темпе`,
-      "Для AI-анализа добавьте Groq API ключ",
+      `Создан ${contentType} монтаж в ${pace} темпе.`,
     ],
     analysisQuality: "rule-based",
   };

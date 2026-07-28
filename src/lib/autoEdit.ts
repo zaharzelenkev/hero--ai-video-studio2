@@ -135,8 +135,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return;
       
       const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
-      const inPoint = Math.max(0, Math.min(aiClip.startTime, maxDur - 0.5));
-      const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime || (inPoint + aiClip.duration), maxDur));
+      // If AI didn't provide startTime, we randomize it based on available duration
+      const providedStart = aiClip.startTime !== undefined ? aiClip.startTime : Math.random() * Math.max(0, maxDur - aiClip.duration);
+      const inPoint = Math.max(0, Math.min(providedStart, maxDur - 0.5));
+      const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration), maxDur));
       const duration = outPoint - inPoint;
       
       if (beats.length) {

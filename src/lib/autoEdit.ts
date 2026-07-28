@@ -184,78 +184,45 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   // Use AI-suggested clips if available, otherwise use rule-based approach
   if (aiDecision && aiDecision.clips.length > 0) {
-    // Determine if clips are sequential (main track) or overlapping (b-roll)
-    const mainClips: any[] = [];
-    const bRollClips: any[] = [];
+    const mainClips = aiDecision.clips.filter(c => c.trackType !== "b-roll");
+    const bRollClips = aiDecision.clips.filter(c => c.trackType === "b-roll");
     
-    // Sort clips by startTime
-    const sorted = [...aiDecision.clips].sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
-    
-    for (const aiClip of sorted) {
-      if (mainClips.length > 0) {
-        const lastMain = mainClips[mainClips.length - 1];
-        // If this clip starts before the last one ends, it's a B-Roll!
-        if (aiClip.startTime !== undefined && aiClip.startTime < (lastMain.startTime + lastMain.duration)) {
-          bRollClips.push({ ...aiClip, isBRoll: true });
-          continue;
-        }
-      }
-      mainClips.push(aiClip);
-    }
-    
-    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean) => {
+    // Вспомогательная функция для размещения
+    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean, timelineStart: number) => {
       const asset = assets.find((a) => a.id === aiClip.assetId);
-      if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return;
+      if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return null;
       
       const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
       const providedStart = aiClip.startTime !== undefined ? aiClip.startTime : Math.random() * Math.max(0, maxDur - aiClip.duration);
       const inPoint = Math.max(0, Math.min(providedStart, maxDur - 0.5));
       const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration), maxDur));
-      const duration = outPoint - inPoint;
+      let duration = outPoint - inPoint;
       
-      // Calculate start time on timeline
-      let start = cursor;
-      if (isBroll && aiClip.startTime !== undefined) {
-         // Place b-roll relatively
-         start = aiClip.startTime;
-      }
-
       if (!isBroll && beats.length) {
-        const rawEnd = cursor + duration;
+        const rawEnd = timelineStart + duration;
         const closeBeat = beats.find(b => Math.abs(b - rawEnd) < targetClipLen * 0.6);
         const snappedEnd = closeBeat !== undefined ? closeBeat : rawEnd;
-        const adjusted = Math.min(snappedEnd - cursor, duration);
-        if (adjusted > 0.5) {
-          const clip = createVideoClip({
-            trackId: track.id,
-            asset,
-            start: cursor,
-            duration: adjusted,
-            inPoint,
-            outPoint: Math.min(inPoint + adjusted, maxDur),
-            transitionIn: cursor === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
-          });
-          
-          clip.color.lut = style.bw ? "bw" : style.colorGrade;
-          track.clips.push(clip);
-          if (!isBroll) cursor += adjusted;
-          return;
-        }
+        const adjusted = Math.min(snappedEnd - timelineStart, duration);
+        if (adjusted > 0.5) duration = adjusted;
       }
       
       const clip = createVideoClip({
         trackId: track.id,
         asset,
-        start,
-        duration,
+        start: timelineStart,
+        duration: duration,
         inPoint,
-        outPoint,
-        transitionIn: start === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
+        outPoint: inPoint + duration,
+        transitionIn: timelineStart === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
       });
       
       clip.color.lut = style.bw ? "bw" : style.colorGrade;
       
-      if (asset.kind === "image" && style.kenBurns) {
+      if (aiClip.speed && aiClip.speed !== 1) {
+         clip.speed = aiClip.speed;
+      }
+
+      if (aiClip.zoom || (asset.kind === "image" && style.kenBurns)) {
         clip.scale = {
           value: 1,
           keyframes: [
@@ -266,18 +233,28 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       }
       
       track.clips.push(clip);
-      if (!isBroll) cursor += duration;
+      return duration;
     };
 
-    mainClips.forEach(c => placeClip(c, videoTrack, false));
-    // Since B-roll relies on absolute timeline placement based on main clips, we approximate it:
-    // Right now B-roll start times are raw asset times. We need to map them to the timeline.
-    // To keep it robust without overcomplicating mapping, we simply put B-roll clips in the middle of long main clips.
-    bRollClips.forEach(c => {
-       // Place it randomly in the second half of the timeline
-       c.startTime = (cursor * 0.3) + Math.random() * (cursor * 0.5);
-       placeClip(c, bRollTrack!, true);
-    });
+    // 1. Сначала выстраиваем основной видеоряд
+    for (const mainClip of mainClips) {
+       const durationUsed = placeClip(mainClip, videoTrack, false, cursor);
+       if (durationUsed) {
+         cursor += durationUsed;
+       }
+    }
+
+    // 2. Затем накладываем B-Roll (они должны распределиться по таймлайну поверх длинных кусков)
+    // Так как в AIEditDecision B-Rolls могут не иметь абсолютного таймлайна, распределяем их умно:
+    let bRollCursor = 0.5; // Начинаем чуть позже первого кадра
+    for (const bClip of bRollClips) {
+       // Размещаем где-то поверх основного таймлайна
+       const bRollStart = (bClip as any).timeInTimeline !== undefined ? (bClip as any).timeInTimeline : bRollCursor;
+       const dur = placeClip(bClip, bRollTrack!, true, bRollStart);
+       if (dur) {
+          bRollCursor = bRollStart + dur + (Math.random() * 2 + 1); // Следующий б-ролл минимум через пару секунд
+       }
+    }
 
   } else {
     const textTrack = project.tracks.find((t) => t.type === "text")!;

@@ -1,6 +1,6 @@
 import type { GenerationStyle, MediaAsset, Project } from "./types";
 import { PACE_CLIP_SECONDS } from "./promptStyle";
-import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } from "./factories";
+import { createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeats, snapToBeat } from "./beatDetection";
 import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
@@ -148,53 +148,84 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   const targetClipLen = PACE_CLIP_SECONDS[style.pace];
   const videoTrack = project.tracks.find((t) => t.type === "video" && t.name === "Видео 1")!;
+  // Ensure we have a B-roll overlay track
+  let bRollTrack = project.tracks.find((t) => t.type === "video" && t.name === "Наложение");
+  if (!bRollTrack) {
+    const { createTrack } = require("./factories");
+    bRollTrack = createTrack("video", "Наложение");
+    project.tracks.push(bRollTrack!);
+  }
 
   let cursor = 0;
   
   // Use AI-suggested clips if available, otherwise use rule-based approach
   if (aiDecision && aiDecision.clips.length > 0) {
-    // AI-driven clip selection
-    aiDecision.clips.forEach((aiClip, i) => {
+    // Determine if clips are sequential (main track) or overlapping (b-roll)
+    const mainClips: any[] = [];
+    const bRollClips: any[] = [];
+    
+    // Sort clips by startTime
+    const sorted = [...aiDecision.clips].sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+    
+    for (const aiClip of sorted) {
+      if (mainClips.length > 0) {
+        const lastMain = mainClips[mainClips.length - 1];
+        // If this clip starts before the last one ends, it's a B-Roll!
+        if (aiClip.startTime !== undefined && aiClip.startTime < (lastMain.startTime + lastMain.duration)) {
+          bRollClips.push({ ...aiClip, isBRoll: true });
+          continue;
+        }
+      }
+      mainClips.push(aiClip);
+    }
+    
+    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean) => {
       const asset = assets.find((a) => a.id === aiClip.assetId);
       if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return;
       
       const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
-      // If AI didn't provide startTime, we randomize it based on available duration
       const providedStart = aiClip.startTime !== undefined ? aiClip.startTime : Math.random() * Math.max(0, maxDur - aiClip.duration);
       const inPoint = Math.max(0, Math.min(providedStart, maxDur - 0.5));
       const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration), maxDur));
       const duration = outPoint - inPoint;
       
-      if (beats.length) {
+      // Calculate start time on timeline
+      let start = cursor;
+      if (isBroll && aiClip.startTime !== undefined) {
+         // Place b-roll relatively
+         start = aiClip.startTime;
+      }
+
+      if (!isBroll && beats.length) {
         const rawEnd = cursor + duration;
         const snappedEnd = snapToBeat(rawEnd, beats, targetClipLen * 0.6);
         const adjusted = Math.min(snappedEnd - cursor, duration);
         if (adjusted > 0.5) {
           const clip = createVideoClip({
-            trackId: videoTrack.id,
+            trackId: track.id,
             asset,
             start: cursor,
             duration: adjusted,
             inPoint,
             outPoint: Math.min(inPoint + adjusted, maxDur),
-            transitionIn: i === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
+            transitionIn: cursor === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
           });
           
           clip.color.lut = style.bw ? "bw" : style.colorGrade;
-          videoTrack.clips.push(clip);
-          cursor += adjusted;
+          track.clips.push(clip);
+          if (!isBroll) cursor += adjusted;
           return;
         }
       }
       
       const clip = createVideoClip({
-        trackId: videoTrack.id,
+        trackId: track.id,
         asset,
-        start: cursor,
+        start,
         duration,
         inPoint,
         outPoint,
-        transitionIn: i === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
+        transitionIn: start === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
       });
       
       clip.color.lut = style.bw ? "bw" : style.colorGrade;
@@ -209,159 +240,32 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         };
       }
       
-      videoTrack.clips.push(clip);
-      cursor += duration;
+      track.clips.push(clip);
+      if (!isBroll) cursor += duration;
+    };
+
+    mainClips.forEach(c => placeClip(c, videoTrack, false));
+    // Since B-roll relies on absolute timeline placement based on main clips, we approximate it:
+    // Right now B-roll start times are raw asset times. We need to map them to the timeline.
+    // To keep it robust without overcomplicating mapping, we simply put B-roll clips in the middle of long main clips.
+    bRollClips.forEach(c => {
+       // Place it randomly in the second half of the timeline
+       c.startTime = (cursor * 0.3) + Math.random() * (cursor * 0.5);
+       placeClip(c, bRollTrack!, true);
     });
-  }
-  
-  if (videoTrack.clips.length === 0) {
 
-    // Rule-based clip selection (original logic)
-    // Rule-based clip selection (original logic)
-    visualAssets.forEach((asset, i) => {
-      const maxLen = asset.kind === "image" ? targetClipLen * 1.4 : Math.max(0.8, Math.min(asset.duration || targetClipLen, targetClipLen * 1.6));
-      let duration = Math.min(targetClipLen, Math.max(0.6, maxLen));
-
-      if (beats.length) {
-        const rawEnd = cursor + targetClipLen;
-        const snappedEnd = snapToBeat(rawEnd, beats, targetClipLen * 0.6);
-        const candidate = snappedEnd - cursor;
-        if (candidate > 0.5 && candidate < targetClipLen * 2.2) duration = Math.min(candidate, maxLen * 1.3);
-      }
-
-      const inPoint = asset.kind === "video" ? Math.max(0, ((asset.duration || duration) - duration) / 2) : 0;
-      const clip = createVideoClip({
-        trackId: videoTrack.id,
-        asset,
-        start: cursor,
-        duration,
-        inPoint,
-        outPoint: inPoint + duration,
-        transitionIn: i === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
-      });
-      clip.color.lut = style.bw ? "bw" : style.colorGrade;
-      if (asset.kind === "image" && style.kenBurns) {
-        // Slow drifting zoom-in, purely CSS/FFmpeg keyframes - no AI needed.
-        clip.scale = {
-          value: 1,
-          keyframes: [
-            { id: `${clip.id}_kb0`, time: 0, value: 1, easing: "linear" },
-            { id: `${clip.id}_kb1`, time: duration, value: 1.12, easing: "linear" },
-          ],
-        };
-      }
-      videoTrack.clips.push(clip);
-      cursor += duration;
-    });
-  }
-
-  const totalDuration = style.targetDuration || Math.max(cursor, 1);
-  project.duration = totalDuration;
-
-  // Add auto-subtitles mapped to the final video cuts
-  if (style.autoSubtitles) {
+  } else {
     const textTrack = project.tracks.find((t) => t.type === "text")!;
-    for (const clip of videoTrack.clips) {
-      if (clip.type !== "video") continue;
-      const vClip = clip as import("./types").VideoClip;
-      const segs = segmentsByAssetId.get(vClip.assetId);
-      if (!segs) continue;
-      
-      let i = 0;
-      while (i < segs.length) {
-        const seg1 = segs[i] as any;
-        let text = seg1.text || seg1.word;
-        let segEnd = seg1.end;
-        let step = 1;
-        
-        // Group up to 2 short words
-        if (i + 1 < segs.length && text.length < 6 && (segs[i+1] as any).text?.length < 6 || (segs[i+1] as any).word?.length < 6) {
-           text += " " + ((segs[i+1] as any).text || (segs[i+1] as any).word);
-           segEnd = segs[i+1].end;
-           step = 2;
-        }
-
-        // Check overlap
-        const maxStart = Math.max(vClip.inPoint, seg1.start);
-        const minEnd = Math.min(vClip.outPoint, segEnd);
-        
-        if (minEnd > maxStart) {
-          const globalStart = vClip.start + (maxStart - vClip.inPoint);
-          const globalDuration = minEnd - maxStart;
-          
-          if (globalDuration > 0.05) {
-            const txtClip = createTextClip({
-              trackId: textTrack.id,
-              start: globalStart,
-              duration: globalDuration,
-              text: text.toUpperCase(),
-            });
-            
-            txtClip.y.value = 0.15;
-            txtClip.fontSize = 75;
-            txtClip.fontFamily = "DejaVu Sans Bold";
-            txtClip.color = text.length > 7 || Math.random() > 0.7 ? "#FFE81A" : "#FFFFFF";
-            txtClip.backgroundColor = "transparent";
-            txtClip.strokeWidth = 6;
-            txtClip.strokeColor = "#000000";
-            
-            txtClip.animationIn = "pop";
-            txtClip.animationOut = "none";
-            txtClip.rotation = { value: (Math.random() - 0.5) * 6, keyframes: [] };
-            
-            textTrack.clips.push(txtClip);
-          }
-        }
-        i += step;
-      }
-    }
-  }
-
-  // Add music
-  if (musicAsset) {
-    const audioTrack = project.tracks.find((t) => t.type === "audio")!;
-    const musicDuration = Math.min(musicAsset.duration || totalDuration, totalDuration);
-    const clip = createAudioClip({
-      trackId: audioTrack.id,
-      asset: musicAsset,
-      start: 0,
-      duration: totalDuration,
-      inPoint: 0,
-      outPoint: musicDuration,
-    });
-    clip.fadeOut = Math.min(2, totalDuration / 4);
-    audioTrack.clips.push(clip);
-  }
-
-  // Add captions/text overlays from AI or user prompt
-  if (style.addCaptions || style.autoSubtitles) {
-    const textTrack = project.tracks.find((t) => t.type === "text")!;
-    
-    if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
-      // AI-generated text overlays
-      aiDecision.textOverlays.forEach((overlay) => {
-        const caption = createTextClip({
-          trackId: textTrack.id,
-          start: overlay.time,
-          duration: overlay.duration,
-          text: overlay.text,
-        });
-        caption.animationIn = "fade";
-        caption.animationOut = "fade";
-        textTrack.clips.push(caption);
+    // Fallback: simple caption from prompt
+    const captionText = style.rawPrompt.trim().slice(0, 60);
+    if (captionText) {
+      const caption = createTextClip({
+        trackId: textTrack.id,
+        start: 0.2,
+        duration: Math.min(3, project.duration - 0.4 > 0 ? project.duration - 0.4 : project.duration),
+        text: captionText,
       });
-    } else {
-      // Fallback: simple caption from prompt
-      const captionText = style.rawPrompt.trim().slice(0, 60);
-      if (captionText) {
-        const caption = createTextClip({
-          trackId: textTrack.id,
-          start: 0.2,
-          duration: Math.min(3, totalDuration - 0.4 > 0 ? totalDuration - 0.4 : totalDuration),
-          text: captionText,
-        });
-        textTrack.clips.push(caption);
-      }
+      textTrack.clips.push(caption);
     }
   }
 

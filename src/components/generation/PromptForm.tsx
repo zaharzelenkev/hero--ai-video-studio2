@@ -20,7 +20,7 @@ export default function PromptForm({
         <label className="mb-3 block text-sm font-medium text-slate-300">
           Стиль и шаблоны
         </label>
-        <div className="flex gap-3 overflow-x-auto pb-2 scroll-smooth custom-scrollbar">
+        <div className="flex gap-3 overflow-x-auto py-4 px-2 -mx-2 scroll-smooth custom-scrollbar">
           {TEMPLATES.map((t) => (
             <button
               key={t.id}

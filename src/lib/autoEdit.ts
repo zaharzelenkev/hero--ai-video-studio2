@@ -325,13 +325,12 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       clip.fontFamily = activeTemplate.text.fontFamily;
       clip.color = activeTemplate.text.color;
       clip.backgroundColor = activeTemplate.text.backgroundColor;
-      clip.strokeColor = activeTemplate.text.strokeColor;
       clip.strokeWidth = activeTemplate.text.strokeWidth;
+      clip.strokeColor = activeTemplate.text.strokeColor;
       const anim = (overlay.animation as import("./types").TextAnimation) || activeTemplate.text.animation;
       clip.animationIn = anim;
       
       applyTextAnimation(clip, anim, activeTemplate.text.yPosition, clip.duration);
-      
       textTrack.clips.push(clip);
     }
   } else if (segmentsByAssetId.size > 0) {

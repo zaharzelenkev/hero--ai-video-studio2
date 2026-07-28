@@ -1,6 +1,5 @@
 import type { AIAnalysisRequest, AIEditDecision } from "../ai/aiService";
 import { DirectorBrain } from "./director";
-import { AI_CONFIG } from "@/config/ai";
 
 export interface DirectorScene {
   id: string;
@@ -47,10 +46,6 @@ export interface DirectorScript {
 
 export class DirectorEngine {
 
-  /**
-   * Главная точка входа. 
-   * Оркестрирует весь процесс создания видео от анализа до сценария.
-   */
   static async formulateScript(request: AIAnalysisRequest): Promise<DirectorScript> {
     const strategy = await DirectorBrain.defineStrategy(request.userPrompt);
     
@@ -60,166 +55,162 @@ export class DirectorEngine {
     let script: DirectorScript;
     
     if (speechAssets.length > 0) {
-      if (AI_CONFIG.groqApiKey) {
-        script = await this.buildNarrativeScriptWithLLM(request, strategy, speechAssets, visualAssets);
-      } else {
-        script = this.buildNarrativeScriptLocal(request, strategy, speechAssets, visualAssets);
-      }
+      // Исключительно локальная алгоритмическая нарезка Jump-Cuts
+      script = this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
     } else {
       script = this.buildVisualScript(request, strategy, visualAssets);
     }
     
-    // Apply Masterclass Editing Techniques
     script = this.applyProfessionalTechniques(script, strategy.genre);
     
     return script;
   }
 
   /**
-   * LLM-driven Narrative (Подкасты, Интервью, Говорящая голова)
-   * Использует LLM исключительно для выявления смысла и структуры истории, 
-   * а монтажные решения (b-roll, j-cuts) принимает локальный движок.
+   * Полностью переписанный алгоритм работы с речью (Jump-Cuts / AutoPod Style)
    */
-  private static async buildNarrativeScriptWithLLM(
-    request: AIAnalysisRequest, 
-    strategy: any, 
-    speechAssets: any[], 
-    visualAssets: any[]
-  ): Promise<DirectorScript> {
-    const prompt = `Ты - Главный Редактор Сценария. Выбери лучшие таймкоды из речи для построения истории.
-    Жанр: ${strategy.genre}. Лимит: ${strategy.targetDuration} секунд.
-    
-    Верни JSON:
-    {
-      "concept": "Краткое описание идеи",
-      "hook": { "assetId": "...", "start": 0.0, "end": 3.0, "intent": "Зацепить внимание" },
-      "buildup": [ { "assetId": "...", "start": 3.0, "end": 10.0, "intent": "Раскрытие" } ],
-      "climax": { "assetId": "...", "start": 10.0, "end": 15.0, "intent": "Кульминация" },
-      "outro": { "assetId": "...", "start": 15.0, "end": 18.0, "intent": "Призыв к действию" }
-    }
-    
-    Транскрипты:
-    ${speechAssets.map(a => `ASSET ${a.id}:\n${a.transcript}`).join("\n\n")}
-    `;
-
-    try {
-      const response = await fetch(AI_CONFIG.apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
-        body: JSON.stringify({
-          model: AI_CONFIG.model,
-          messages: [{ role: "system", content: prompt }],
-          temperature: 0.3,
-          response_format: { type: "json_object" },
-        }),
-      });
-
-      const data = await response.json();
-      const parsed = JSON.parse(data.choices[0].message.content);
-      
-      const scenes: DirectorScene[] = [];
-      const addScene = (phase: any, block: any, emotion: any) => {
-        if (!block || !block.assetId) return;
-        scenes.push({
-          id: `scene_${phase}_${Date.now()}`,
-          phase,
-          intent: block.intent || "",
-          duration: block.end - block.start,
-          emotion,
-          mainClip: { assetId: block.assetId, sourceStart: block.start, sourceEnd: block.end, speed: 1, zoom: phase === "hook" },
-          bRolls: [], captions: []
-        });
-      };
-
-      addScene("hook", parsed.hook, "energetic");
-      (parsed.buildup || []).forEach((b: any) => addScene("buildup", b, "neutral"));
-      addScene("climax", parsed.climax, "dramatic");
-      addScene("outro", parsed.outro, "calm");
-
-      return {
-        concept: parsed.concept || "LLM Narrative",
-        genre: strategy.genre,
-        targetDuration: strategy.targetDuration,
-        scenes,
-        audioStrategy: {
-          musicStyle: strategy.genre === "podcast" ? "lofi" : "cinematic",
-          duckingEnabled: true,
-          denoiseSpeech: true,
-          removeSilence: true
-        }
-      };
-
-    } catch (e) {
-      console.warn("LLM script formulation failed, falling back to local", e);
-      return this.buildNarrativeScriptLocal(request, strategy, speechAssets, visualAssets);
-    }
-  }
-
-  /**
-   * Локальная эвристика для речи: ищет куски с высокой громкостью для Хука.
-   */
-  private static buildNarrativeScriptLocal(
+  private static buildNarrativeScript(
     _request: AIAnalysisRequest, 
     strategy: any, 
     speechAssets: any[], 
-    _visualAssets: any[]
+    visualAssets: any[]
   ): DirectorScript {
     const scenes: DirectorScene[] = [];
-    const mainAsset = speechAssets[0];
+    const mainAsset = speechAssets[0]; // Берем первый длинный разговорный ассет
     
-    // Ищем отрезки речи (в транскрипте строки вида [0.0s - 2.5s] Текст)
+    // 1. Парсим транскрипт (если Whisper не отработал, берем хоть что-то, но мы предполагаем что есть [0.0s - 1.0s])
     const lines = (mainAsset.transcript || "").split("\n").filter((l: string) => l.includes("]"));
-    
-    let hookLine = lines[0];
-    let climaxLine = lines[Math.floor(lines.length / 2)];
-    
-    const parseTime = (line: string) => {
-      const match = line.match(/\[([\d\.]+)s - ([\d\.]+)s\]/);
-      if (match) return { start: parseFloat(match[1]), end: parseFloat(match[2]) };
-      return null;
-    };
+    const words: {start: number, end: number, text: string}[] = [];
+    for (const l of lines) {
+        const m = l.match(/\[([\d\.]+)s - ([\d\.]+)s\] (.+)/);
+        if (m) words.push({ start: parseFloat(m[1]), end: parseFloat(m[2]), text: m[3].trim() });
+    }
 
-    const addLocalScene = (line: string, phase: any) => {
-      const t = parseTime(line);
-      if (t && t.end > t.start) {
-        scenes.push({
-          id: `local_${phase}_${Date.now()}`,
-          phase,
-          intent: "Auto-extracted speech",
-          duration: t.end - t.start,
-          emotion: "neutral",
-          mainClip: { assetId: mainAsset.id, sourceStart: t.start, sourceEnd: t.end, speed: 1, zoom: phase === "hook" },
-          bRolls: [], captions: []
-        });
-      }
-    };
+    if (words.length === 0) {
+        // Fallback если нет таймкодов
+        return this.buildVisualScript(_request, strategy, [mainAsset, ...visualAssets]);
+    }
 
-    if (hookLine) addLocalScene(hookLine, "hook");
-    if (climaxLine) addLocalScene(climaxLine, "climax");
+    // 2. Объединяем слова во фразы, автоматически вырезая тишину > 0.4s
+    const phrases: {start: number, end: number, text: string}[] = [];
+    let curr = { start: words[0].start, end: words[0].end, text: words[0].text };
+
+    for (let i = 1; i < words.length; i++) {
+        const w = words[i];
+        const gap = w.start - curr.end;
+        
+        // Разрываем фразу, если тишина слишком долгая (dead air) или фраза уже длиннее 4-х секунд
+        if (gap > 0.4 || (curr.end - curr.start > 4.0)) {
+            phrases.push(curr);
+            curr = { start: w.start, end: w.end, text: w.text };
+        } else {
+            curr.end = w.end;
+            curr.text += " " + w.text;
+        }
+    }
+    phrases.push(curr);
+
+    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья)
+    const validPhrases = phrases.filter(p => {
+        const t = p.text.toLowerCase().replace(/[^а-яa-z]/g, "");
+        if (/^(ну|э|ээ|м|мм|типа|какбы|вот|короче|значит)$/i.test(t)) return false;
+        if (p.end - p.start < 0.2) return false;
+        return true;
+    });
+
+    if (validPhrases.length === 0) validPhrases.push(phrases[0]);
+
+    // 4. Поиск Хука (Cold Open)
+    const hookIndex = validPhrases.findIndex(p => p.text.match(/(внимание|секрет|главное|почему|как|смотри|важно|\?|!)/i));
+    const hookPhrase = hookIndex > -1 ? validPhrases[hookIndex] : validPhrases[0];
+
+    // Добавляем Хук (он будет дублирован или перемещен в самое начало)
+    scenes.push({
+        id: `hook_${Date.now()}`, phase: "hook", intent: "Cold Open", duration: hookPhrase.end - hookPhrase.start, emotion: "energetic",
+        mainClip: { assetId: mainAsset.id, sourceStart: hookPhrase.start, sourceEnd: hookPhrase.end, speed: 1, zoom: true },
+        bRolls: [], captions: []
+    });
+
+    // 5. Построение основной истории (Body)
+    let isZoomed = false;
+    let bRollIndex = 0;
+    const bRollPool = visualAssets.filter(a => a.id !== mainAsset.id);
+
+    for (let i = 0; i < validPhrases.length; i++) {
+        const p = validPhrases[i];
+        
+        // Динамическое чередование зума для имитации работы двух камер (Punch Zoom)
+        isZoomed = !isZoomed;
+        
+        const scene: DirectorScene = {
+            id: `body_${p.start}_${Date.now()}`, phase: "buildup", intent: "Dialogue Cut", duration: p.end - p.start, emotion: "neutral",
+            mainClip: { assetId: mainAsset.id, sourceStart: p.start, sourceEnd: p.end, speed: 1, zoom: isZoomed },
+            bRolls: [], captions: []
+        };
+
+        // B-Roll Overlay Logic (Pattern Interrupt)
+        if (bRollPool.length > 0) {
+            // Перекрываем скучные длинные фразы или специфические слова
+            const isLong = (p.end - p.start > 2.5);
+            const hasVisualKeyword = p.text.match(/(например|посмотри|представь|город|люди|мир|деньги|работа|проблема)/i);
+            // Либо каждые N фраз принудительно (чтобы не заскучать)
+            const isNthPhrase = (i % 4 === 0 && i !== 0);
+
+            if (isLong || hasVisualKeyword || isNthPhrase) {
+                const bAsset = bRollPool[bRollIndex % bRollPool.length];
+                const bStart = (bAsset.segments && bAsset.segments.length > 0) ? bAsset.segments[0].startTime : 0;
+                const bDur = Math.min(scene.duration, bAsset.duration || 5);
+                
+                scene.bRolls.push({
+                    assetId: bAsset.id,
+                    sourceStart: bStart,
+                    sourceEnd: bStart + bDur,
+                    offsetInScene: 0
+                });
+                bRollIndex++;
+            }
+        }
+
+        scenes.push(scene);
+    }
+
+    // 6. Подрезка по целевой длительности
+    let totalDur = 0;
+    const finalScenes: DirectorScene[] = [];
+    for (const s of scenes) {
+        if (totalDur + s.duration > strategy.targetDuration) {
+            s.duration = strategy.targetDuration - totalDur;
+            s.mainClip.sourceEnd = s.mainClip.sourceStart + s.duration;
+            finalScenes.push(s);
+            break;
+        }
+        finalScenes.push(s);
+        totalDur += s.duration;
+    }
+
+    if (finalScenes.length > 0) {
+        finalScenes[finalScenes.length - 1].phase = "outro";
+    }
 
     return {
-      concept: "Local Heuristic Narrative",
-      genre: strategy.genre,
-      targetDuration: strategy.targetDuration,
-      scenes,
-      audioStrategy: {
-        musicStyle: "lofi",
-        duckingEnabled: true,
-        denoiseSpeech: true,
-        removeSilence: true
-      }
+        concept: "Smart Dialogue Jump-Cut (AutoPod Style)",
+        genre: strategy.genre,
+        targetDuration: strategy.targetDuration,
+        scenes: finalScenes,
+        audioStrategy: {
+            musicStyle: "lofi",
+            duckingEnabled: true,
+            denoiseSpeech: true,
+            removeSilence: true
+        }
     };
   }
 
-  /**
-   * Сценарий на основе ВИЗУАЛА (Travel, Реклама, Music Video)
-   */
   private static buildVisualScript(
     _request: AIAnalysisRequest, 
     strategy: any, 
     visualAssets: any[]
   ): DirectorScript {
-    
     const script: DirectorScript = {
       concept: "Visual Aesthetic Driven",
       genre: strategy.genre,
@@ -310,45 +301,30 @@ export class DirectorEngine {
     return script;
   }
 
-  /**
-   * Шаг 3: Магия режиссуры (Masterclass Techniques)
-   * Здесь мы добавляем B-Rolls, Speed Ramps, J-Cuts в готовый скрипт.
-   */
   private static applyProfessionalTechniques(script: DirectorScript, genre: string): DirectorScript {
-    // 1. Удержание внимания (Pattern Interrupt & B-Rolls)
-    // Если сцена длиннее 4 секунд, и это подкаст/разговор, добавляем B-Roll перебивку
     for (const scene of script.scenes) {
-      if (scene.duration > 4 && genre === "podcast") {
-        // Мы не знаем здесь конкретных b-roll ассетов (их подберет autoEdit или LLM),
-        // но мы даем жесткую инструкцию: "Сцена требует B-Roll"
-        scene.intent += " | REQUIRE B-ROLL (Pattern Interrupt)";
-      }
-
-      // 2. Punch Zoom (Динамический масштаб на смысловых акцентах)
-      // Если сцена - Climax, делаем резкий наезд
       if (scene.phase === "climax") {
          scene.mainClip.zoom = true;
-         // Speed ramp для эпичных моментов
          if (genre === "travel") {
-            scene.mainClip.speed = 0.5; // Слоу-мо
-            scene.duration *= 2; // Увеличиваем длительность сцены из-за слоу-мо
+            scene.mainClip.speed = 0.5;
+            scene.duration *= 2; 
          }
       }
     }
     return script;
   }
 
-  /**
-   * Шаг 4: Конвертация сценария в AIEditDecision для пайплайна
-   */
   static compileToDecision(script: DirectorScript): AIEditDecision {
     const clips: AIEditDecision["clips"] = [];
+    let currentTimelineTime = 0;
     
     for (const scene of script.scenes) {
+       const sceneDuration = scene.duration / (scene.mainClip.speed || 1);
+
        clips.push({
          assetId: scene.mainClip.assetId,
          trackType: "main",
-         duration: scene.duration,
+         duration: sceneDuration,
          startTime: scene.mainClip.sourceStart,
          endTime: scene.mainClip.sourceEnd,
          speed: scene.mainClip.speed,
@@ -365,10 +341,13 @@ export class DirectorEngine {
            duration: (broll.sourceEnd - broll.sourceStart),
            startTime: broll.sourceStart,
            endTime: broll.sourceEnd,
+           timeInTimeline: currentTimelineTime + broll.offsetInScene,
            reason: "B-Roll overlay",
            importance: 0.5
-         });
+         } as any);
        }
+       
+       currentTimelineTime += sceneDuration;
     }
 
     return {

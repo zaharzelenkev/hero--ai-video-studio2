@@ -400,7 +400,7 @@ export function compileProjectToFfmpeg(
           `y='${yPos}'`,
           `alpha='${opacityExpr}'`,
           `box=${clip.backgroundColor && clip.backgroundColor !== "transparent" ? 1 : 0}`,
-          `boxcolor=${(clip.backgroundColor && clip.backgroundColor !== "transparent") ? clip.backgroundColor : "black@0.4"}`,
+          `boxcolor=${(clip.backgroundColor && clip.backgroundColor !== "transparent") ? clip.backgroundColor : "black"}`,
           `boxborderw=10`,
           `enable='between(t\\,${start}\\,${end})'`,
         ].join(":") + `[${next}]`,

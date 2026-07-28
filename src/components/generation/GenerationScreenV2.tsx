@@ -19,6 +19,7 @@ export default function GenerationScreenV2() {
   const router = useRouter();
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [prompt, setPrompt] = useState("");
+  const [templateId, setTemplateId] = useState<import("@/lib/templates").TemplateId>("auto");
   const [stage, setStage] = useState<Stage>("idle");
   const [progressLabel, setProgressLabel] = useState("");
   const [progress, setProgress] = useState(0);
@@ -84,6 +85,7 @@ export default function GenerationScreenV2() {
       const style = parsePromptToStyle(prompt);
       style.intelligentCuts = true; // Enable AI analysis
       style.autoSubtitles = true;
+      style.templateId = templateId;
       
       let project;
       if (items.length > 0) {
@@ -165,7 +167,7 @@ export default function GenerationScreenV2() {
             <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 shadow-2xl backdrop-blur-sm">
               <UploadZone items={items} onAdd={onAdd} onRemove={onRemove} />
               <div className="mt-6">
-                <PromptForm prompt={prompt} onChange={setPrompt} />
+                <PromptForm prompt={prompt} onChange={setPrompt} templateId={templateId} onTemplateChange={setTemplateId} />
               </div>
 
               {stage === "error" && (

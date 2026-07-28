@@ -1,16 +1,46 @@
 "use client";
 
 import { STYLE_CHIPS } from "@/lib/promptStyle";
+import { TEMPLATES, type TemplateId } from "@/lib/templates";
 
 export default function PromptForm({
   prompt,
   onChange,
+  templateId,
+  onTemplateChange,
 }: {
   prompt: string;
   onChange: (v: string) => void;
+  templateId: TemplateId;
+  onTemplateChange: (t: TemplateId) => void;
 }) {
   return (
     <div>
+      <div className="mb-6">
+        <label className="mb-3 block text-sm font-medium text-slate-300">
+          Стиль и шаблоны
+        </label>
+        <div className="flex gap-3 overflow-x-auto pb-2 scroll-smooth custom-scrollbar">
+          {TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onTemplateChange(t.id)}
+              className={`flex min-w-[140px] flex-col items-start rounded-2xl border p-4 text-left transition-all duration-300 ${
+                templateId === t.id
+                  ? "border-violet-500 bg-violet-500/10 shadow-lg shadow-violet-500/20 scale-[1.02] ring-1 ring-violet-500"
+                  : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/20"
+              }`}
+            >
+              <div className="mb-2 text-2xl">{t.icon}</div>
+              <h4 className="mb-1 text-xs font-bold text-slate-200">{t.name}</h4>
+              <p className="text-[10px] text-slate-500 line-clamp-2">{t.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+  
+      <div>
       <label className="mb-2 block text-sm font-medium text-slate-300">
         Загрузите медиа или просто опишите идею видео
       </label>
@@ -33,6 +63,7 @@ export default function PromptForm({
           </button>
         ))}
       </div>
+    </div>
     </div>
   );
 }

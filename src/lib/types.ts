@@ -460,6 +460,7 @@ export interface GenerationStyle {
   intelligentCuts?: boolean; // Use AI to find best moments
   emotionDetection?: boolean; // Analyze emotional peaks
   autoSubtitles?: boolean; // Generate subtitles automatically
+  templateId?: string;
 }
 
 export interface Project {

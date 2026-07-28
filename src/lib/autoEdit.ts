@@ -6,6 +6,7 @@ import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
 import { AI_CONFIG } from "@/config/ai";
 import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
+import { TEMPLATES, getTemplateForContentType } from "./templates";
 
 export interface AutoEditInput {
   onProgress?: (msg: string) => void;
@@ -146,7 +147,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
+  
+  // --- TEMPLATE ENGINE APPLICATION ---
+  // If auto, resolve based on AI decision content type
+  let activeTemplate = TEMPLATES.find(t => t.id === style.templateId);
+  if (!activeTemplate || activeTemplate.id === "auto") {
+     activeTemplate = getTemplateForContentType(aiDecision?.contentType || "generic");
+  }
+
+  // Force style overrides based on template!
+  style.pace = activeTemplate.pace;
+  if (style.colorGrade === "none" || style.templateId !== "auto") {
+      style.colorGrade = activeTemplate.colorGrade as any;
+  }
+  style.transition = activeTemplate.transition;
+  style.kenBurns = activeTemplate.kenBurns;
+  
   const targetClipLen = PACE_CLIP_SECONDS[style.pace];
+
   const videoTrack = project.tracks.find((t) => t.type === "video" && t.name === "Видео 1")!;
   // Ensure we have a B-roll overlay track
   let bRollTrack = project.tracks.find((t) => t.type === "video" && t.name === "Наложение");
@@ -265,6 +283,16 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         duration: Math.min(3, project.duration - 0.4 > 0 ? project.duration - 0.4 : project.duration),
         text: captionText,
       });
+      
+      caption.y.value = activeTemplate.text.yPosition;
+      caption.fontSize = activeTemplate.text.fontSize;
+      caption.fontFamily = activeTemplate.text.fontFamily;
+      caption.color = activeTemplate.text.color;
+      caption.backgroundColor = activeTemplate.text.backgroundColor;
+      caption.strokeWidth = activeTemplate.text.strokeWidth || 0;
+      caption.strokeColor = activeTemplate.text.strokeColor || "#000000";
+      caption.animationIn = activeTemplate.text.animation;
+      
       textTrack.clips.push(caption);
     }
   }

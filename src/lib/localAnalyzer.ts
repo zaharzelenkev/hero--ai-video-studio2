@@ -20,7 +20,8 @@ export interface VideoSegmentMetadata {
   hasFaces: boolean;
   qualityScore: number; // 1-10
   isSceneChange: boolean;
-  hasAction: boolean; // True if interesting localized movement occurs (not full frame panning)
+  hasAction: boolean;
+  aestheticScore: number;
 }
 
 // Lightweight Laplacian Variance for blur detection
@@ -178,6 +179,14 @@ export async function analyzeVideoLocally(
         const avgDiff = diffSum / (pixelCount * 3);
         const isSceneChange = avgDiff > 45 && prevData !== null && motionRatio > 0.8;
 
+        
+        // Aesthetic scoring based on color theory (Rule of Thirds / Color harmony approximation)
+        // High saturation + good contrast usually equals a more visually pleasing "stock-like" shot.
+        let aestheticScore = 5;
+        if (avgSaturation > 40 && contrast > 100 && !isDark && !isBlurry) aestheticScore += 3;
+        if (hasFaces && !isBlurry) aestheticScore += 2;
+        if (motionLevel === "shake" || isBlurry) aestheticScore -= 4;
+
         // Base Quality Score 1-10
         let qScore = 5;
         if (!isDark) qScore += 1;
@@ -190,6 +199,7 @@ export async function analyzeVideoLocally(
         if (isDark) qScore -= 2;
         
         qScore = Math.max(1, Math.min(10, Math.round(qScore)));
+        aestheticScore = Math.max(1, Math.min(10, Math.round(aestheticScore)));
 
         segments.push({
           startTime: currentTime,
@@ -200,7 +210,8 @@ export async function analyzeVideoLocally(
           hasFaces,
           qualityScore: qScore,
           isSceneChange,
-          hasAction: actionScore > 0
+          hasAction: actionScore > 0,
+          aestheticScore
         });
 
         prevData = new Uint8ClampedArray(data);
@@ -261,6 +272,7 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       current.endTime = next.endTime;
       // Average out the quality score
       current.qualityScore = Math.round((current.qualityScore + next.qualityScore) / 2);
+      (current as any).aestheticScore = Math.round(((current as any).aestheticScore + (next as any).aestheticScore) / 2);
       // If any frame had faces or motion, keep the higher priority tags
       if (next.hasFaces) current.hasFaces = true;
       if (next.hasAction) current.hasAction = true;

@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import { useProjectStore } from "@/store/projectStore";
+import { getAssetWaveform } from "./mediaCache";
 import { createTrack } from "@/lib/factories";
 import type { Clip, Track } from "@/lib/types";
 
@@ -40,6 +41,43 @@ function clipLabel(clip: Clip) {
 }
 
 
+
+
+function ClipWaveform({ clip, asset, trackType }: { clip: Clip, asset: import("@/lib/types").MediaAsset, trackType: string }) {
+  const [peaks, setPeaks] = useState<number[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getAssetWaveform(asset).then(p => { if (active) setPeaks(p); }).catch(() => {});
+    return () => { active = false; };
+  }, [asset]);
+
+  if (!peaks || peaks.length === 0) return null;
+
+  const points = peaks.map((p, i) => `${(i / peaks.length) * 100},${100 - p * 100}`).join(" ");
+  const polygon = `0,100 ${points} 100,100`;
+
+  const inPt = "inPoint" in clip ? (clip as any).inPoint : 0;
+  const assetDur = asset.duration || clip.duration;
+  if (assetDur <= 0 || clip.duration <= 0) return null;
+
+  const widthPct = (assetDur / clip.duration) * 100;
+  const leftPct = -(inPt / clip.duration) * 100;
+  
+  const isVideo = trackType === "video";
+
+  return (
+    <div className={`pointer-events-none absolute left-0 w-full overflow-hidden opacity-40 ${isVideo ? "bottom-0 h-[40%]" : "top-0 h-full opacity-60"}`}>
+      <svg
+        preserveAspectRatio="none"
+        viewBox="0 0 100 100"
+        style={{ position: 'absolute', height: '100%', width: `${widthPct}%`, left: `${leftPct}%`, bottom: 0 }}
+      >
+        <polygon points={polygon} fill="currentColor" className="text-white mix-blend-overlay" />
+      </svg>
+    </div>
+  );
+}
 
 function PlayheadTimeDisplay() {
   const playhead = useProjectStore((s) => s.playhead);
@@ -106,6 +144,7 @@ export default function TimelineV2() {
   const removeClip = useProjectStore((s) => s.removeClip);
   const duplicateClip = useProjectStore((s) => s.duplicateClip);
   const splitClipAt = useProjectStore((s) => s.splitClipAt);
+  const detachAudio = useProjectStore((s) => s.detachAudio);
   const toggleTrackProp = useProjectStore((s) => s.toggleTrackProp);
   const persist = useProjectStore((s) => s.persist);
 
@@ -602,8 +641,11 @@ export default function TimelineV2() {
                       className="absolute left-0 top-0 h-full w-3 cursor-ew-resize bg-black/40 hover:bg-white/40 transition-colors z-20 flex items-center justify-center border-r border-white/20 hover:border-violet-400"
                     />
                     
+                    {((clip.type === "video" && !(clip as any).muted) || clip.type === "audio") && project.assets.find(a => a.id === (clip as any).assetId) && (
+                      <ClipWaveform clip={clip} asset={project.assets.find(a => a.id === (clip as any).assetId)!} trackType={clip.type} />
+                    )}
                     {/* Clip label */}
-                    <span className="truncate">{clipLabel(clip)}</span>
+                    <span className="truncate relative z-10 drop-shadow-md">{clipLabel(clip)}</span>
                     
                     {/* Group indicator */}
                     {clip.group && (
@@ -646,6 +688,17 @@ export default function TimelineV2() {
               >
                 ⧉ Дублировать
               </button>
+              {project.tracks.find(t => t.clips.some(c => c.id === contextMenu.clipId))?.type === "video" && (
+                <button
+                  onClick={() => {
+                    detachAudio(contextMenu.clipId!);
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-[11px] text-slate-300 hover:bg-white/5"
+                >
+                  🎵 Отделить аудио
+                </button>
+              )}
               <button
                 onClick={() => {
                   splitClipAt(contextMenu.clipId!, useProjectStore.getState().playhead);

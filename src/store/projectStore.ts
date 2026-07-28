@@ -35,6 +35,7 @@ interface ProjectState {
   toggleTrackProp: (trackId: string, prop: "hidden" | "muted" | "locked") => void;
   duplicateClip: (clipId: string) => void;
   splitClipAt: (clipId: string, time: number) => void;
+  detachAudio: (clipId: string) => void;
 
   persist: () => Promise<void>;
 }
@@ -160,6 +161,60 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       next.duration = recomputeDuration(next);
       return { ...pushHistory(s, next), selectedClipId: newId ?? s.selectedClipId } as any;
     }),
+
+
+  detachAudio: (clipId) => set((s) => {
+    if (!s.project) return s;
+    let targetTrack = s.project.tracks.find(t => t.type === "audio");
+    const nextProject = { ...s.project, tracks: [...s.project.tracks] };
+
+    if (!targetTrack) {
+      targetTrack = { id: uid("track"), type: "audio", name: "Аудио (Отделенное)", clips: [], hidden: false, muted: false, locked: false };
+      nextProject.tracks.push(targetTrack);
+    }
+
+    let sourceClip: any = null;
+    
+    // find clip and mute it
+    nextProject.tracks = nextProject.tracks.map(t => {
+      const cIdx = t.clips.findIndex(c => c.id === clipId);
+      if (cIdx >= 0 && t.type === "video") {
+         sourceClip = t.clips[cIdx];
+         const newClips = [...t.clips];
+         newClips[cIdx] = { ...sourceClip, muted: true };
+         return { ...t, clips: newClips };
+      }
+      return t;
+    });
+
+    if (!sourceClip) return s;
+
+    // Create audio clip
+    const audioClip: import("@/lib/types").AudioClip = {
+      id: uid("clip"),
+      trackId: targetTrack.id,
+      type: "audio",
+      name: sourceClip.name + " (Аудио)",
+      assetId: sourceClip.assetId,
+      start: sourceClip.start,
+      duration: sourceClip.duration,
+      inPoint: sourceClip.inPoint,
+      outPoint: sourceClip.outPoint,
+      speed: sourceClip.speed,
+      volume: { value: 1, keyframes: [] },
+      fadeIn: 0, fadeOut: 0, eqLow: 0, eqMid: 0, eqHigh: 0, denoise: false, muted: false, pan: { value: 0, keyframes: [] }
+    };
+
+    // Add to target track
+    nextProject.tracks = nextProject.tracks.map(t => {
+      if (t.id === targetTrack!.id) {
+         return { ...t, clips: [...t.clips, audioClip] };
+      }
+      return t;
+    });
+
+    return pushHistory(s, nextProject) as any;
+  }),
 
   splitClipAt: (clipId, time) =>
     set((s) => {

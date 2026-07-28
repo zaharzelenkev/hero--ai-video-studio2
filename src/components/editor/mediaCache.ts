@@ -2,11 +2,35 @@
 
 import { loadBlob } from "@/lib/db";
 import type { MediaAsset } from "@/lib/types";
+import { computeWaveformPeaks } from "@/lib/media";
 
 const urlCache = new Map<string, string>();
 const videoCache = new Map<string, HTMLVideoElement>();
 const imageCache = new Map<string, HTMLImageElement>();
 const loading = new Map<string, Promise<string>>();
+
+
+const waveformCache = new Map<string, number[]>();
+const waveformLoading = new Map<string, Promise<number[]>>();
+
+export async function getAssetWaveform(asset: MediaAsset): Promise<number[]> {
+  if (waveformCache.has(asset.id)) return waveformCache.get(asset.id)!;
+  if (waveformLoading.has(asset.id)) return waveformLoading.get(asset.id)!;
+
+  const promise = (async () => {
+    try {
+      const blob = await loadBlob(asset.blobKey);
+      if (!blob) throw new Error("missing blob");
+      const peaks = await computeWaveformPeaks(blob, 1000);
+      waveformCache.set(asset.id, peaks);
+      return peaks;
+    } catch {
+      return [];
+    }
+  })();
+  waveformLoading.set(asset.id, promise);
+  return promise;
+}
 
 export async function getAssetUrl(asset: MediaAsset): Promise<string> {
   const cached = urlCache.get(asset.id);
@@ -56,4 +80,6 @@ export function clearMediaCache() {
   videoCache.clear();
   imageCache.clear();
   loading.clear();
+  waveformCache.clear();
+  waveformLoading.clear();
 }

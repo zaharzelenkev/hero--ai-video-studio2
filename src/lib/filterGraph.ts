@@ -96,7 +96,7 @@ function buildVideoClipChain(
     const scaleExpr = paramToFfmpegExpr(clip.scale, "t");
     const next = id(`c${tag}_`);
     lines.push(
-      `[${current}]scale=w='trunc(iw*(${scaleExpr})/2)*2':h='trunc(ih*(${scaleExpr})/2)*2':eval=frame,setsar=1[${next}]`,
+      `[${current}]scale=w='trunc(iw*(${scaleExpr})/2)*2':h='trunc(ih*(${scaleExpr})/2)*2',setsar=1[${next}]`,
     );
     current = next;
   }
@@ -105,7 +105,7 @@ function buildVideoClipChain(
   if (rotVal.value !== 0 || rotVal.keyframes.length) {
     const degExpr = paramToFfmpegExpr(rotVal, "t");
     const next = id(`c${tag}_`);
-    lines.push(`[${current}]format=yuva420p,rotate=a='(${degExpr})*PI/180':c=black@0:eval=frame[${next}]`);
+    lines.push(`[${current}]format=yuva420p,rotate=a='(${degExpr})*PI/180':c=black@0[${next}]`);
     current = next;
   }
 
@@ -117,14 +117,14 @@ function buildVideoClipChain(
   const gammaExpr = paramToFfmpegExpr(c.gamma, "t");
   const nextEq = id(`c${tag}_`);
   lines.push(
-    `[${current}]eq=brightness='${brightnessExpr}':contrast='${contrastExpr}':saturation='${saturationExpr}':gamma='${gammaExpr}':eval=frame[${nextEq}]`,
+    `[${current}]eq=brightness='${brightnessExpr}':contrast='${contrastExpr}':saturation='${saturationExpr}':gamma='${gammaExpr}'[${nextEq}]`,
   );
   current = nextEq;
 
   if (c.hue.value !== 0 || c.hue.keyframes.length) {
     const hueExpr = paramToFfmpegExpr(c.hue, "t");
     const next = id(`c${tag}_`);
-    lines.push(`[${current}]hue=h='${hueExpr}':eval=frame[${next}]`);
+    lines.push(`[${current}]hue=h='${hueExpr}'[${next}]`);
     current = next;
   }
 
@@ -182,7 +182,7 @@ function buildVideoClipChain(
 
   const opacityExpr = paramToFfmpegExpr(clip.opacity, "t");
   const finalLabel = id(`c${tag}_`);
-  lines.push(`[${current}]format=yuva420p,colorchannelmixer=aa='${opacityExpr}':eval=frame[${finalLabel}]`);
+  lines.push(`[${current}]format=yuva420p,colorchannelmixer=aa='${opacityExpr}'[${finalLabel}]`);
 
   return { label: finalLabel, idx };
 }
@@ -209,7 +209,7 @@ function buildAudioChain(
 
   const volExpr = paramToFfmpegExpr(volume, "t");
   const next1 = id(`a${tag}_`);
-  lines.push(`[${current}]volume='${volExpr}':eval=frame[${next1}]`);
+  lines.push(`[${current}]volume='${volExpr}'[${next1}]`);
   current = next1;
 
   if (fadeIn > 0) {

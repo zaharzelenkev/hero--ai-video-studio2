@@ -15,6 +15,10 @@ interface ProjectState {
   activePage: EditorPage;
   pxPerSecond: number;
   dirty: boolean;
+  past: string[];
+  future: string[];
+  undo: () => void;
+  redo: () => void;
 
   loadProject: (p: Project) => void;
   setActivePage: (page: EditorPage) => void;
@@ -45,6 +49,21 @@ function recomputeDuration(project: Project): number {
   return max;
 }
 
+
+function pushHistory(s: ProjectState, nextProject: Project): Partial<ProjectState> {
+  if (!s.project) return { project: nextProject, dirty: true };
+  const str = JSON.stringify(s.project);
+  if (s.past.length > 0 && s.past[s.past.length - 1] === str) {
+    return { project: nextProject, dirty: true };
+  }
+  return {
+    project: nextProject,
+    dirty: true,
+    past: [...s.past, str].slice(-50),
+    future: []
+  };
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   project: null,
   selectedClipId: null,
@@ -53,8 +72,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   activePage: "montage",
   pxPerSecond: 60,
   dirty: false,
+  past: [],
+  future: [],
+  
+  undo: () => set((s) => {
+    if (s.past.length === 0 || !s.project) return s;
+    const prevJson = s.past[s.past.length - 1];
+    const newPast = s.past.slice(0, -1);
+    const newFuture = [JSON.stringify(s.project), ...s.future];
+    return { project: JSON.parse(prevJson), past: newPast, future: newFuture, dirty: true };
+  }),
+  
+  redo: () => set((s) => {
+    if (s.future.length === 0 || !s.project) return s;
+    const nextJson = s.future[0];
+    const newFuture = s.future.slice(1);
+    const newPast = [...s.past, JSON.stringify(s.project)];
+    return { project: JSON.parse(nextJson), past: newPast, future: newFuture, dirty: true };
+  }),
 
-  loadProject: (p) => set({ project: p, selectedClipId: null, playhead: 0, dirty: false }),
+  loadProject: (p) => set({ project: p, selectedClipId: null, playhead: 0, dirty: false, past: [], future: [] }),
   setActivePage: (page) => set({ activePage: page }),
   setPlayhead: (t) => set({ playhead: Math.max(0, t) }),
   setPlaying: (playing) => set({ isPlaying: playing }),
@@ -67,7 +104,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const next = fn(s.project);
       next.duration = recomputeDuration(next);
       next.updatedAt = Date.now();
-      return { project: next, dirty: true };
+      return pushHistory(s, next) as any;
     }),
 
   updateClip: (clipId, fn) =>
@@ -79,7 +116,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       const next = { ...s.project, tracks, updatedAt: Date.now() };
       next.duration = recomputeDuration(next);
-      return { project: next, dirty: true };
+      return pushHistory(s, next) as any;
     }),
 
   removeClip: (clipId) =>
@@ -91,28 +128,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
       const next = { ...s.project, tracks, updatedAt: Date.now() };
       next.duration = recomputeDuration(next);
-      return {
-        project: next,
-        dirty: true,
-        selectedClipId: s.selectedClipId === clipId ? null : s.selectedClipId,
-      };
+      return { ...pushHistory(s, next), selectedClipId: s.selectedClipId === clipId ? null : s.selectedClipId } as any;
     }),
 
   addTrack: (track) =>
-    set((s) => (s.project ? { project: { ...s.project, tracks: [...s.project.tracks, track] }, dirty: true } : s)),
+    set((s) => s.project ? pushHistory(s, { ...s.project, tracks: [...s.project.tracks, track] }) : s),
 
   removeTrack: (trackId) =>
-    set((s) =>
-      s.project
-        ? { project: { ...s.project, tracks: s.project.tracks.filter((t) => t.id !== trackId) }, dirty: true }
-        : s,
-    ),
+    set((s) => s.project ? pushHistory(s, { ...s.project, tracks: s.project.tracks.filter((t) => t.id !== trackId) }) : s),
 
   toggleTrackProp: (trackId, prop) =>
     set((s) => {
       if (!s.project) return s;
       const tracks = s.project.tracks.map((t) => (t.id === trackId ? { ...t, [prop]: !t[prop] } : t));
-      return { project: { ...s.project, tracks }, dirty: true };
+      return pushHistory(s, { ...s.project, tracks }) as any;
     }),
 
   duplicateClip: (clipId) =>
@@ -129,7 +158,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
       const next = { ...s.project, tracks };
       next.duration = recomputeDuration(next);
-      return { project: next, dirty: true, selectedClipId: newId ?? s.selectedClipId };
+      return { ...pushHistory(s, next), selectedClipId: newId ?? s.selectedClipId } as any;
     }),
 
   splitClipAt: (clipId, time) =>
@@ -164,7 +193,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }
         return { ...track, clips };
       });
-      return { project: { ...s.project, tracks }, dirty: true };
+      return pushHistory(s, { ...s.project, tracks }) as any;
     }),
 
   persist: async () => {

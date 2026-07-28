@@ -33,6 +33,10 @@ export default function EditorShellV2() {
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const setPlaying = useProjectStore((s) => s.setPlaying);
   const isPlaying = useProjectStore((s) => s.isPlaying);
+    const undo = useProjectStore((s) => s.undo);
+    const redo = useProjectStore((s) => s.redo);
+    const splitClipAt = useProjectStore((s) => s.splitClipAt);
+    const playhead = useProjectStore((s) => s.playhead);
 
   useEffect(() => {
     if (!dirty) return;
@@ -47,10 +51,12 @@ export default function EditorShellV2() {
     };
   }, []);
 
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      
       if (e.code === "Space") {
         e.preventDefault();
         setPlaying(!isPlaying);
@@ -59,10 +65,34 @@ export default function EditorShellV2() {
         e.preventDefault();
         removeClip(selectedClipId);
       }
+      
+      // Undo / Redo
+      if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (e.shiftKey) {
+           redo();
+        } else {
+           undo();
+        }
+      }
+      // Redo (Cmd+Y / Ctrl+Y)
+      if (e.code === "KeyY" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        redo();
+      }
+      
+      // Split
+      if (e.code === "KeyS" || (e.code === "KeyB" && (e.ctrlKey || e.metaKey))) {
+        if (selectedClipId) {
+          e.preventDefault();
+          splitClipAt(selectedClipId, playhead);
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isPlaying, selectedClipId, setPlaying, removeClip]);
+  }, [isPlaying, selectedClipId, playhead, setPlaying, removeClip, undo, redo, splitClipAt]);
+
 
   if (!project) return null;
 
@@ -81,6 +111,12 @@ export default function EditorShellV2() {
             MONTIQ
           </span>
         </Link>
+
+        
+        <div className="flex items-center gap-1 border-r border-white/10 pr-3 mr-1">
+           <button onClick={undo} title="Отменить (Ctrl+Z)" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition-colors">↩</button>
+           <button onClick={redo} title="Повторить (Ctrl+Shift+Z)" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition-colors">↪</button>
+        </div>
 
         <div className="h-5 w-px bg-white/10" />
 

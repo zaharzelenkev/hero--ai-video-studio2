@@ -1,8 +1,8 @@
 import { AI_CONFIG } from "@/config/ai";
-import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } from "./factories";
-import type { Project, MediaAsset } from "./types";
-import { uid } from "./id";
-import { saveBlob } from "./db";
+import { createAudioClip, createTextClip, createVideoClip, createEmptyProject } from "../factories";
+import type { Project, MediaAsset } from "../types";
+import { uid } from "../id";
+import { saveBlob } from "../db";
 
 export async function generateMagicVideo(
   prompt: string,

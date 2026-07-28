@@ -12,13 +12,13 @@ export default function PromptForm({
   return (
     <div>
       <label className="mb-2 block text-sm font-medium text-slate-300">
-        Опишите, что нужно сделать с материалами
+        Загрузите медиа или просто опишите идею видео
       </label>
       <textarea
         value={prompt}
         onChange={(e) => onChange(e.target.value)}
         rows={4}
-        placeholder='Например: "Сделай динамичный ролик из этих клипов с музыкой, тёплые тона, добавь титры"'
+        placeholder='Например: "Сделай рекламный ролик для кофейни" или "Смонтируй динамичный TikTok"'
         className="w-full resize-none rounded-2xl border border-white/10 bg-white/[0.02] p-5 text-sm text-slate-100 placeholder:text-slate-500 transition-all duration-300 focus:border-violet-500/50 focus:bg-white/[0.04] focus:outline-none focus:ring-4 focus:ring-violet-500/10"
       />
       <div className="mt-3 flex flex-wrap gap-2">

@@ -29,7 +29,7 @@ export default function GenerationScreenV2() {
     listProjects().then(setRecentProjects).catch(() => {});
   }, []);
 
-  const canGenerate = items.length > 0 && stage !== "generating" && stage !== "reading";
+  const canGenerate = (items.length > 0 || prompt.trim().length > 5) && stage !== "generating" && stage !== "reading";
 
   const onAdd = async (files: File[]) => {
     setStage("reading");
@@ -51,7 +51,7 @@ export default function GenerationScreenV2() {
   const onRemove = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
 
   const handleGenerate = async () => {
-    if (!items.length) return;
+    
     setStage("generating");
     setErrorMsg("");
     setProgress(0);
@@ -85,13 +85,19 @@ export default function GenerationScreenV2() {
       style.intelligentCuts = true; // Enable AI analysis
       style.autoSubtitles = true;
       
-      const project = await autoEditToProject({
-        title: prompt.slice(0, 40) || "Новый проект",
-        assets,
-        filesByAssetId,
-        style,
-        onProgress: setProgressLabel
-      });
+      let project;
+      if (items.length > 0) {
+        project = await autoEditToProject({
+          title: prompt.slice(0, 40) || "Новый проект",
+          assets,
+          filesByAssetId,
+          style,
+          onProgress: setProgressLabel
+        });
+      } else {
+        const { generateMagicVideo } = await import("@/lib/magicGenerator");
+        project = await generateMagicVideo(prompt, setProgressLabel);
+      }
       
       await saveProject(project);
 
@@ -197,7 +203,7 @@ export default function GenerationScreenV2() {
                 onClick={handleGenerate}
                 className="mt-6 w-full rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-violet-900/40 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-violet-900/50 focus:outline-none focus:ring-4 focus:ring-violet-500/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
               >
-                {busy ? "🎬 Создаём ваше видео..." : "🚀 Создать видео с AI"}
+                {busy ? "🎬 Создаём ваше видео..." : items.length > 0 ? "🚀 Смонтировать видео" : "✨ Сгенерировать с нуля (AI)"}
               </button>
               
               <p className="mt-3 text-center text-[10px] text-slate-500">

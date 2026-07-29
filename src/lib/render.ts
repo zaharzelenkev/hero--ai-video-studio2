@@ -41,13 +41,20 @@ export async function renderProject(
       let fontUrl = new URL(`/fonts/${fontFile}`, window.location.origin).href;
       
       // If it's a dynamic Google Font injected format: "GFONT_Family_Weight.ttf"
-      const isGfont = fontFile.startsWith("GFONT_");
+      const isGfont = fontFile.startsWith("GFONT_") || fontFile.startsWith("GFONT:");
       if (isGfont) {
+         if (fontFile.startsWith("GFONT:")) {
+            const parts = fontFile.split(":");
+            const family = parts[1];
+            const weight = parts[2] || "700";
+            fontUrl = new URL(`/api/font?family=${encodeURIComponent(family)}&weight=${weight}`, window.location.origin).href;
+         } else {
          const namePart = fontFile.replace("GFONT_", "").replace(".ttf", "");
          const lastUnderscore = namePart.lastIndexOf("_");
          const family = namePart.substring(0, lastUnderscore).replace(/\+/g, " ");
          const weight = namePart.substring(lastUnderscore + 1) || "700";
          fontUrl = new URL(`/api/font?family=${encodeURIComponent(family)}&weight=${weight}`, window.location.origin).href;
+         }
       }
 
       let fontResp: Response | null = null;

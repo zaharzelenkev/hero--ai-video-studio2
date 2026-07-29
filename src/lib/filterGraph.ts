@@ -87,7 +87,6 @@ function buildVideoClipChain(
   }
 
   if (fitMode === "cover") {
-    const next = id(`c${tag}_`);
     
     let cropX = "(in_w-out_w)/2";
     let cropY = "(in_h-out_h)/2";
@@ -100,24 +99,32 @@ function buildVideoClipChain(
     }
     
     // Animate zooming over the crop if scale.keyframes > 0 (Ken Burns emulation on cover)
-    if (clip.scale && (clip.scale.value !== 1 || clip.scale.keyframes.length)) {
-       const scaleExpr = paramToFfmpegExpr(clip.scale, "t");
-       // First scale keeping aspect ratio covering the target, PLUS our custom scale multiplier
-       // Then crop out the exact W:H
+    const baseScale = (clip.scale && clip.scale.keyframes && clip.scale.keyframes.length > 0) 
+      ? clip.scale.keyframes[0].value 
+      : (clip.scale?.value ?? 1);
+
+    const nextScale = id(`c${tag}_scale_`);
+    lines.push(
+      `[${current}]scale='iw*max(${canvasW}/iw\\,${canvasH}/ih)*${baseScale}':'ih*max(${canvasW}/iw\\,${canvasH}/ih)*${baseScale}',crop=${canvasW}:${canvasH}:${cropX}:${cropY},setsar=1[${nextScale}]`,
+    );
+    current = nextScale;
+
+    if (clip.scale && clip.scale.keyframes.length > 0) {
+       const zoomExpr = paramToFfmpegExpr(clip.scale, "in_time");
+       const nextZoom = id(`c${tag}_zoom_`);
        lines.push(
-         `[${current}]scale='iw*max(${canvasW}/iw\\,${canvasH}/ih)*(${scaleExpr})':'ih*max(${canvasW}/iw\\,${canvasH}/ih)*(${scaleExpr})',crop=${canvasW}:${canvasH}:${cropX}:${cropY},setsar=1[${next}]`,
+         `[${current}]zoompan=z='(${zoomExpr})/${baseScale}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${canvasW}x${canvasH}:fps=${fps}[${nextZoom}]`
        );
-    } else {
-       lines.push(
-         `[${current}]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=increase,crop=${canvasW}:${canvasH}:${cropX}:${cropY},setsar=1[${next}]`,
-       );
+       current = nextZoom;
     }
-    current = next;
   } else {
-    const scaleExpr = paramToFfmpegExpr(clip.scale, "t");
+    const baseScale = (clip.scale && clip.scale.keyframes && clip.scale.keyframes.length > 0) 
+      ? clip.scale.keyframes[0].value 
+      : (clip.scale?.value ?? 1);
+      
     const next = id(`c${tag}_`);
     lines.push(
-      `[${current}]scale=w='trunc(iw*(${scaleExpr})/2)*2':h='trunc(ih*(${scaleExpr})/2)*2',setsar=1[${next}]`,
+      `[${current}]scale=w='trunc(iw*${baseScale}/2)*2':h='trunc(ih*${baseScale}/2)*2',setsar=1[${next}]`,
     );
     current = next;
   }

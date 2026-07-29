@@ -6,7 +6,5 @@ export const AI_CONFIG = {
   apiUrl: "https://api.groq.com/openai/v1/chat/completions",
   
   // Модель, которая будет использоваться для анализа видео
-  model: "llama-3.3-70b-versatile",
-  
-  geminiApiKey: ""
+  model: "llama-3.3-70b-versatile"
 };

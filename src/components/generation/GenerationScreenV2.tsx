@@ -19,25 +19,25 @@ export default function GenerationScreenV2() {
   const router = useRouter();
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [templateId, setTemplateId] = useState<import("@/lib/templates").TemplateId>("auto");
+  const [templateId, setTemplateId] = useState<import("@/lib/templates").TemplateId | "">("");
   const [stage, setStage] = useState<Stage>("idle");
   const [progressLabel, setProgressLabel] = useState("");
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
-  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [groqApiKey, setGroqApiKey] = useState("");
   const [showApiSettings, setShowApiSettings] = useState(false);
 
   useEffect(() => {
-    const key = localStorage.getItem("montiq_gemini_api_key");
-    if (key) setGeminiApiKey(key);
+    const key = localStorage.getItem("montiq_groq_api_key");
+    if (key) setGroqApiKey(key);
   }, []);
 
   const saveApiKey = () => {
-    if (geminiApiKey) {
-      localStorage.setItem("montiq_gemini_api_key", geminiApiKey);
+    if (groqApiKey) {
+      localStorage.setItem("montiq_groq_api_key", groqApiKey);
     } else {
-      localStorage.removeItem("montiq_gemini_api_key");
+      localStorage.removeItem("montiq_groq_api_key");
     }
     setShowApiSettings(false);
   };
@@ -101,7 +101,7 @@ export default function GenerationScreenV2() {
       const style = parsePromptToStyle(prompt);
       style.intelligentCuts = true; // Enable AI analysis
       style.autoSubtitles = true;
-      style.templateId = templateId;
+      style.templateId = templateId || "auto";
       
       let project;
       if (items.length > 0) {
@@ -181,21 +181,21 @@ export default function GenerationScreenV2() {
               className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 backdrop-blur-sm transition-all hover:bg-white/10"
             >
               <span>⚙️</span>
-              <span>{geminiApiKey ? "Gemini настроен" : "Настроить AI (Gemini)"}</span>
+              <span>{groqApiKey ? "AI настроен" : "Настроить AI (Groq)"}</span>
             </button>
           </div>
 
           {showApiSettings && (
             <div className="mx-auto mt-4 max-w-md rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-              <h3 className="mb-2 text-sm font-semibold text-slate-300">Google Gemini API Key (опционально)</h3>
+              <h3 className="mb-2 text-sm font-semibold text-slate-300">Groq API Key (опционально)</h3>
               <p className="mb-3 text-xs text-slate-400">
-                Для работы продвинутого режиссера монтажа (Gemini 2.0 Flash)
+                Для интеллектуального анализа видео и улучшенного монтажа (LLaMA 3.3)
               </p>
               <input
                 type="password"
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="AIza..."
+                value={groqApiKey}
+                onChange={(e) => setGroqApiKey(e.target.value)}
+                placeholder="gsk_..."
                 className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-100 outline-none focus:border-violet-500/50"
               />
               <div className="flex gap-2">

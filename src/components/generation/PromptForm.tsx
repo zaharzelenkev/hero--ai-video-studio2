@@ -11,7 +11,7 @@ export default function PromptForm({
 }: {
   prompt: string;
   onChange: (v: string) => void;
-  templateId: TemplateId;
+  templateId: TemplateId | "";
   onTemplateChange: (t: TemplateId) => void;
 }) {
   return (

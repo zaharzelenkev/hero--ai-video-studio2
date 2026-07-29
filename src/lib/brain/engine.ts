@@ -56,7 +56,7 @@ export class DirectorEngine {
     let script: DirectorScript;
     
     if (speechAssets.length > 0) {
-      if (AI_CONFIG.groqApiKey || (typeof window !== "undefined" && localStorage.getItem("montiq_gemini_api_key"))) {
+      if (AI_CONFIG.groqApiKey) {
          try {
              // 1. Prepare phrases for LLM
              const lines = (speechAssets[0].transcript || "").split("\n").filter((l: string) => l.includes("]"));
@@ -158,34 +158,18 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
 Выбери от 3 до 10 лучших фраз, чтобы общая длительность (сумма длин фраз) была около ${strategy.targetDuration} секунд.`;
 
     try {
-        let parsed: any;
-        const geminiKey = typeof window !== "undefined" ? localStorage.getItem("montiq_gemini_api_key") : AI_CONFIG.geminiApiKey;
-        if (geminiKey) {
-            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    generationConfig: { responseMimeType: "application/json", temperature: 0.4 }
-                })
-            });
-            const data = await resp.json();
-            const rawText = data.candidates[0].content.parts[0].text;
-            parsed = JSON.parse(rawText);
-        } else {
-            const resp = await fetch(AI_CONFIG.apiUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
-                body: JSON.stringify({
-                  model: AI_CONFIG.model,
-                  messages: [{ role: "system", content: prompt }],
-                  temperature: 0.4,
-                  response_format: { type: "json_object" },
-                }),
-            });
-            const data = await resp.json();
-            parsed = JSON.parse(data.choices[0].message.content);
-        }
+        const resp = await fetch(AI_CONFIG.apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
+            body: JSON.stringify({
+              model: AI_CONFIG.model,
+              messages: [{ role: "system", content: prompt }],
+              temperature: 0.4,
+              response_format: { type: "json_object" },
+            }),
+        });
+        const data = await resp.json();
+        const parsed = JSON.parse(data.choices[0].message.content);
         
         console.log("LLM Editor Reasoning:", parsed.reasoning);
 
@@ -284,7 +268,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
 
     // 4. Поиск Хука (Cold Open) с помощью LLM (или фоллбэка)
     let hookIndex = -1;
-    if (AI_CONFIG.groqApiKey || (typeof window !== "undefined" && localStorage.getItem("montiq_gemini_api_key"))) {
+    if (AI_CONFIG.groqApiKey) {
         try {
             const prompt = `Ты — элитный продюсер TikTok и YouTube Shorts. Твоя задача — выбрать идеальный "Хук" (Cold Open) из предложенного текста.
 Хук должен интриговать, задавать вопрос, обещать ценность или вызывать эмоцию. Он будет поставлен в самую первую секунду видео!
@@ -293,34 +277,18 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
 Выбери ТОЛЬКО ОДИН ID фразы, которая лучше всего подходит для хука. Верни строго JSON: {"bestHookId": 5}`;
 
-            let parsed: any;
-            const geminiKey = typeof window !== "undefined" ? localStorage.getItem("montiq_gemini_api_key") : AI_CONFIG.geminiApiKey;
-            if (geminiKey) {
-                const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        contents: [{ role: "user", parts: [{ text: prompt }] }],
-                        generationConfig: { responseMimeType: "application/json", temperature: 0.3 }
-                    })
-                });
-                const data = await resp.json();
-                const rawText = data.candidates[0].content.parts[0].text;
-                parsed = JSON.parse(rawText);
-            } else {
-                const resp = await fetch(AI_CONFIG.apiUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
-                    body: JSON.stringify({
-                      model: AI_CONFIG.model,
-                      messages: [{ role: "system", content: prompt }],
-                      temperature: 0.3,
-                      response_format: { type: "json_object" },
-                    }),
-                });
-                const data = await resp.json();
-                parsed = JSON.parse(data.choices[0].message.content);
-            }
+            const resp = await fetch(AI_CONFIG.apiUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
+                body: JSON.stringify({
+                  model: AI_CONFIG.model,
+                  messages: [{ role: "system", content: prompt }],
+                  temperature: 0.3,
+                  response_format: { type: "json_object" },
+                }),
+            });
+            const data = await resp.json();
+            const parsed = JSON.parse(data.choices[0].message.content);
             if (typeof parsed.bestHookId === "number" && parsed.bestHookId >= 0 && parsed.bestHookId < validPhrases.length) {
                 hookIndex = parsed.bestHookId;
                 console.log("LLM selected Hook ID:", hookIndex, validPhrases[hookIndex].text);

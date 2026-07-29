@@ -25,22 +25,7 @@ export default function GenerationScreenV2() {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
-  const [groqApiKey, setGroqApiKey] = useState("");
-  const [showApiSettings, setShowApiSettings] = useState(false);
-
-  useEffect(() => {
-    const key = localStorage.getItem("montiq_groq_api_key");
-    if (key) setGroqApiKey(key);
-  }, []);
-
-  const saveApiKey = () => {
-    if (groqApiKey) {
-      localStorage.setItem("montiq_groq_api_key", groqApiKey);
-    } else {
-      localStorage.removeItem("montiq_groq_api_key");
-    }
-    setShowApiSettings(false);
-  };
+  
     
   useEffect(() => {
     listProjects().then(setRecentProjects).catch(() => {});
@@ -174,46 +159,7 @@ export default function GenerationScreenV2() {
             Доработайте результат в редакторе с продвинутыми инструментами.
           </p>
 
-          {/* Settings */}
-          <div className="mt-6 flex items-center justify-center gap-3">
-            <button
-              onClick={() => setShowApiSettings(!showApiSettings)}
-              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 backdrop-blur-sm transition-all hover:bg-white/10"
-            >
-              <span>⚙️</span>
-              <span>{groqApiKey ? "AI настроен" : "Настроить AI (Groq)"}</span>
-            </button>
-          </div>
 
-          {showApiSettings && (
-            <div className="mx-auto mt-4 max-w-md rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-              <h3 className="mb-2 text-sm font-semibold text-slate-300">Groq API Key (опционально)</h3>
-              <p className="mb-3 text-xs text-slate-400">
-                Для интеллектуального анализа видео и улучшенного монтажа (LLaMA 3.3)
-              </p>
-              <input
-                type="password"
-                value={groqApiKey}
-                onChange={(e) => setGroqApiKey(e.target.value)}
-                placeholder="gsk_..."
-                className="mb-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-100 outline-none focus:border-violet-500/50"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={saveApiKey}
-                  className="flex-1 rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700"
-                >
-                  Сохранить
-                </button>
-                <button
-                  onClick={() => setShowApiSettings(false)}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5"
-                >
-                  Отмена
-                </button>
-              </div>
-            </div>
-          )}
         </header>
 
         {/* Main Content */}

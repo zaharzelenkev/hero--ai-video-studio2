@@ -321,7 +321,7 @@ export function compileProjectToFfmpeg(
       if (clip.start - cursor > 0.02) {
         const gap = clip.start - cursor;
         const fillLabel = id("gapfill_");
-        lines.push(`color=c=black:s=${W}x${H}:d=${gap}:r=${fps},format=yuva420p[${fillLabel}]`);
+        lines.push(`color=c=black:s=${W}x${H}:d=${gap}:r=${fps},format=yuv420p[${fillLabel}]`);
         segments.push({ label: fillLabel, duration: gap, transition: { type: "cut", duration: 0 }, idx: -1 });
       }
       const { label, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "cover", lines);
@@ -370,7 +370,7 @@ export function compileProjectToFfmpeg(
           const next = id("xfade_");
           // xfade requires inputs to have exactly the same framerate and timebase. We format them to ensure safety.
           lines.push(
-            `[${acc}]settb=1/30,fps=30[${acc}_tb];[${seg.label}]settb=1/30,fps=30[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
+            `[${acc}]format=yuv420p,fps=30,settb=1/30[${acc}_tb];[${seg.label}]format=yuv420p,fps=30,settb=1/30[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
           );
           acc = next;
           accDur = accDur - dur + seg.duration;
@@ -382,7 +382,7 @@ export function compileProjectToFfmpeg(
 
   if (!composite) {
     const fallback = id("blank_");
-    lines.push(`color=c=black:s=${W}x${H}:d=${Math.max(1, project.duration)}:r=${fps},format=yuva420p[${fallback}]`);
+    lines.push(`color=c=black:s=${W}x${H}:d=${Math.max(1, project.duration)}:r=${fps},format=yuv420p[${fallback}]`);
     composite = fallback;
   }
 

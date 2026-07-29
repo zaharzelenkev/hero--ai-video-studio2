@@ -7,4 +7,6 @@ export const AI_CONFIG = {
   
   // Модель, которая будет использоваться для анализа видео
   model: "llama-3.3-70b-versatile",
+  
+  geminiApiKey: ""
 };

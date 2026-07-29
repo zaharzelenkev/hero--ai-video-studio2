@@ -1,23 +1,49 @@
 import type { Project, VideoClip } from "../types";
+import type { AIAnalysisRequest } from "../ai/aiService";
 import { getKnowledgeForGenre, saveLearnedLesson, BASE_KNOWLEDGE } from "./knowledge";
 
 export class DirectorBrain {
   
-  static async defineStrategy(userPrompt: string): Promise<{ genre: string, targetDuration: number, instructions: string }> {
-    const prompt = userPrompt.toLowerCase();
+  static async defineStrategy(request: AIAnalysisRequest): Promise<{ genre: string, targetDuration: number, instructions: string }> {
+    const prompt = (request.userPrompt || "").toLowerCase();
     let detectedGenre = "tiktok";
+    
+    // 1. Поиск жанра по промпту
     if (prompt.match(/(подкаст|интервью|podcast|interview)/)) detectedGenre = "podcast";
     else if (prompt.match(/(реклам|ad|промо|коммерц)/)) detectedGenre = "ad";
     else if (prompt.match(/(тревел|travel|свадьб|wedding|влог|vlog)/)) detectedGenre = "travel";
     else if (prompt.match(/(документал|doc|фильм)/)) detectedGenre = "documentary";
+    else if (!prompt || prompt.length < 5) {
+        // 2. Умное автоопределение, если пользователь не ввел промпт или шаблон (Шаблон "Auto")
+        const hasSpeech = request.assets.some(a => (a.transcript || "").length > 20);
+        const isPortrait = request.assets.some(a => (a.height || 0) > (a.width || 1));
+        
+        if (hasSpeech && isPortrait) detectedGenre = "tiktok";
+        else if (hasSpeech && !isPortrait) detectedGenre = "podcast";
+        else detectedGenre = "travel"; // Красивая визуальная нарезка без речи
+    }
 
     const baseInfo = BASE_KNOWLEDGE.find(k => k.genreId === detectedGenre) || BASE_KNOWLEDGE[0];
     
+    // 3. Вычисление правильной длительности
     let targetDuration = baseInfo.targetDurationMin;
     const durMatch = prompt.match(/(\d+)\s*(сек|мин)/);
+    
     if (durMatch) {
        const num = parseInt(durMatch[1]);
        targetDuration = durMatch[2].startsWith("мин") ? num * 60 : num;
+    } else {
+       // Если пользователь не ограничил время — подстраиваемся под длину исходников
+       const totalVisualDur = request.assets.filter(a => a.type === "video" || a.type === "image").reduce((sum, a) => sum + (a.duration || 5), 0);
+       
+       if (totalVisualDur > 0) {
+           // Режем ~20% мусора (тишина/мертвые зоны)
+           targetDuration = totalVisualDur * 0.8; 
+           // Но жестко лимитируем в рамках выбранного жанра (например, TikTok не может быть 10 минут)
+           targetDuration = Math.max(baseInfo.targetDurationMin, Math.min(targetDuration, baseInfo.targetDurationMax));
+       } else {
+           targetDuration = baseInfo.targetDurationMin; // fallback
+       }
     }
 
     const instructions = await getKnowledgeForGenre(detectedGenre);

@@ -64,6 +64,9 @@ export class DirectorEngine {
     
     script = this.applyProfessionalTechniques(script, strategy.genre);
     
+    // Самоанализ, извлечение уроков (RAG Engine)
+    script = await this.critiqueAndLearn(script, strategy);
+    
     return script;
   }
 
@@ -348,6 +351,60 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       }
     }
     return script;
+  }
+
+  /**
+   * RAG Critique Engine: Анализирует получившийся сценарий на предмет ошибок (темп, перебивки)
+   * Исправляет их на лету и сохраняет новые правила в базу знаний для будущих генераций.
+   */
+  private static async critiqueAndLearn(script: DirectorScript, strategy: any): Promise<DirectorScript> {
+      
+      let newLessons: string[] = [];
+
+      // 1. Проверка темпа для быстрых форматов
+      if (script.genre === "tiktok" || script.genre === "ad") {
+          for (const scene of script.scenes) {
+              if (scene.duration > 3.5 && scene.phase !== "outro") {
+                  
+                  newLessons.push(`В жанре ${script.genre} обнаружена слишком длинная сцена (${scene.duration.toFixed(1)}с). Внимание зрителя падает после 3 секунд. Сцена принудительно сокращена.`);
+                  scene.duration = 3.0;
+                  scene.mainClip.sourceEnd = scene.mainClip.sourceStart + 3.0;
+              }
+          }
+      }
+
+      // 2. Проверка кинематографичности (воздух в монтаже)
+      if (script.genre === "travel" || script.genre === "cinematic" || script.genre === "documentary") {
+          const fastCuts = script.scenes.filter(s => s.duration < 1.5).length;
+          if (fastCuts > script.scenes.length * 0.4) {
+              newLessons.push(`ОШИБКА РИТМА: В кинематографичном жанре слишком много быстрых склеек (< 1.5с). Зритель не успевает насладиться эстетикой. В следующий раз давай кадру 'подышать' 4-6 секунд.`);
+          }
+      }
+      
+      // 3. Проверка перебивок для подкастов
+      if (script.genre === "podcast" || script.genre === "interview") {
+          const totalBRolls = script.scenes.reduce((acc, s) => acc + s.bRolls.length, 0);
+          if (totalBRolls === 0 && script.targetDuration > 10) {
+              newLessons.push(`ОШИБКА УДЕРЖАНИЯ: Подкаст без B-Roll (перебивок). Говорящая голова наскучит зрителю. Обязательно перекрывай лицо визуальным рядом каждые несколько секунд.`);
+          }
+      }
+
+      // Если в RAG-базе (strategy.instructions) уже было указание на эту ошибку, но движок все равно ее совершил,
+      // мы можем записать урок с повышенным приоритетом (в верхний регистр).
+      for (const lesson of newLessons) {
+          const isRepeatOffense = strategy.instructions.includes("ОШИБКА") && strategy.instructions.toLowerCase().includes("b-roll");
+          let finalLesson = lesson;
+          if (isRepeatOffense) finalLesson = "КРИТИЧЕСКОЕ ПРАВИЛО: " + lesson;
+          
+          try {
+             const { saveLearnedLesson } = await import("./knowledge");
+             await saveLearnedLesson(script.genre, finalLesson);
+          } catch(e) {
+             console.warn("Could not save RAG lesson", e);
+          }
+      }
+
+      return script;
   }
 
   static compileToDecision(script: DirectorScript): AIEditDecision {

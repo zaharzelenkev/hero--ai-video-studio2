@@ -56,7 +56,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // Pick project resolution based on content type or dominant orientation
   const portraitVotes = visualAssets.filter((a) => (a.height ?? 0) > (a.width ?? 1)).length;
   
-  if (style.contentType === "shorts" || style.contentType === "reels" || style.contentType === "tiktok") {
+  if (style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary") {
+    project.resolution = { width: 1920, height: 1080 };
+  } else if (style.contentType === "shorts" || style.contentType === "reels" || style.contentType === "tiktok") {
     project.resolution = { width: 1080, height: 1920 };
   } else if (visualAssets.length && portraitVotes > visualAssets.length / 2) {
     project.resolution = { width: 720, height: 1280 };

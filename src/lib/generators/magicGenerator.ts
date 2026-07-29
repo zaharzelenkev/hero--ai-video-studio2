@@ -140,6 +140,7 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
   const { applyTextAnimation } = await import("../textAnimations");
   
   const project = createEmptyProject(scriptData.title);
+  project.assets = [...assets];
   project.resolution = { width: 1080, height: 1920 };
   project.exportSettings.width = 1080;
   project.exportSettings.height = 1920;

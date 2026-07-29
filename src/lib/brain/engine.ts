@@ -388,7 +388,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
   }
 
   private static buildVisualScript(
-    _request: AIAnalysisRequest, 
+    request: AIAnalysisRequest, 
     strategy: any, 
     visualAssets: any[]
   ): DirectorScript {
@@ -502,6 +502,16 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
         bRolls: [], captions: []
       });
       currentTime += dur;
+    }
+
+    // Добавляем текст промпта на экран, если он есть
+    if (request.userPrompt && request.userPrompt.length > 3 && script.scenes.length > 0) {
+        script.scenes[0].captions.push({
+            text: request.userPrompt.slice(0, 60),
+            offsetInScene: 0.2,
+            duration: Math.min(3, script.scenes[0].duration - 0.2),
+            animation: "fade"
+        });
     }
 
     return script;

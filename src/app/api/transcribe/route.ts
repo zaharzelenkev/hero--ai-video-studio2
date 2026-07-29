@@ -57,9 +57,17 @@ export async function POST(req: NextRequest) {
   const data = (await groqResp.json()) as any;
   const segments = (data.segments || [])
     .map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }))
-    .filter((s: any) => s.text.length > 0);
+    .filter((s: any) => {
+        const clean = s.text.replace(/[^a-zA-Zа-яА-Я0-9]/g, "");
+        return clean.length > 0 && !s.text.includes("[Музыка]");
+    });
 
   let words: { word: string; start: number; end: number }[] = data.words || [];
+  
+  words = words.filter(w => {
+      const clean = w.word.replace(/[^a-zA-Zа-яА-Я0-9]/g, "");
+      return clean.length > 0;
+  });
 
   // If the API didn't return word-level timestamps (which Whisper often doesn't by default unless requested,
   // and sometimes even then depending on the provider), we dynamically extrapolate them from segments.

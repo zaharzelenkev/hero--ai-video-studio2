@@ -118,5 +118,9 @@ export const FONT_FILES: Record<string, string> = {
 };
 
 export function fontFileFor(fontFamily: string): string {
-  return FONT_FILES[fontFamily] || FONT_FILES["DejaVu Sans"];
+  if (FONT_FILES[fontFamily]) {
+    return FONT_FILES[fontFamily];
+  }
+  // If it's not a local file, assume it's a Google Font
+  return `GFONT:${fontFamily}:700`; // Default to Bold (700) for video text
 }

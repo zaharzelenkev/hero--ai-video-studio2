@@ -38,17 +38,35 @@ export async function renderProject(
       }
     }
     for (const fontFile of usedFontFiles) {
-      const fontUrl = new URL(`/fonts/${fontFile}`, window.location.origin).href;
+      let fontUrl = new URL(`/fonts/${fontFile}`, window.location.origin).href;
+      
+      // If it's a dynamic Google Font injected format: "GFONT:Family:Weight"
+      if (fontFile.startsWith("GFONT:")) {
+         const parts = fontFile.split(":");
+         const family = parts[1];
+         const weight = parts[2] || "700";
+         fontUrl = new URL(`/api/font?family=${encodeURIComponent(family)}&weight=${weight}`, window.location.origin).href;
+      }
+
       let fontResp: Response | null = null;
       try {
         fontResp = await fetch(fontUrl);
       } catch (err) {
         throw new Error(`Сетевая ошибка при загрузке шрифта: ${fontFile}`);
       }
+      
+      // Fallback to local default font if Google Font fails to fetch
+      if (!fontResp.ok && fontFile.startsWith("GFONT:")) {
+         console.warn(`Failed to fetch Google Font ${fontFile}, falling back to local DejaVuSans`);
+         fontUrl = new URL(`/fonts/DejaVuSans.ttf`, window.location.origin).href;
+         fontResp = await fetch(fontUrl);
+      }
+      
       if (!fontResp.ok) throw new Error(`Не удалось загрузить шрифт: ${fontFile} (HTTP ${fontResp.status})`);
+      
       const fontBlob = await fontResp.blob();
-      // Use fetchFileFromBlob to avoid ArrayBuffer detachment issues
       const fontBytes = await fetchFileFromBlob(fontBlob);
+      // Even if it's a Google Font, we write it to VFS using the pseudo-name "GFONT:..." because filterGraph will use that exact string
       await ffmpeg.writeFile(fontFile, fontBytes);
     }
 

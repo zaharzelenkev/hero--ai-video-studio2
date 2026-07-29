@@ -112,8 +112,9 @@ function buildVideoClipChain(
     if (clip.scale && clip.scale.keyframes.length > 0) {
        const zoomExpr = paramToFfmpegExpr(clip.scale, "in_time");
        const nextZoom = id(`c${tag}_zoom_`);
+       // zoompan forcibly converts pixel format to RGB24 in some FFmpeg WASM builds. We explicitly force it back to yuv420p or use format=yuv420p.
        lines.push(
-         `[${current}]zoompan=z='(${zoomExpr})/${baseScale}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${canvasW}x${canvasH}:fps=${fps}[${nextZoom}]`
+         `[${current}]format=yuv420p,zoompan=z='(${zoomExpr})/${baseScale}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${canvasW}x${canvasH}:fps=${fps},format=yuv420p[${nextZoom}]`
        );
        current = nextZoom;
     }
@@ -367,8 +368,9 @@ export function compileProjectToFfmpeg(
           const offset = Math.max(0, accDur - dur);
           const xfadeName = transitionToXfade(seg.transition.type);
           const next = id("xfade_");
+          // xfade requires inputs to have exactly the same framerate and timebase. We format them to ensure safety.
           lines.push(
-            `[${acc}][${seg.label}]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
+            `[${acc}]settb=1/30,fps=30[${acc}_tb];[${seg.label}]settb=1/30,fps=30[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
           );
           acc = next;
           accDur = accDur - dur + seg.duration;

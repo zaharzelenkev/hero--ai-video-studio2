@@ -411,6 +411,12 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     const clips: AIEditDecision["clips"] = [];
     let currentTimelineTime = 0;
     
+    // First calculate duration of all main clips to map absolute timeline time accurately
+    let totalMainDuration = 0;
+    for (const scene of script.scenes) {
+       totalMainDuration += scene.duration / (scene.mainClip.speed || 1);
+    }
+    
     for (const scene of script.scenes) {
        const sceneDuration = scene.duration / (scene.mainClip.speed || 1);
 
@@ -443,6 +449,22 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
        currentTimelineTime += sceneDuration;
     }
 
+    // Now process captions knowing exact timings
+    const textOverlays: any[] = [];
+    currentTimelineTime = 0;
+    for (const scene of script.scenes) {
+        const sceneDuration = scene.duration / (scene.mainClip.speed || 1);
+        for (const caption of scene.captions) {
+            textOverlays.push({
+                text: caption.text,
+                time: currentTimelineTime + caption.offsetInScene,
+                duration: caption.duration,
+                animation: caption.animation
+            });
+        }
+        currentTimelineTime += sceneDuration;
+    }
+
     return {
       contentType: script.genre as any,
       targetDuration: script.targetDuration,
@@ -451,12 +473,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       clips,
       musicSync: true,
       transitions: script.genre === "tiktok" || script.genre === "ad" ? "cut" : "crossfade",
-      textOverlays: script.scenes.flatMap(s => s.captions.map(c => ({
-         text: c.text,
-         time: c.offsetInScene,
-         duration: c.duration,
-         animation: c.animation
-      }))),
+      textOverlays,
       audioEnhancements: {
         normalize: true,
         denoise: script.audioStrategy.denoiseSpeech,

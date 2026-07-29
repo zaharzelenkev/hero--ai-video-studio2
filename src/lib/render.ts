@@ -40,11 +40,13 @@ export async function renderProject(
     for (const fontFile of usedFontFiles) {
       let fontUrl = new URL(`/fonts/${fontFile}`, window.location.origin).href;
       
-      // If it's a dynamic Google Font injected format: "GFONT:Family:Weight"
-      if (fontFile.startsWith("GFONT:")) {
-         const parts = fontFile.split(":");
-         const family = parts[1];
-         const weight = parts[2] || "700";
+      // If it's a dynamic Google Font injected format: "GFONT_Family_Weight.ttf"
+      const isGfont = fontFile.startsWith("GFONT_");
+      if (isGfont) {
+         const namePart = fontFile.replace("GFONT_", "").replace(".ttf", "");
+         const lastUnderscore = namePart.lastIndexOf("_");
+         const family = namePart.substring(0, lastUnderscore).replace(/\+/g, " ");
+         const weight = namePart.substring(lastUnderscore + 1) || "700";
          fontUrl = new URL(`/api/font?family=${encodeURIComponent(family)}&weight=${weight}`, window.location.origin).href;
       }
 
@@ -56,7 +58,7 @@ export async function renderProject(
       }
       
       // Fallback to local default font if Google Font fails to fetch
-      if (!fontResp.ok && fontFile.startsWith("GFONT:")) {
+      if (!fontResp.ok && isGfont) {
          console.warn(`Failed to fetch Google Font ${fontFile}, falling back to local DejaVuSans`);
          fontUrl = new URL(`/fonts/DejaVuSans.ttf`, window.location.origin).href;
          fontResp = await fetch(fontUrl);
@@ -66,7 +68,6 @@ export async function renderProject(
       
       const fontBlob = await fontResp.blob();
       const fontBytes = await fetchFileFromBlob(fontBlob);
-      // Even if it's a Google Font, we write it to VFS using the pseudo-name "GFONT:..." because filterGraph will use that exact string
       await ffmpeg.writeFile(fontFile, fontBytes);
     }
 

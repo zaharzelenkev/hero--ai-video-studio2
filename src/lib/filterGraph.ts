@@ -181,11 +181,20 @@ function buildVideoClipChain(
   }
 
   for (const effectId of clip.effects || []) {
-    const preset = EFFECT_PRESETS.find((e) => e.id === effectId);
-    if (!preset) continue;
-    const next = id(`c${tag}_`);
-    lines.push(`[${current}]${preset.ffmpeg}[${next}]`);
-    current = next;
+    if (effectId === "glow") {
+       const next = id(`c${tag}_`);
+       // FFmpeg Halation/Glow: split video, isolate highlights with colorlevels, blur them, and screen blend back
+       lines.push(`[${current}]split=2[${current}_main][${current}_glow]`);
+       lines.push(`[${current}_glow]colorlevels=rimin=0.8:gimin=0.8:bimin=0.8,gblur=sigma=12[${current}_glow_blurred]`);
+       lines.push(`[${current}_main][${current}_glow_blurred]blend=all_mode=screen:all_opacity=0.6[${next}]`);
+       current = next;
+    } else {
+       const preset = EFFECT_PRESETS.find((e) => e.id === effectId);
+       if (!preset) continue;
+       const next = id(`c${tag}_`);
+       lines.push(`[${current}]${preset.ffmpeg}[${next}]`);
+       current = next;
+    }
   }
 
   if (clip.mask.enabled) {
@@ -228,6 +237,8 @@ function buildAudioChain(
   eqMid: number,
   eqHigh: number,
   denoise: boolean,
+  compressor: boolean,
+  normalize: boolean,
   duration: number,
   lines: string[],
 ): string {
@@ -260,6 +271,16 @@ function buildAudioChain(
   if (denoise) {
     const n = id(`a${tag}_`);
     lines.push(`[${current}]afftdn=nf=-25[${n}]`);
+    current = n;
+  }
+  if (compressor) {
+    const n = id(`a${tag}_comp_`);
+    lines.push(`[${current}]acompressor=threshold=-15dB:ratio=4:attack=5:release=50[${n}]`);
+    current = n;
+  }
+  if (normalize) {
+    const n = id(`a${tag}_norm_`);
+    lines.push(`[${current}]loudnorm=I=-16:LRA=11:TP=-1.5[${n}]`);
     current = n;
   }
   const n2 = id(`a${tag}_`);
@@ -320,6 +341,8 @@ export function compileProjectToFfmpeg(
           (clip as any).eqMid || 0,
           (clip as any).eqHigh || 0,
           (clip as any).denoise || false,
+          (clip as any).compressor || false,
+          (clip as any).normalize || false,
           clip.duration,
           lines,
         );
@@ -396,6 +419,8 @@ export function compileProjectToFfmpeg(
           (clip as any).eqMid || 0,
           (clip as any).eqHigh || 0,
           (clip as any).denoise || false,
+          (clip as any).compressor || false,
+          (clip as any).normalize || false,
           clip.duration,
           lines,
         );
@@ -414,15 +439,23 @@ export function compileProjectToFfmpeg(
       const xExpr = paramToFfmpegExpr(clip.x, `t-${start}`);
       const yExpr = paramToFfmpegExpr(clip.y, `t-${start}`);
       const opacityExpr = paramToFfmpegExpr(clip.opacity, `t-${start}`);
+      
+      let fontsizeExpr = `${clip.fontSize}`;
+      if (clip.scale && (clip.scale.value !== 1 || clip.scale.keyframes.length > 0)) {
+         const scaleExpr = paramToFfmpegExpr(clip.scale, `t-${start}`);
+         fontsizeExpr = `(${clip.fontSize}*${scaleExpr})`;
+      }
+
       const text = escDrawtext(clip.text);
       const next = id("txt_");
       const xPos = `(w-text_w)/2+(${xExpr})*w/2`;
       const yPos = `(h-text_h)/2+(${yExpr})*h/2`;
+      
       lines.push(
         [
           `[${composite}]drawtext=fontfile=${fontFileFor(clip.fontFamily)}`,
           `text='${text}'`,
-          `fontsize=${clip.fontSize}`,
+          `fontsize='${fontsizeExpr}'`,
           `fontcolor=${clip.color}@1`,
           `borderw=${clip.strokeWidth ?? 0}`,
           `bordercolor=${clip.strokeColor || "black"}@1`,
@@ -461,7 +494,9 @@ export function compileProjectToFfmpeg(
         clip.eqMid,
         clip.eqHigh,
         clip.denoise,
-        clip.duration,
+          (clip.compressor as any)?.enabled || false,
+          clip.normalize || false,
+          clip.duration,
         lines,
       );
       audioLabels.push(audioLabel);

@@ -60,7 +60,8 @@ export type LutPreset =
   | "dramatic"
   | "neutral"
   | "teal-orange"
-  | "film-noir";
+  | "film-noir"
+  | "luxury";
 
 /** RGB Curve with control points */
 export interface CurvePoints {

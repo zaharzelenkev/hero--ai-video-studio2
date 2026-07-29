@@ -20,6 +20,7 @@ export interface VideoTemplate {
     yPosition: number; // 0 (top) to 1 (bottom), typically 0.5 is center
     animation: import("./types").TextAnimation;
   };
+  effects?: string[];
 }
 
 export const TEMPLATES: VideoTemplate[] = [
@@ -43,7 +44,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vivid",
     transition: "cut",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 85, color: "#FFE81A", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.5, animation: "pop" }
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 85, color: "#FFE81A", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.5, animation: "pop" },
+    effects: ["sharpen"]
   },
   {
     id: "mrbeast",
@@ -54,7 +56,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vivid",
     transition: "hblur",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 95, color: "#00FF00", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 10, align: "center", yPosition: 0.8, animation: "bounce" }
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 95, color: "#00FF00", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 10, align: "center", yPosition: 0.8, animation: "bounce" },
+    effects: ["sharpen", "vignette"]
   },
   {
     id: "apple",
@@ -65,7 +68,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "bw",
     transition: "smoothleft",
     kenBurns: true,
-    text: { fontFamily: "Liberation Sans", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", align: "center", yPosition: 0.5, animation: "blur-in" }
+    text: { fontFamily: "Liberation Sans", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", align: "center", yPosition: 0.5, animation: "blur-in" },
+    effects: ["glow"]
   },
   {
     id: "cinematic",
@@ -76,7 +80,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "cinematic",
     transition: "crossfade",
     kenBurns: true,
-    text: { fontFamily: "Liberation Serif", fontSize: 50, color: "#F0F0F0", backgroundColor: "transparent", align: "center", yPosition: 0.85, animation: "fade" }
+    text: { fontFamily: "Liberation Serif", fontSize: 50, color: "#F0F0F0", backgroundColor: "transparent", align: "center", yPosition: 0.85, animation: "fade" },
+    effects: ["glow", "vignette"]
   },
   {
     id: "documentary",
@@ -87,7 +92,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vintage",
     transition: "fadegrays",
     kenBurns: true,
-    text: { fontFamily: "Liberation Serif", fontSize: 45, color: "#ffffff", backgroundColor: "black@0.5", align: "center", yPosition: 0.9, animation: "slide-up" }
+    text: { fontFamily: "Liberation Serif", fontSize: 45, color: "#ffffff", backgroundColor: "black@0.5", align: "center", yPosition: 0.9, animation: "slide-up" },
+    effects: ["noise", "vignette"]
   },
   {
     id: "tiktok",
@@ -98,7 +104,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vivid",
     transition: "zoom",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 6, align: "center", yPosition: 0.2, animation: "pop" }
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 6, align: "center", yPosition: 0.2, animation: "pop" },
+    effects: []
   },
   {
     id: "podcast",
@@ -109,7 +116,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "none",
     transition: "cut",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans", fontSize: 65, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 4, align: "center", yPosition: 0.8, animation: "word-highlight" as any }
+    text: { fontFamily: "DejaVu Sans", fontSize: 65, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 4, align: "center", yPosition: 0.8, animation: "word-highlight" as any },
+    effects: ["vignette"]
   },
   {
     id: "tech",
@@ -120,7 +128,8 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "cool",
     transition: "pixelize",
     kenBurns: true,
-    text: { fontFamily: "Liberation Mono", fontSize: 60, color: "#00FFFF", backgroundColor: "black@0.8", align: "left", yPosition: 0.8, animation: "typewriter" }
+    text: { fontFamily: "Liberation Mono", fontSize: 60, color: "#00FFFF", backgroundColor: "black@0.8", align: "left", yPosition: 0.8, animation: "typewriter" },
+    effects: ["sharpen", "glow"]
   }
 ];
 

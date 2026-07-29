@@ -207,6 +207,35 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         if (adjusted > 0.5) duration = adjusted;
       }
       
+      let transType = style.transition;
+      let transDur = 0.4;
+      
+      if (timelineStart === 0 || duration < 1.0 || isBroll) {
+         transType = "cut";
+         transDur = 0;
+      } else {
+         if (style.pace === "fast" || style.pace === "dynamic") {
+            if (Math.random() < 0.7) {
+               transType = "cut";
+               transDur = 0;
+            } else {
+               const flashy = ["hblur", "zoom", "fadewhite", "pixelize"];
+               transType = flashy[Math.floor(Math.random() * flashy.length)] as any;
+               transDur = 0.3;
+            }
+         } else if (aiClip.emotion === "dramatic" || aiClip.emotion === "energetic") {
+            transType = "fadewhite"; 
+            transDur = 0.5;
+         } else if (aiClip.reason && aiClip.reason.includes("HOOK")) {
+            transType = "hblur";
+            transDur = 0.3;
+         }
+      }
+      
+      if (transDur > duration * 0.4) {
+         transDur = duration * 0.4;
+      }
+
       const clip = createVideoClip({
         trackId: track.id,
         asset,
@@ -214,8 +243,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         duration: duration,
         inPoint,
         outPoint: inPoint + duration,
-        transitionIn: timelineStart === 0 ? { type: "cut", duration: 0 } : { type: style.transition, duration: 0.6 },
+        transitionIn: { type: transType, duration: transDur },
       });
+      
+      clip.effects = activeTemplate.effects ? [...activeTemplate.effects] : [];
       
       // Auto-framing (Smart Reframe)
       const segs = localSegments.get(asset.id);
@@ -240,6 +271,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                (clip as any).eqLow = 2;
                (clip as any).eqMid = 4;
                (clip as any).eqHigh = 2;
+               (clip as any).compressor = true;
+               (clip as any).normalize = true;
             }
          }
       }

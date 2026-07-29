@@ -95,9 +95,50 @@ export function applyTextAnimation(clip: TextClip, animation: TextAnimation, yPo
       ];
       break;
 
-    case "scale-in":
-    case "rotate-in":
     case "typewriter":
+      // We can't do true typewriter without breaking it into multiple clips or complex expressions.
+      // But we can approximate the visual by clipping the text width or using alpha.
+      // Actually, drawtext supports 'text' expression but it's hard to escape.
+      // Let's use a scale-in approximation for now.
+      clip.scale.value = 0.5;
+      clip.scale.keyframes = [
+        { id: tId(), time: 0, value: 0.5, easing: "easeOut" },
+        { id: tId(), time: inDur, value: 1, easing: "easeOut" }
+      ];
+      clip.opacity.value = 0;
+      clip.opacity.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "linear" },
+        { id: tId(), time: inDur, value: 1, easing: "linear" }
+      ];
+      break;
+
+    case "scale-in":
+      clip.scale.value = 0;
+      clip.scale.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "easeOut" },
+        { id: tId(), time: inDur, value: 1, easing: "easeOut" }
+      ];
+      clip.opacity.value = 0;
+      clip.opacity.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "linear" },
+        { id: tId(), time: inDur * 0.5, value: 1, easing: "linear" }
+      ];
+      break;
+
+    case "rotate-in":
+      if (!clip.rotation) clip.rotation = { value: 0, keyframes: [] };
+      clip.rotation.value = 90;
+      clip.rotation.keyframes = [
+        { id: tId(), time: 0, value: 90, easing: "easeOut" },
+        { id: tId(), time: inDur, value: 0, easing: "easeOut" }
+      ];
+      clip.opacity.value = 0;
+      clip.opacity.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "linear" },
+        { id: tId(), time: inDur * 0.8, value: 1, easing: "linear" }
+      ];
+      break;
+
     case "none":
     default:
       // Fallback

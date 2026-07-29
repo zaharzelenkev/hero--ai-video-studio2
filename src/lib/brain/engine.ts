@@ -1,5 +1,6 @@
 import type { AIAnalysisRequest, AIEditDecision } from "../ai/aiService";
 import { DirectorBrain } from "./director";
+import { AI_CONFIG } from "../../config/ai";
 
 export interface DirectorScene {
   id: string;
@@ -55,8 +56,8 @@ export class DirectorEngine {
     let script: DirectorScript;
     
     if (speechAssets.length > 0) {
-      // Исключительно локальная алгоритмическая нарезка Jump-Cuts
-      script = this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
+      // Исключительно алгоритмическая нарезка Jump-Cuts + опциональный LLM-поиск хука
+      script = await this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
     } else {
       script = this.buildVisualScript(request, strategy, visualAssets);
     }
@@ -69,12 +70,12 @@ export class DirectorEngine {
   /**
    * Полностью переписанный алгоритм работы с речью (Jump-Cuts / AutoPod Style)
    */
-  private static buildNarrativeScript(
+  private static async buildNarrativeScript(
     _request: AIAnalysisRequest, 
     strategy: any, 
     speechAssets: any[], 
     visualAssets: any[]
-  ): DirectorScript {
+  ): Promise<DirectorScript> {
     const scenes: DirectorScene[] = [];
     const mainAsset = speechAssets[0]; // Берем первый длинный разговорный ассет
     
@@ -120,11 +121,46 @@ export class DirectorEngine {
 
     if (validPhrases.length === 0) validPhrases.push(phrases[0]);
 
-    // 4. Поиск Хука (Cold Open)
-    const hookIndex = validPhrases.findIndex(p => p.text.match(/(внимание|секрет|главное|почему|как|смотри|важно|\?|!)/i));
-    const hookPhrase = hookIndex > -1 ? validPhrases[hookIndex] : validPhrases[0];
+    // 4. Поиск Хука (Cold Open) с помощью LLM (или фоллбэка)
+    let hookIndex = -1;
+    if (AI_CONFIG.groqApiKey) {
+        try {
+            const prompt = `Ты — элитный продюсер TikTok и YouTube Shorts. Твоя задача — выбрать идеальный "Хук" (Cold Open) из предложенного текста.
+Хук должен интриговать, задавать вопрос, обещать ценность или вызывать эмоцию. Он будет поставлен в самую первую секунду видео!
+Доступные фразы (ID: Текст):
+${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
-    // Добавляем Хук (он будет дублирован или перемещен в самое начало)
+Выбери ТОЛЬКО ОДИН ID фразы, которая лучше всего подходит для хука. Верни строго JSON: {"bestHookId": 5}`;
+
+            const resp = await fetch(AI_CONFIG.apiUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
+                body: JSON.stringify({
+                  model: AI_CONFIG.model,
+                  messages: [{ role: "system", content: prompt }],
+                  temperature: 0.3,
+                  response_format: { type: "json_object" },
+                }),
+            });
+            const data = await resp.json();
+            const parsed = JSON.parse(data.choices[0].message.content);
+            if (typeof parsed.bestHookId === "number" && parsed.bestHookId >= 0 && parsed.bestHookId < validPhrases.length) {
+                hookIndex = parsed.bestHookId;
+                console.log("LLM selected Hook ID:", hookIndex, validPhrases[hookIndex].text);
+            }
+        } catch (e) {
+            console.warn("LLM hook selection failed", e);
+        }
+    }
+
+    if (hookIndex === -1) {
+       hookIndex = validPhrases.findIndex(p => p.text.match(/(внимание|секрет|главное|почему|как|смотри|важно|\?|!)/i));
+       if (hookIndex === -1) hookIndex = 0;
+    }
+
+    const hookPhrase = validPhrases[hookIndex];
+
+    // Добавляем Хук (он будет перемещен в самое начало)
     scenes.push({
         id: `hook_${Date.now()}`, phase: "hook", intent: "Cold Open", duration: hookPhrase.end - hookPhrase.start, emotion: "energetic",
         mainClip: { assetId: mainAsset.id, sourceStart: hookPhrase.start, sourceEnd: hookPhrase.end, speed: 1, zoom: true },

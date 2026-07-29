@@ -25,7 +25,8 @@ export const LUT_PRESETS: Record<LutPreset, Partial<ColorGrade> & { css: string 
   dramatic: { css: "" },
   neutral: { css: "" },
   "teal-orange": { css: "" },
-  "film-noir": { css: "" }
+  "film-noir": { css: "" },
+  luxury: { css: "" }
 };
 
 /** FFmpeg filter fragment applied for a LUT preset (chained after manual eq/hue). */
@@ -38,11 +39,26 @@ export function lutToFfmpeg(lut: LutPreset): string[] {
     case "cool":
       return ["colorbalance=rs=-0.1:gs=0:bs=0.12"];
     case "cinematic":
-      return ["curves=preset=medium_contrast", "colorbalance=rs=0.05:bs=-0.05"];
+    case "teal-orange":
+      return [
+        "curves=preset=medium_contrast", 
+        "colorbalance=rs=-0.05:gs=0.02:bs=0.05:rm=0.02:gm=0.02:bm=-0.02:rh=0.05:gh=0.02:bh=-0.05"
+      ];
     case "vintage":
-      return ["curves=preset=vintage", "colorbalance=rs=0.08:gs=0.02:bs=-0.08"];
+      return [
+        "curves=preset=vintage", 
+        "colorchannelmixer=rr=0.393:rg=0.769:rb=0.189:gr=0.349:gg=0.686:gb=0.168:br=0.272:bg=0.534:bb=0.131",
+        "eq=contrast=0.9"
+      ];
+    case "luxury":
+      return [
+        "eq=saturation=1.2:contrast=1.1",
+        "colorbalance=rs=0.1:gs=0.05:bs=-0.1:rm=0.05:gm=0.02:bm=-0.05:rh=0.1:gh=0.05:bh=-0.1"
+      ];
     case "vivid":
       return ["eq=saturation=1.4:contrast=1.1"];
+    case "dramatic":
+      return ["curves=preset=strong_contrast", "eq=saturation=0.8"];
     default:
       return [];
   }

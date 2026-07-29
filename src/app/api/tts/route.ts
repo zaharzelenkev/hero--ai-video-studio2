@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
   const text = req.nextUrl.searchParams.get("text");
   if (!text) return new NextResponse("Missing text", { status: 400 });
 
-  const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q=${encodeURIComponent(text)}`;
+  const url = `https://api.streamelements.com/kappa/v2/speech?voice=Maxim&text=${encodeURIComponent(text)}`;
   
   try {
     const response = await fetch(url, {

@@ -4,10 +4,7 @@ import type { Project, MediaAsset } from "../types";
 import { uid } from "../id";
 import { saveBlob } from "../db";
 
-export async function generateMagicVideo(
-  prompt: string,
-  onProgress?: (msg: string) => void
-): Promise<Project> {
+export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void): Promise<Project> {
   onProgress?.("📝 Пишем сценарий...");
 
   const systemPrompt = `Ты — профессиональный креативный директор и сценарист.
@@ -93,7 +90,10 @@ export async function generateMagicVideo(
 
     // 2. Fetch Image
     try {
-      const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=1080&height=1920&nologo=true&seed=${Math.floor(Math.random()*10000)}`;
+      const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
+      const w = isLandscape ? 1920 : 1080;
+      const h = isLandscape ? 1080 : 1920;
+      const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(Math.random()*10000)}`;
       const imgRes = await fetch(imgUrl);
       if (imgRes.ok) {
         const imgBlob = await imgRes.blob();
@@ -108,8 +108,7 @@ export async function generateMagicVideo(
             mime: "image/jpeg",
             blobKey: imgKey,
             duration: audioDuration + 0.5,
-            width: 1080,
-            height: 1920,
+            width: w, height: h,
             createdAt: Date.now(),
             hasAudio: true
         };
@@ -131,19 +130,28 @@ export async function generateMagicVideo(
   }
 
   // fallback to full generator logic but enhanced
-  return generateEnhancedMagicVideo(scriptData, assets, filesByAssetId, onProgress);
+  return generateEnhancedMagicVideo(scriptData, assets, filesByAssetId, onProgress, style);
 }
 
 // Re-implementing the loop to make it extremely pro
-async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _filesByAssetId: any, _onProgress: any) {
+async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _filesByAssetId: any, _onProgress: any, style: any) {
   const { createAudioClip, createTextClip, createVideoClip, createEmptyProject } = await import("../factories");
   const { applyTextAnimation } = await import("../textAnimations");
   
   const project = createEmptyProject(scriptData.title);
   project.assets = [...assets];
-  project.resolution = { width: 1080, height: 1920 };
-  project.exportSettings.width = 1080;
-  project.exportSettings.height = 1920;
+
+  const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
+  const w = isLandscape ? 1920 : 1080;
+  const h = isLandscape ? 1080 : 1920;
+
+  project.resolution = { width: w, height: h };
+  project.exportSettings.width = w;
+  project.exportSettings.height = h;
+
+  const { TEMPLATES, getTemplateForContentType } = await import("../templates");
+  let activeTemplate = TEMPLATES.find(t => t.id === style.templateId);
+  if (!activeTemplate || activeTemplate.id === "auto") activeTemplate = getTemplateForContentType(style.contentType || "tiktok");
   
   const videoTrack = project.tracks.find((t:any) => t.type === "video")!;
   const audioTrack = project.tracks.find((t:any) => t.type === "audio")!;
@@ -160,7 +168,21 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
      project.assets.push(mAsset as any);
      
      const mClip = createAudioClip({ trackId: audioTrack.id, asset: mAsset as any, start: 0, duration: 30 });
-     mClip.volume = { value: 0.15, keyframes: [] };
+     
+     // Build ducking keyframes
+     const kfs: any[] = [];
+     let totalDur = 0;
+     for (const scene of scriptData.scenes) {
+         // Assuming text speed roughly matches 12 chars/sec
+         const sDur = Math.max(2, scene.voiceover.length / 12);
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.8, easing: "linear" });
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur, value: 0.1, easing: "linear" });
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur, value: 0.1, easing: "linear" });
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur + 0.5, value: 0.8, easing: "linear" });
+         totalDur += sDur + 0.5;
+     }
+
+     mClip.volume = { value: 0.8, keyframes: kfs };
      audioTrack.clips.push(mClip);
   } catch (e) {}
 
@@ -182,7 +204,7 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
       duration: sceneDuration
     });
     vClip.cameraMotion = ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"][Math.floor(Math.random()*6)] as any;
-    vClip.transitionIn = i === 0 ? { type: "cut", duration: 0 } : { type: "hblur", duration: 0.3 };
+    vClip.transitionIn = i === 0 ? { type: "cut", duration: 0 } : { type: activeTemplate.transition, duration: 0.4 };
     videoTrack.clips.push(vClip);
 
     // 2. Audio voiceover simulation (we assume it's roughly the same length)
@@ -195,25 +217,47 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
     let textStart = cursor;
     const timePerWord = sceneDuration / words.length;
     
-    for (let w = 0; w < words.length; w += 2) {
-      const phrase = words[w] + (words[w+1] ? " " + words[w+1] : "");
-      const phraseDur = timePerWord * (words[w+1] ? 2 : 1);
+    let wordsPerGroup = 1;
+    if (activeTemplate.pace === "slow") wordsPerGroup = 5;
+    else if (activeTemplate.pace === "medium") wordsPerGroup = 3;
+
+    const groups = [];
+    let currentGroup = [];
+    for (let i = 0; i < words.length; i++) {
+        currentGroup.push(words[i]);
+        if (currentGroup.length >= wordsPerGroup || i === words.length - 1) {
+            groups.push(currentGroup.join(" "));
+            currentGroup = [];
+        }
+    }
+
+    for (let gIndex = 0; gIndex < groups.length; gIndex++) {
+      const phrase = groups[gIndex];
+      const phraseDur = (timePerWord * phrase.split(" ").length);
       
       const tClip = createTextClip({
         trackId: textTrack.id,
         start: textStart,
         duration: phraseDur,
-        text: phrase.toUpperCase()
+        text: phrase
       });
       
-      tClip.y.value = 0.5;
-      tClip.fontSize = 85;
-      tClip.fontFamily = "Montserrat";
-      tClip.color = w % 4 === 0 ? "#FFE81A" : "#FFFFFF"; // Highlight alternating
-      tClip.backgroundColor = "transparent";
-      tClip.strokeWidth = 6;
-      tClip.animationIn = "elastic";
-      applyTextAnimation(tClip, "elastic", tClip.y.value, phraseDur);
+      tClip.y.value = activeTemplate.text.yPosition;
+      tClip.fontSize = activeTemplate.text.fontSize;
+      tClip.fontFamily = activeTemplate.text.fontFamily;
+      
+      let tColor = activeTemplate.text.color || "#FFFFFF";
+      if (activeTemplate.id === "hormozi" || activeTemplate.id === "mrbeast") {
+          tColor = gIndex % 2 === 0 ? (activeTemplate.id === "mrbeast" ? "#00FF00" : "#FFE81A") : "#FFFFFF";
+      }
+      tClip.color = tColor;
+      
+      tClip.backgroundColor = activeTemplate.text.backgroundColor || "transparent";
+      tClip.strokeWidth = activeTemplate.text.strokeWidth || 3;
+      tClip.strokeColor = activeTemplate.text.strokeColor || "#000000";
+      tClip.animationIn = activeTemplate.text.animation || "pop";
+      
+      applyTextAnimation(tClip, tClip.animationIn, tClip.y.value, phraseDur);
       
       textTrack.clips.push(tClip);
       textStart += phraseDur;

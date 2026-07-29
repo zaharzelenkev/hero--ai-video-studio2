@@ -58,6 +58,13 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     if (file) {
       try {
         beats = await detectBeats(file);
+        // Добавляем биты как визуальные маркеры на таймлайн для удобства ручной правки
+        project.markers = beats.map((b, i) => ({
+           id: `beat_${i}`,
+           time: b,
+           label: i % 4 === 0 ? "Bar" : "Beat",
+           color: i % 4 === 0 ? "#FF3366" : "#A855F7"
+        }));
       } catch {
         beats = [];
       }
@@ -210,11 +217,23 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       let transType = style.transition;
       let transDur = 0.4;
       
+      
+      const localSegsForAsset = localSegments.get(asset.id);
+      let isActionPacked = false;
+      if (localSegsForAsset && localSegsForAsset.length > 0) {
+        const clipSegs = localSegsForAsset.filter(s => s.endTime > inPoint && s.startTime < outPoint);
+        isActionPacked = clipSegs.some(s => s.hasAction || s.motionLevel === "high" || s.motionLevel === "shake");
+      }
+      
       if (timelineStart === 0 || duration < 1.0 || isBroll) {
          transType = "cut";
          transDur = 0;
       } else {
-         if (style.pace === "fast" || style.pace === "dynamic") {
+         if (isActionPacked && Math.random() > 0.3) {
+            // Match on Action: Экшен-кадры лучше смотрятся с резкой склейкой (cut) или Whip Pan
+            transType = Math.random() > 0.5 ? "cut" : "hblur";
+            transDur = transType === "cut" ? 0 : 0.2;
+         } else if (style.pace === "fast" || style.pace === "dynamic") {
             if (Math.random() < 0.7) {
                transType = "cut";
                transDur = 0;
@@ -300,9 +319,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       }
       
       // Auto-framing (Smart Reframe)
-      const segs = localSegments.get(asset.id);
-      if (segs && segs.length > 0) {
-        const clipSegs = segs.filter(s => s.endTime > inPoint && s.startTime < outPoint);
+      
+      if (localSegsForAsset && localSegsForAsset.length > 0) {
+        const clipSegs = localSegsForAsset.filter(s => s.endTime > inPoint && s.startTime < outPoint);
         if (clipSegs.some(s => s.hasFaces && s.faceX !== undefined)) {
            clip.focusX = { value: 0.5, keyframes: [] };
            clip.focusY = { value: 0.5, keyframes: [] };

@@ -128,7 +128,7 @@ export default function GenerationScreenV2() {
       const raw = err instanceof Error ? err.message : "";
       const isNetwork = raw.includes("fetch") || raw.includes("network") || raw.includes("Сетевая ошибка");
       const friendly = isNetwork
-        ? "Похоже, пропало подключение к интернету. Пожалуйста, проверьте сеть и попробуйте снова."
+        ? "Похоже, пропало подключение к интернету. Проверьте сеть и попробуйте снова. (" + raw + ")"
         : "Ошибка: " + raw;
       setErrorMsg(friendly);
       setStage("error");

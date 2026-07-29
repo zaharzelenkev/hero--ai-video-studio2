@@ -75,7 +75,7 @@ export async function generateMagicVideo(
     let audioKey = null;
     try {
       // Chunking if text is too long (Google TTS limit is ~200 chars, usually scene voiceover is short)
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q=${encodeURIComponent(scene.voiceover)}`;
+      const ttsUrl = `/api/tts?text=${encodeURIComponent(scene.voiceover)}`;
       const ttsRes = await fetch(ttsUrl);
       if (ttsRes.ok) {
         const audioBlob = await ttsRes.blob();

@@ -12,6 +12,12 @@ MONTIQ — это полнофункциональный браузерный в
 ## ✨ Ключевые возможности
 
 ### 🤖 Интеллектуальный AI-монтаж
+- **Director Engine**: ИИ строит профессиональные сценарии (Hook -> Build-up -> Climax -> Outro).
+- **Kinetic Typography**: Математическая физика анимаций текста (Elastic, Stomp, Bounce, Glitch) в стиле Hormozi и MrBeast.
+- **Audio Mastering**: Нативный компрессор, эквалайзер и шумоподавление.
+- **Smart Auto-Framing**: Автоматическое слежение за лицами (Face Detection) при кадрировании.
+- **Algorithmic Music & SFX**: Браузер синтезирует Background Music и звуковые эффекты (Whoosh, Pop, Hit, Riser) налету.
+- **Dynamic Google Fonts**: Интеграция любых шрифтов с Google Fonts напрямую в FFmpeg.
 - **Анализ контента**: AI анализирует видео, находит лучшие моменты и эмоциональные пики
 - **Groq API интеграция**: Используйте мощь LLaMA 3.3 для интеллектуального планирования монтажа
 - **Форматно-специфичный монтаж**: Оптимизация под YouTube, Shorts, Reels, TikTok, подкасты, рекламу

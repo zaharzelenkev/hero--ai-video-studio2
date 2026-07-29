@@ -56,8 +56,44 @@ export class DirectorEngine {
     let script: DirectorScript;
     
     if (speechAssets.length > 0) {
-      // Исключительно алгоритмическая нарезка Jump-Cuts + опциональный LLM-поиск хука
-      script = await this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
+      if (AI_CONFIG.groqApiKey) {
+         try {
+             // 1. Prepare phrases for LLM
+             const lines = (speechAssets[0].transcript || "").split("\n").filter((l: string) => l.includes("]"));
+             const words = [];
+             for (const l of lines) {
+                 const m = l.match(/\[([\d\.]+)s - ([\d\.]+)s\] (.+)/);
+                 if (m) words.push({ start: parseFloat(m[1]), end: parseFloat(m[2]), text: m[3].trim() });
+             }
+             const phrases = [];
+             if (words.length > 0) {
+                 let curr = { start: words[0].start, end: words[0].end, text: words[0].text };
+                 for (let i = 1; i < words.length; i++) {
+                     const w = words[i];
+                     const gap = w.start - curr.end;
+                     if (gap > 0.4 || (curr.end - curr.start > 4.0)) {
+                         phrases.push(curr);
+                         curr = { start: w.start, end: w.end, text: w.text };
+                     } else {
+                         curr.end = w.end;
+                         curr.text += " " + w.text;
+                     }
+                 }
+                 phrases.push(curr);
+             }
+             const validPhrases = phrases.filter(p => p.end - p.start >= 0.2);
+             
+             if (validPhrases.length > 0) {
+                 script = await this.buildNarrativeScriptWithLLM(request, strategy, speechAssets, visualAssets, validPhrases);
+             } else {
+                 script = await this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
+             }
+         } catch(e) {
+             script = await this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
+         }
+      } else {
+         script = await this.buildNarrativeScript(request, strategy, speechAssets, visualAssets);
+      }
     } else {
       script = this.buildVisualScript(request, strategy, visualAssets);
     }
@@ -73,6 +109,112 @@ export class DirectorEngine {
   /**
    * Полностью переписанный алгоритм работы с речью (Jump-Cuts / AutoPod Style)
    */
+  
+  /**
+   * Advanced LLM-driven Narrative (Подкасты, Интервью, Говорящая голова)
+   * Использует мощный промпт (Chain of Thought + 1-10 Scoring + Few Shot) 
+   * для создания профессиональной структуры видео.
+   */
+  private static async buildNarrativeScriptWithLLM(
+    _request: AIAnalysisRequest, 
+    strategy: any, 
+    speechAssets: any[], 
+    _visualAssets: any[],
+    validPhrases: any[]
+  ): Promise<DirectorScript> {
+    const prompt = `Ты — элитный режиссер монтажа уровня MrBeast, Kurzgesagt и Veritasium с 15-летним опытом.
+Твоя задача — проанализировать исходные фразы спикера и создать гениальный, удерживающий внимание сценарий (Script).
+
+ПРАВИЛА МОНТАЖА:
+1. СТРУКТУРА: Hook (первые 3 сек) -> Setup (Контекст) -> Development (Развитие) -> Climax (Кульминация) -> Payoff (Вывод).
+2. РИТМ (Pacing): Не давай зрителю заскучать дольше 5 секунд. Чередуй быстрые склейки (jump cuts) и длинные глубокие мысли.
+3. УДЕРЖАНИЕ (Retention): Каждые 7-15 секунд используй Pattern Interrupt (смена ракурса, B-Roll, зум, или пауза).
+4. ОЦЕНКА КАДРОВ: Оценивай каждую фразу по шкале 1-10. Выкидывай всё, что ниже 7. Вода убивает удержание.
+5. ИСПОЛЬЗУЙ J-Cuts и L-Cuts для переходов между мыслями.
+
+МАТЕРИАЛЫ (ID: Текст [Старт - Конец]):
+${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end.toFixed(1)}s)`).join('\n')}
+
+ЗАДАЧА:
+СНАЧАЛА напиши рассуждение (Chain-of-Thought) о том, как ты будешь строить драматургию.
+ПОТОМ верни строго JSON объект с выбранными фразами.
+
+ОЖИДАЕМЫЙ ФОРМАТ JSON:
+{
+  "reasoning": "Здесь твои рассуждения как монтажёра...",
+  "concept": "Главная идея ролика",
+  "scenes": [
+    {
+      "phase": "hook", // hook | setup | development | climax | payoff
+      "phraseId": 0, // ID фразы из списка
+      "score": 9, // Твоя оценка 1-10
+      "intent": "Захватить внимание вопросом",
+      "bRollNeeded": false,
+      "zoom": true
+    }
+  ]
+}
+
+Выбери от 3 до 10 лучших фраз, чтобы общая длительность (сумма длин фраз) была около ${strategy.targetDuration} секунд.`;
+
+    try {
+        const resp = await fetch(AI_CONFIG.apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_CONFIG.groqApiKey}` },
+            body: JSON.stringify({
+              model: AI_CONFIG.model,
+              messages: [{ role: "system", content: prompt }],
+              temperature: 0.4,
+              response_format: { type: "json_object" },
+            }),
+        });
+        const data = await resp.json();
+        const parsed = JSON.parse(data.choices[0].message.content);
+        
+        console.log("LLM Editor Reasoning:", parsed.reasoning);
+
+        const scenes: DirectorScene[] = [];
+        const mainAsset = speechAssets[0];
+        
+        let isZoomed = false;
+        
+        for (const s of parsed.scenes) {
+            const p = validPhrases[s.phraseId];
+            if (!p) continue;
+            
+            isZoomed = s.zoom !== undefined ? s.zoom : !isZoomed;
+            
+            scenes.push({
+                id: `scene_${Date.now()}_${s.phraseId}`,
+                phase: s.phase === "setup" || s.phase === "development" ? "buildup" : s.phase === "payoff" ? "outro" : s.phase,
+                intent: s.intent || "Jump Cut",
+                duration: p.end - p.start,
+                emotion: s.phase === "climax" || s.phase === "hook" ? "energetic" : "neutral",
+                mainClip: { assetId: mainAsset.id, sourceStart: p.start, sourceEnd: p.end, speed: 1, zoom: isZoomed },
+                bRolls: [], captions: []
+            });
+        }
+
+        return {
+            concept: parsed.concept || "Pro LLM Edit",
+            genre: strategy.genre,
+            targetDuration: strategy.targetDuration,
+            scenes,
+            audioStrategy: {
+                musicStyle: "lofi",
+                duckingEnabled: true,
+                denoiseSpeech: true,
+                removeSilence: true
+            }
+        };
+
+    } catch (e) {
+        console.warn("LLM full script formulation failed, falling back to heuristic engine", e);
+        throw e;
+    }
+  }
+
+
   private static async buildNarrativeScript(
     _request: AIAnalysisRequest, 
     strategy: any, 
@@ -285,6 +427,23 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
            if (seg.hasFaces) score += 20;
            if (seg.hasAction) score += 30;
            
+           // Heuristic: If there is audio energy data, boost segments that correspond to high energy
+           // We map the visual segment to the audio energy timeline.
+           let energyMultiplier = 1;
+           if (asset.audioEnergy) {
+               const relevantEnergy = asset.audioEnergy.filter((e: any) => e.startTime <= seg.endTime && e.endTime >= seg.startTime);
+               if (relevantEnergy.length > 0) {
+                   const avgEnergy = relevantEnergy.reduce((s: number, e: any) => s + e.energyLevel, 0) / relevantEnergy.length;
+                   energyMultiplier = 1 + (avgEnergy * 0.5); // Boost up to 50% based on audio loudness/intensity
+                   
+                   // Speed up boring low-energy segments
+                   if (avgEnergy < 0.2 && !seg.hasFaces && !seg.hasAction) {
+                       score -= 20; // Penalize boring silent B-roll
+                   }
+               }
+           }
+           score *= energyMultiplier;
+           
            beats.push({
              assetId: asset.id,
              start: seg.startTime,
@@ -329,9 +488,17 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       dur = Math.min(dur, beat.duration, target - currentTime);
       if (dur < 0.5) break;
       
+      // Автоматическое ускорение (Speed Ramping) скучных сегментов без лиц и экшена, если их рейтинг низок
+      let speed = 1;
+      if (beat.score < 40 && !beat.hasFaces && phase === "buildup") {
+         speed = 2.0; // Ускоряем в 2 раза проходные кадры
+         dur *= 2; // Берем больше исходника
+         dur = Math.min(dur, beat.duration, (target - currentTime) * 2);
+      }
+
       script.scenes.push({
-        id: `scene_${Date.now()}_${currentTime}`, phase, intent: "Flow", duration: dur, emotion: phase === "climax" ? "dramatic" : "calm",
-        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: 1, zoom: !beat.hasAction },
+        id: `scene_${Date.now()}_${currentTime}`, phase, intent: "Flow", duration: dur / speed, emotion: phase === "climax" ? "dramatic" : "calm",
+        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: speed, zoom: !beat.hasAction },
         bRolls: [], captions: []
       });
       currentTime += dur;
@@ -411,6 +578,12 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     const clips: AIEditDecision["clips"] = [];
     let currentTimelineTime = 0;
     
+    // First calculate duration of all main clips to map absolute timeline time accurately
+    let totalMainDuration = 0;
+    for (const scene of script.scenes) {
+       totalMainDuration += scene.duration / (scene.mainClip.speed || 1);
+    }
+    
     for (const scene of script.scenes) {
        const sceneDuration = scene.duration / (scene.mainClip.speed || 1);
 
@@ -443,6 +616,22 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
        currentTimelineTime += sceneDuration;
     }
 
+    // Now process captions knowing exact timings
+    const textOverlays: any[] = [];
+    currentTimelineTime = 0;
+    for (const scene of script.scenes) {
+        const sceneDuration = scene.duration / (scene.mainClip.speed || 1);
+        for (const caption of scene.captions) {
+            textOverlays.push({
+                text: caption.text,
+                time: currentTimelineTime + caption.offsetInScene,
+                duration: caption.duration,
+                animation: caption.animation
+            });
+        }
+        currentTimelineTime += sceneDuration;
+    }
+
     return {
       contentType: script.genre as any,
       targetDuration: script.targetDuration,
@@ -451,12 +640,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       clips,
       musicSync: true,
       transitions: script.genre === "tiktok" || script.genre === "ad" ? "cut" : "crossfade",
-      textOverlays: script.scenes.flatMap(s => s.captions.map(c => ({
-         text: c.text,
-         time: c.offsetInScene,
-         duration: c.duration,
-         animation: c.animation
-      }))),
+      textOverlays,
       audioEnhancements: {
         normalize: true,
         denoise: script.audioStrategy.denoiseSpeech,

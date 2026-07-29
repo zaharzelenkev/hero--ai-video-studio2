@@ -48,7 +48,7 @@ export interface DirectorScript {
 export class DirectorEngine {
 
   static async formulateScript(request: AIAnalysisRequest): Promise<DirectorScript> {
-    const strategy = await DirectorBrain.defineStrategy(request.userPrompt);
+    const strategy = await DirectorBrain.defineStrategy(request);
     
     const speechAssets = request.assets.filter(a => !!a.transcript && a.transcript.length > 10);
     const visualAssets = request.assets.filter(a => a.type === "video" || a.type === "image");

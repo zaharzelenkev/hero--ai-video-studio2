@@ -27,6 +27,13 @@ export function parsePromptToStyle(prompt: string): GenerationStyle {
   else if (has("ретро", "винтаж", "retro", "vintage")) colorGrade = "vintage";
   else if (has("ярк", "сочн", "vivid", "vibrant")) colorGrade = "vivid";
 
+  let contentType: any;
+  if (has("горизонтальн", "youtube", "ютуб", "широкоформат", "16:9", "документал", "презентаци")) {
+      contentType = "youtube";
+  } else if (has("вертикальн", "tiktok", "тикток", "reels", "shorts", "шортс", "9:16")) {
+      contentType = "tiktok";
+  }
+
   const kenBurns = has("фото", "photo", "слайд", "slideshow") || true; // always safe default for images
 
   const beatSync = has("музык", "бит", "ритм", "music", "beat", "song") || pace === "fast";
@@ -39,7 +46,7 @@ export function parsePromptToStyle(prompt: string): GenerationStyle {
 
   const addCaptions = has("титры", "субтитры", "текст", "caption", "subtitle");
 
-  return { pace, bw, colorGrade, kenBurns, beatSync, transition, addCaptions, rawPrompt: prompt };
+  return { pace, bw, colorGrade, kenBurns, beatSync, transition, addCaptions, rawPrompt: prompt, contentType };
 }
 
 export const PACE_CLIP_SECONDS: Record<GenerationStyle["pace"] | "dynamic", number> = {

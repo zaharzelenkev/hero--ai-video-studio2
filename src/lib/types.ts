@@ -474,7 +474,7 @@ export interface GenerationStyle {
   rawPrompt: string;
   
   // AI-enhanced options
-  contentType?: "podcast" | "youtube" | "shorts" | "reels" | "tiktok" | "ad" | "travel" | "wedding" | "educational" | "music-video" | "interview" | "presentation";
+  contentType?: "podcast" | "youtube" | "shorts" | "reels" | "tiktok" | "ad" | "travel" | "wedding" | "educational" | "music-video" | "interview" | "presentation" | "documentary";
   targetDuration?: number; // Desired output duration in seconds
   intelligentCuts?: boolean; // Use AI to find best moments
   emotionDetection?: boolean; // Analyze emotional peaks

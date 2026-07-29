@@ -44,7 +44,7 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vivid",
     transition: "cut",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 85, color: "#FFE81A", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.5, animation: "pop" },
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 85, color: "#FFE81A", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.5, animation: "elastic" },
     effects: ["sharpen"]
   },
   {
@@ -56,7 +56,7 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vivid",
     transition: "hblur",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 95, color: "#00FF00", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 10, align: "center", yPosition: 0.8, animation: "bounce" },
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 95, color: "#00FF00", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 10, align: "center", yPosition: 0.8, animation: "stomp" },
     effects: ["sharpen", "vignette"]
   },
   {
@@ -104,7 +104,7 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "vivid",
     transition: "zoom",
     kenBurns: false,
-    text: { fontFamily: "DejaVu Sans Bold", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 6, align: "center", yPosition: 0.2, animation: "pop" },
+    text: { fontFamily: "DejaVu Sans Bold", fontSize: 75, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 6, align: "center", yPosition: 0.2, animation: "elastic" },
     effects: []
   },
   {
@@ -128,7 +128,7 @@ export const TEMPLATES: VideoTemplate[] = [
     colorGrade: "cool",
     transition: "pixelize",
     kenBurns: true,
-    text: { fontFamily: "Liberation Mono", fontSize: 60, color: "#00FFFF", backgroundColor: "black@0.8", align: "left", yPosition: 0.8, animation: "typewriter" },
+    text: { fontFamily: "Liberation Mono", fontSize: 60, color: "#00FFFF", backgroundColor: "black@0.8", align: "left", yPosition: 0.8, animation: "glitch" },
     effects: ["sharpen", "glow"]
   }
 ];

@@ -95,6 +95,65 @@ export function applyTextAnimation(clip: TextClip, animation: TextAnimation, yPo
       ];
       break;
 
+    case "elastic":
+      clip.scale.value = 0;
+      clip.scale.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "easeOut" },
+        { id: tId(), time: inDur * 0.4, value: 1.4, easing: "easeInOut" },
+        { id: tId(), time: inDur * 0.7, value: 0.85, easing: "easeInOut" },
+        { id: tId(), time: inDur * 0.9, value: 1.05, easing: "easeInOut" },
+        { id: tId(), time: inDur, value: 1, easing: "easeOut" }
+      ];
+      clip.opacity.value = 0;
+      clip.opacity.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "linear" },
+        { id: tId(), time: inDur * 0.2, value: 1, easing: "linear" }
+      ];
+      break;
+
+    case "stomp":
+      clip.scale.value = 5;
+      clip.scale.keyframes = [
+        { id: tId(), time: 0, value: 5, easing: "easeIn" },
+        { id: tId(), time: inDur * 0.5, value: 1, easing: "easeOut" }
+      ];
+      clip.opacity.value = 0;
+      clip.opacity.keyframes = [
+        { id: tId(), time: 0, value: 0, easing: "linear" },
+        { id: tId(), time: inDur * 0.3, value: 1, easing: "linear" }
+      ];
+      clip.y.value = yPos;
+      clip.y.keyframes = [
+        { id: tId(), time: 0, value: yPos, easing: "linear" },
+        { id: tId(), time: inDur * 0.5, value: yPos, easing: "linear" },
+        { id: tId(), time: inDur * 0.6, value: yPos + 0.05, easing: "linear" },
+        { id: tId(), time: inDur * 0.7, value: yPos - 0.05, easing: "linear" },
+        { id: tId(), time: inDur * 0.8, value: yPos + 0.02, easing: "linear" },
+        { id: tId(), time: inDur * 0.9, value: yPos - 0.02, easing: "linear" },
+        { id: tId(), time: inDur, value: yPos, easing: "linear" }
+      ];
+      break;
+
+    case "glitch":
+      clip.x.value = 0;
+      clip.x.keyframes = [
+        { id: tId(), time: 0, value: -0.05, easing: "linear" },
+        { id: tId(), time: 0.05, value: 0.05, easing: "linear" },
+        { id: tId(), time: 0.1, value: -0.02, easing: "linear" },
+        { id: tId(), time: 0.15, value: 0.02, easing: "linear" },
+        { id: tId(), time: 0.2, value: 0, easing: "linear" }
+      ];
+      clip.opacity.value = 0.5;
+      clip.opacity.keyframes = [
+        { id: tId(), time: 0, value: 0.2, easing: "linear" },
+        { id: tId(), time: 0.05, value: 1, easing: "linear" },
+        { id: tId(), time: 0.1, value: 0.3, easing: "linear" },
+        { id: tId(), time: 0.15, value: 1, easing: "linear" },
+        { id: tId(), time: 0.2, value: 1, easing: "linear" }
+      ];
+      clip.y.value = yPos;
+      break;
+
     case "typewriter":
       // We can't do true typewriter without breaking it into multiple clips or complex expressions.
       // But we can approximate the visual by clipping the text width or using alpha.

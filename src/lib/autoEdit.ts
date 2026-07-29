@@ -384,18 +384,29 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                     const durOnTimeline = Math.min(durInAsset, clip.outPoint - wordStartInAsset);
                     
                     if (durOnTimeline > 0.1) {
+                      const wText = (s as any).word || (s as any).text;
+                      const cleanText = wText.replace(/[^а-яА-Яa-zA-Z0-9]/g, "");
+                      
                       const textClip = createTextClip({
                         trackId: textTrack.id,
                         start: timelineStart,
                         duration: durOnTimeline,
-                        text: (s as any).word || (s as any).text,
+                        text: wText,
                       });
                       
-                      // Template Driven Subtitles
+                      // Template Driven Subtitles & Smart Highlighting
                       textClip.y.value = activeTemplate.text.yPosition;
                       textClip.fontSize = activeTemplate.text.fontSize || 72;
                       textClip.fontFamily = activeTemplate.text.fontFamily || "DejaVu Sans Bold";
-                      textClip.color = activeTemplate.text.color || "#FFFFFF";
+                      
+                      let tColor = activeTemplate.text.color || "#FFFFFF";
+                      if (activeTemplate.id === "hormozi" || activeTemplate.id === "tiktok" || activeTemplate.id === "mrbeast" || activeTemplate.id === "podcast") {
+                          const isEmphasized = cleanText.length > 5 || /!(?:\s|$)/.test(wText) || /^(не|нет|все|очень|важно|супер|как|что|это)$/i.test(cleanText);
+                          const highlight = activeTemplate.id === "mrbeast" ? "#00FF00" : "#FFE81A";
+                          tColor = isEmphasized ? highlight : "#FFFFFF";
+                      }
+                      textClip.color = tColor;
+                      
                       textClip.backgroundColor = activeTemplate.text.backgroundColor || "transparent";
                       textClip.strokeWidth = activeTemplate.text.strokeWidth || 3;
                       textClip.strokeColor = activeTemplate.text.strokeColor || "#000000";

@@ -337,6 +337,9 @@ export type TextAnimation =
   | "blur-in"
   | "scale-in"
   | "rotate-in"
+  | "elastic"
+  | "stomp"
+  | "glitch"
   | "bounce";
 
 export interface TextStyle {

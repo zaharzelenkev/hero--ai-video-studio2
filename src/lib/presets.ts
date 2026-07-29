@@ -118,9 +118,21 @@ export const FONT_FILES: Record<string, string> = {
 };
 
 export function fontFileFor(fontFamily: string): string {
-  if (FONT_FILES[fontFamily]) {
-    return FONT_FILES[fontFamily];
+  let cleanFamily = fontFamily;
+  
+  // Clean up legacy cached font families that contain colons
+  if (cleanFamily.startsWith("GFONT:")) {
+    const parts = cleanFamily.split(":");
+    cleanFamily = parts[1]; 
+  } else if (cleanFamily.startsWith("GFONT_")) {
+    const parts = cleanFamily.split("_");
+    cleanFamily = parts[1].replace(/\+/g, ' '); 
   }
-  // If it's not a local file, assume it's a Google Font
-  return `GFONT:${fontFamily}:700`; // Default to Bold (700) for video text
+  
+  if (FONT_FILES[cleanFamily]) {
+    return FONT_FILES[cleanFamily];
+  }
+  
+  // Safe filename without colons (colons break FFmpeg filter parsing)
+  return `GFONT_${cleanFamily.replace(/ /g, '+')}_700.ttf`;
 }

@@ -653,7 +653,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
            duration: (broll.sourceEnd - broll.sourceStart),
            startTime: broll.sourceStart,
            endTime: broll.sourceEnd,
-           timeInTimeline: currentTimelineTime + broll.offsetInScene,
+           timeInTimeline: Math.max(0, currentTimelineTime + broll.offsetInScene),
            reason: "B-Roll overlay",
            importance: 0.5
          } as any);

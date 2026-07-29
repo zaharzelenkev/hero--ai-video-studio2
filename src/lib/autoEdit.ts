@@ -28,6 +28,22 @@ export interface AutoEditInput {
  * - Generates intelligent clip selection
  * - Applies professional color grading and transitions
  */
+function wrapText(text: string, max: number): string {
+  const words = text.split(" ");
+  let lines = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + w).length > max) {
+      if (cur) lines.push(cur.trim());
+      cur = w + " ";
+    } else {
+      cur += w + " ";
+    }
+  }
+  if (cur) lines.push(cur.trim());
+  return lines.join("\n");
+}
+
 export async function autoEditToProject(input: AutoEditInput): Promise<Project> {
   const { title, assets, filesByAssetId, style, onProgress } = input;
   const project = createEmptyProject(title);
@@ -490,7 +506,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                       trackId: textTrack.id,
                       start: timelineStart,
                       duration: durOnTimeline,
-                      text: g.text,
+                      text: wrapText(g.text, 22),
                     });
                     
                     textClip.y.value = activeTemplate.text.yPosition;

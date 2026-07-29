@@ -270,10 +270,18 @@ function buildAudioChain(
     const n = id(`a${tag}_`);
     lines.push(`[${current}]afade=t=in:st=0:d=${fadeIn}[${n}]`);
     current = n;
+  } else {
+    const n = id(`a${tag}_`);
+    lines.push(`[${current}]afade=t=in:st=0:d=0.02[${n}]`); // Anti-click
+    current = n;
   }
   if (fadeOut > 0) {
     const n = id(`a${tag}_`);
     lines.push(`[${current}]afade=t=out:st=${Math.max(0, duration - fadeOut)}:d=${fadeOut}[${n}]`);
+    current = n;
+  } else {
+    const n = id(`a${tag}_`);
+    lines.push(`[${current}]afade=t=out:st=${Math.max(0, duration - 0.02)}:d=0.02[${n}]`); // Anti-click
     current = n;
   }
   if (eqLow || eqMid || eqHigh) {
@@ -523,7 +531,7 @@ export function compileProjectToFfmpeg(
   if (audioLabels.length) {
     finalAudio = id("aout_");
     lines.push(
-      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[${finalAudio}]`,
+      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[amix_out];[amix_out]alimiter=limit=-1.0[${finalAudio}]`,
     );
   }
 

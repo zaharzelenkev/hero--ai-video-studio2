@@ -1,6 +1,6 @@
 export const AI_CONFIG = {
   // Вы можете указать API ключ здесь или в .env.local (NEXT_PUBLIC_GROQ_API_KEY)
-  groqApiKey: "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",
+  groqApiKey: "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",
   
   // URL для запросов к API
   apiUrl: "https://api.groq.com/openai/v1/chat/completions",

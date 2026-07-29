@@ -86,7 +86,8 @@ function buildVideoClipChain(
     current = next;
   }
 
-  if (fitMode === "cover") {
+  const actualFitMode = clip.fitMode || fitMode;
+  if (actualFitMode === "cover") {
     
     let cropX = "(in_w-out_w)/2";
     let cropY = "(in_h-out_h)/2";
@@ -109,12 +110,23 @@ function buildVideoClipChain(
     );
     current = nextScale;
 
-    if (clip.scale && clip.scale.keyframes.length > 0) {
-       const zoomExpr = paramToFfmpegExpr(clip.scale, "in_time");
+    const motion = clip.cameraMotion || "none";
+    if (motion !== "none" || (clip.scale && clip.scale.keyframes.length > 0)) {
+       let zExpr = `(${paramToFfmpegExpr(clip.scale, "in_time")})/${baseScale}`;
+       let xExpr = "iw/2-(iw/zoom/2)";
+       let yExpr = "ih/2-(ih/zoom/2)";
+       const dur = Math.max(1, clip.duration);
+
+       if (motion === "zoom-in") zExpr = `1+((in_time)/${dur})*0.15`;
+       else if (motion === "zoom-out") zExpr = `1.15-((in_time)/${dur})*0.15`;
+       else if (motion === "pan-left") { zExpr = "1.15"; xExpr = `(iw-iw/zoom)*((in_time)/${dur})`; }
+       else if (motion === "pan-right") { zExpr = "1.15"; xExpr = `(iw-iw/zoom)*(1-(in_time)/${dur})`; }
+       else if (motion === "pan-up") { zExpr = "1.15"; yExpr = `(ih-ih/zoom)*((in_time)/${dur})`; }
+       else if (motion === "pan-down") { zExpr = "1.15"; yExpr = `(ih-ih/zoom)*(1-(in_time)/${dur})`; }
+
        const nextZoom = id(`c${tag}_zoom_`);
-       // zoompan forcibly converts pixel format to RGB24 in some FFmpeg WASM builds. We explicitly force it back to yuv420p or use format=yuv420p.
        lines.push(
-         `[${current}]format=yuv420p,zoompan=z='(${zoomExpr})/${baseScale}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${canvasW}x${canvasH}:fps=${fps},format=yuv420p[${nextZoom}]`
+         `[${current}]format=yuv420p,zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${canvasW}x${canvasH}:fps=${fps},format=yuv420p[${nextZoom}]`
        );
        current = nextZoom;
     }

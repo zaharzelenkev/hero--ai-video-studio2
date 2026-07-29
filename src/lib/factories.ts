@@ -52,6 +52,8 @@ export function createVideoClip(opts: {
     type: opts.asset.kind === "image" ? "image" : "video",
     name: opts.asset.name,
     assetId: opts.asset.id,
+    fitMode: "cover",
+    cameraMotion: "none",
     start: opts.start,
     duration: opts.duration,
     inPoint,

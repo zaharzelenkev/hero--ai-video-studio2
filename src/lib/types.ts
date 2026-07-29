@@ -223,6 +223,8 @@ export interface SpeedRamp {
   }>;
 }
 
+export type CameraMotion = "none" | "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "pan-up" | "pan-down";
+
 export interface BaseClip {
   id: string;
   trackId: string;
@@ -239,6 +241,8 @@ export interface BaseClip {
 export interface VideoClip extends BaseClip {
   type: "video" | "image";
   assetId: string;
+  fitMode?: "cover" | "contain";
+  cameraMotion?: CameraMotion;
   /** In/out trim point inside the source asset, in seconds. */
   inPoint: number;
   outPoint: number;

@@ -248,6 +248,57 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       
       clip.effects = activeTemplate.effects ? [...activeTemplate.effects] : [];
       
+      if (isBroll) {
+         clip.fitMode = "cover";
+         // Native Overlay Transitions via opacity and position
+         if (transType.includes("fade") || transType === "hblur") {
+             clip.opacity.value = 0;
+             clip.opacity.keyframes = [
+                 { id: "k1", time: 0, value: 0, easing: "linear" },
+                 { id: "k2", time: transDur, value: 1, easing: "linear" },
+                 { id: "k3", time: duration - transDur, value: 1, easing: "linear" },
+                 { id: "k4", time: duration, value: 0, easing: "linear" }
+             ];
+         } else if (transType.includes("slide") || transType.includes("smooth") || transType === "wipeleft") {
+             const startY = transType.includes("up") ? 1 : transType.includes("down") ? -1 : 0;
+             const startX = transType.includes("left") ? 1 : transType.includes("right") ? -1 : 0;
+             
+             clip.opacity.value = 0;
+             clip.opacity.keyframes = [
+                 { id: "k1", time: 0, value: 0, easing: "linear" },
+                 { id: "k2", time: 0.1, value: 1, easing: "linear" },
+                 { id: "k3", time: duration - 0.1, value: 1, easing: "linear" },
+                 { id: "k4", time: duration, value: 0, easing: "linear" }
+             ];
+             
+             if (startY !== 0) {
+                 clip.y.value = startY;
+                 clip.y.keyframes = [
+                     { id: "y1", time: 0, value: startY, easing: "easeOut" },
+                     { id: "y2", time: transDur, value: 0, easing: "easeOut" },
+                     { id: "y3", time: duration - transDur, value: 0, easing: "easeIn" },
+                     { id: "y4", time: duration, value: -startY, easing: "easeIn" }
+                 ];
+             } else if (startX !== 0) {
+                 clip.x.value = startX;
+                 clip.x.keyframes = [
+                     { id: "x1", time: 0, value: startX, easing: "easeOut" },
+                     { id: "x2", time: transDur, value: 0, easing: "easeOut" },
+                     { id: "x3", time: duration - transDur, value: 0, easing: "easeIn" },
+                     { id: "x4", time: duration, value: -startX, easing: "easeIn" }
+                 ];
+             }
+         } else {
+             // Fallback cut
+             clip.opacity.value = 0;
+             clip.opacity.keyframes = [
+                 { id: "k1", time: 0, value: 1, easing: "linear" },
+                 { id: "k2", time: duration - 0.1, value: 1, easing: "linear" },
+                 { id: "k3", time: duration, value: 0, easing: "linear" }
+             ];
+         }
+      }
+      
       // Auto-framing (Smart Reframe)
       const segs = localSegments.get(asset.id);
       if (segs && segs.length > 0) {
@@ -284,13 +335,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       }
 
       if (aiClip.zoom || (asset.kind === "image" && style.kenBurns)) {
-        clip.scale = {
-          value: 1,
-          keyframes: [
-            { id: `${clip.id}_kb0`, time: 0, value: 1, easing: "linear" },
-            { id: `${clip.id}_kb1`, time: duration, value: 1.15, easing: "linear" },
-          ],
-        };
+        const motions: import("./types").CameraMotion[] = ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
+        clip.cameraMotion = motions[Math.floor(Math.random() * motions.length)];
       }
       
       track.clips.push(clip);

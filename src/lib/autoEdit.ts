@@ -302,11 +302,22 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       // Auto-framing (Smart Reframe)
       const segs = localSegments.get(asset.id);
       if (segs && segs.length > 0) {
-        // Find segment overlapping with this clip's inPoint
-        const relevantSeg = segs.find(s => s.startTime <= inPoint && s.endTime > inPoint) || segs[0];
-        if (relevantSeg.hasFaces && relevantSeg.faceX !== undefined && relevantSeg.faceY !== undefined) {
-           clip.focusX = relevantSeg.faceX;
-           clip.focusY = relevantSeg.faceY;
+        const clipSegs = segs.filter(s => s.endTime > inPoint && s.startTime < outPoint);
+        if (clipSegs.some(s => s.hasFaces && s.faceX !== undefined)) {
+           clip.focusX = { value: 0.5, keyframes: [] };
+           clip.focusY = { value: 0.5, keyframes: [] };
+           
+           for (const s of clipSegs) {
+              if (s.hasFaces && s.faceX !== undefined && s.faceY !== undefined) {
+                 const t = Math.max(0, s.startTime - inPoint);
+                 clip.focusX.keyframes.push({ id: `fx_${t}`, time: t, value: s.faceX, easing: "easeInOut" });
+                 clip.focusY.keyframes.push({ id: `fy_${t}`, time: t, value: s.faceY, easing: "easeInOut" });
+              }
+           }
+           if (clip.focusX.keyframes.length > 0) {
+              clip.focusX.value = clip.focusX.keyframes[0].value;
+              clip.focusY.value = clip.focusY.keyframes[0].value;
+           }
         }
       }
       

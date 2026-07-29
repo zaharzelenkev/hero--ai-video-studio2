@@ -93,10 +93,12 @@ function buildVideoClipChain(
     let cropY = "(in_h-out_h)/2";
     
     if (clip.focusX !== undefined) {
-      cropX = `clamp((in_w*${clip.focusX})-(out_w/2),0,in_w-out_w)`;
+      const fxExpr = paramToFfmpegExpr(clip.focusX, "t");
+      cropX = `clamp((in_w*(${fxExpr}))-(out_w/2),0,in_w-out_w)`;
     }
     if (clip.focusY !== undefined) {
-      cropY = `clamp((in_h*${clip.focusY})-(out_h/2),0,in_h-out_h)`;
+      const fyExpr = paramToFfmpegExpr(clip.focusY, "t");
+      cropY = `clamp((in_h*(${fyExpr}))-(out_h/2),0,in_h-out_h)`;
     }
     
     // Animate zooming over the crop if scale.keyframes > 0 (Ken Burns emulation on cover)

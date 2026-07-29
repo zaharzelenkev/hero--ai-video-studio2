@@ -257,8 +257,8 @@ export interface VideoClip extends BaseClip {
   scale: AnimParam; // 1 = 100%
   scaleX?: AnimParam; // Separate X scale for advanced users
   scaleY?: AnimParam; // Separate Y scale
-  focusX?: number; // 0..1 for smart auto-framing (crop center)
-  focusY?: number;
+  focusX?: AnimParam; // 0..1 for smart auto-framing (crop center)
+  focusY?: AnimParam;
   rotation: AnimParam; // degrees
   rotationX?: AnimParam; // 3D rotation
   rotationY?: AnimParam;

@@ -380,6 +380,77 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
+  // --- SOUND EFFECTS (SFX) GENERATION ---
+  // Create an SFX track
+  const { createTrack, createAudioClip } = require("./factories");
+  const sfxTrack = createTrack("audio", "Звуковые эффекты");
+  project.tracks.push(sfxTrack);
+
+  if (typeof window !== "undefined" && window.OfflineAudioContext) {
+    onProgress?.("Синтез саунд-дизайна (SFX)...");
+    try {
+      const { generateSfx } = await import("./sfx");
+      const { saveBlob } = await import("./db");
+      
+      const addSfxAsset = async (type: import("./sfx").SfxType, name: string) => {
+        const blob = await generateSfx(type);
+        const assetId = "sfx_" + type + "_" + Date.now();
+        const file = new File([blob], name, { type: "audio/wav" });
+        await saveBlob(assetId, file);
+        const asset: MediaAsset = {
+          id: assetId,
+          name,
+          kind: "audio",
+          mime: "audio/wav",
+          blobKey: assetId,
+          duration: type === "whoosh" ? 0.5 : type === "pop" ? 0.15 : type === "riser" ? 2.0 : 0.4,
+          createdAt: Date.now()
+        };
+        project.assets.push(asset);
+        filesByAssetId.set(assetId, file);
+        return asset;
+      };
+
+      const popAsset = await addSfxAsset("pop", "SFX: Pop");
+      const whooshAsset = await addSfxAsset("whoosh", "SFX: Whoosh");
+      const riserAsset = await addSfxAsset("riser", "SFX: Riser");
+      const hitAsset = await addSfxAsset("hit", "SFX: Hit");
+
+      // Place SFX based on visual and text events
+      for (const track of project.tracks) {
+        if (track.type === "text") {
+          for (const clip of track.clips as import("./types").TextClip[]) {
+            if (clip.animationIn && clip.animationIn !== "none" && clip.animationIn !== "fade") {
+              const sfx = createAudioClip({ trackId: sfxTrack.id, asset: popAsset, start: clip.start, duration: popAsset.duration });
+              sfxTrack.clips.push(sfx);
+            }
+          }
+        }
+        if (track.type === "video") {
+          for (const clip of track.clips as import("./types").VideoClip[]) {
+            // Whoosh on fast transitions
+            if (clip.transitionIn.type !== "cut" && clip.transitionIn.type !== "crossfade" && clip.transitionIn.type !== "fadeblack" && clip.transitionIn.duration <= 0.8) {
+              const sfx = createAudioClip({ trackId: sfxTrack.id, asset: whooshAsset, start: Math.max(0, clip.start - 0.2), duration: whooshAsset.duration });
+              sfxTrack.clips.push(sfx);
+            }
+            // Riser before Climax, Hit at Climax
+            if (aiDecision && track.name === "Видео 1") {
+               const dec = aiDecision.clips.find(c => c.assetId === clip.assetId && Math.abs((c.startTime||0) - clip.inPoint) < 0.5);
+               if (dec && dec.emotion === "dramatic" && clip.start > 2) {
+                  const sfx = createAudioClip({ trackId: sfxTrack.id, asset: riserAsset, start: Math.max(0, clip.start - riserAsset.duration), duration: riserAsset.duration });
+                  sfxTrack.clips.push(sfx);
+                  const hit = createAudioClip({ trackId: sfxTrack.id, asset: hitAsset, start: clip.start, duration: hitAsset.duration });
+                  sfxTrack.clips.push(hit);
+               }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to generate SFX", e);
+    }
+  }
+
   // Add music
   if (musicAsset) {
     const audioTrack = project.tracks.find((t) => t.type === "audio")!;

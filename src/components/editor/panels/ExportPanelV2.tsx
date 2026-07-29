@@ -66,10 +66,7 @@ export default function ExportPanelV2() {
     } catch (err) {
       console.error("Export error:", err);
       const raw = err instanceof Error ? err.message : "";
-      const isNetwork = raw.includes("fetch") || raw.includes("network") || raw.includes("Сетевая ошибка");
-      const friendly = isNetwork
-        ? "Похоже, пропало подключение к интернету. Проверьте сеть и попробуйте снова."
-        : "Что-то пошло не так при экспорте. Возможно, некоторые клипы повреждены или настройки несовместимы.";
+      const friendly = "Ошибка: " + raw;
       setLog(friendly); // we reuse log for the friendly error display
     } finally {
       setRendering(false);

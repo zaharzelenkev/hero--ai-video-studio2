@@ -484,26 +484,63 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
+  // --- MUSIC GENERATION (Fallback to Procedural if no musicAsset) ---
+  let finalMusicAsset = musicAsset;
+  
+  if (!finalMusicAsset && typeof window !== "undefined" && window.OfflineAudioContext && project.duration > 0) {
+     onProgress?.("Генерация фоновой музыки...");
+     try {
+        const { generateProceduralMusic } = await import("./musicGenerator");
+        const { saveBlob } = await import("./db");
+        
+        // Pick style based on template/genre
+        let mStyle: "lofi" | "cinematic" | "electronic" = "electronic";
+        if (style.templateId === "travel" || style.templateId === "cinematic" || style.templateId === "luxury" || style.templateId === "documentary") mStyle = "cinematic";
+        if (style.templateId === "podcast" || style.templateId === "hormozi" || style.templateId === "minimal") mStyle = "lofi";
+        
+        const mBlob = await generateProceduralMusic(mStyle, project.duration);
+        const mId = "bgm_" + Date.now();
+        const mFile = new File([mBlob], `AI Music (${mStyle})`, { type: "audio/wav" });
+        await saveBlob(mId, mFile);
+        
+        finalMusicAsset = {
+          id: mId,
+          name: `AI Music (${mStyle})`,
+          kind: "audio",
+          mime: "audio/wav",
+          blobKey: mId,
+          duration: project.duration,
+          createdAt: Date.now()
+        };
+        project.assets.push(finalMusicAsset);
+        filesByAssetId.set(mId, mFile);
+     } catch(e) {
+        console.warn("Failed to generate BGM", e);
+     }
+  }
+
   // Add music
-  if (musicAsset) {
+  if (finalMusicAsset) {
     const audioTrack = project.tracks.find((t) => t.type === "audio")!;
-    const musicDuration = Math.min(musicAsset.duration || project.duration, project.duration);
+    const musicDuration = Math.min(finalMusicAsset.duration || project.duration, project.duration);
     const { createAudioClip } = require("./factories");
     const clip = createAudioClip({
       trackId: audioTrack.id,
-      asset: musicAsset,
+      asset: finalMusicAsset,
       start: 0,
       duration: project.duration,
       inPoint: 0,
       outPoint: musicDuration,
     });
+    // Set appropriate volume
+    clip.volume = { value: style.templateId === "podcast" || style.templateId === "hormozi" ? 0.15 : 0.6, keyframes: [] };
     clip.fadeOut = Math.min(2, project.duration / 4);
     audioTrack.clips.push(clip);
   }
 
   // Smart Audio Auto-Ducking
   const audioTrack = project.tracks.find((t) => t.type === "audio");
-  if (audioTrack && audioTrack.clips.length > 0) {
+  if (audioTrack && audioTrack.clips.length > 0 && finalMusicAsset) {
     const musicClip = audioTrack.clips[0] as import("./types").AudioClip;
     
     // Collect all speech intervals

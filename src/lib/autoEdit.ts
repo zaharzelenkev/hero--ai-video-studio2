@@ -241,7 +241,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   }
 
   let cursor = 0;
-  
+  // Карта планового времени компиляции решения -> реального времени ролика (учёт перекрытий xfade).
+  // По умолчанию тождественная (нет переходов — нет сдвига).
+  let mapPlannedTime: (t: number) => number = (t) => t;
+
   // Use AI-suggested clips if available, otherwise use rule-based approach
   if (aiDecision && aiDecision.clips.length > 0) {
     const mainClips = aiDecision.clips.filter(c => c.trackType !== "b-roll");
@@ -559,20 +562,18 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     };
 
     // 1. Сначала выстраиваем основной видеоряд
+    const plannedStarts: number[] = []; // плановые старты БЕЗ учёта перекрытий переходов
     for (let i = 0; i < mainClips.length; i++) {
        const mainClip = mainClips[i];
+       plannedStarts.push(cursor);
        const durationUsed = placeClip(mainClip, videoTrack, false, cursor);
        if (durationUsed) {
          cursor += durationUsed;
-         // Wait, the NEXT clip will transition IN, overlapping with the current clip.
-         // So we must subtract the NEXT clip's transition duration from the cursor before placing it.
-         // Since placeClip determines the transition duration internally based on random rules,
-         // we need placeClip to return the generated transition duration so we can overlap correctly.
-         // Actually, let's just make a fast pass and fix the start times sequentially.
        }
     }
-    
-    // Fix start times based on actual transition durations generated
+
+    // Fix start times based on actual transition durations generated:
+    // каждый xfade «съедает» свою длительность — ролик короче плана на сумму переходов.
     let actualCursor = 0;
     for (let i = 0; i < videoTrack.clips.length; i++) {
         const c = videoTrack.clips[i] as import("./types").VideoClip;
@@ -584,13 +585,29 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
     cursor = actualCursor; // Now cursor accurately represents the end of the visual track!
 
+    // КАРТА ВРЕМЕНИ: плановое время (из компиляции решения) -> реальное время ролика.
+    // B-Roll и AI-титры ниже размещались по плановым временам и накапливали отставание
+    // на сумму переходов (к концу ролика — секунды рассинхрона!). Переводим через карту.
+    const shiftPlan: { planned: number; shift: number }[] = [];
+    for (let i = 0; i < videoTrack.clips.length; i++) {
+        const realStart = videoTrack.clips[i].start;
+        const shift = plannedStarts[i] - realStart;
+        if (shift > 0.001) shiftPlan.push({ planned: plannedStarts[i], shift });
+    }
+    mapPlannedTime = (t: number) => {
+        let s = 0;
+        for (const p of shiftPlan) {
+            if (p.planned <= t + 0.001) s = p.shift;
+        }
+        return Math.max(0, t - s);
+    };
+
     // 2. Затем накладываем B-Roll (они должны распределиться по таймлайну поверх длинных кусков)
     // Так как в AIEditDecision B-Rolls могут не иметь абсолютного таймлайна, распределяем их умно:
     let bRollCursor = 0.5; // Начинаем чуть позже первого кадра
     for (const bClip of bRollClips) {
-       // Размещаем где-то поверх основного таймлайна
-       // Align B-Rolls to music beats if beats exist
-       let bRollStart = (bClip as any).timeInTimeline !== undefined ? (bClip as any).timeInTimeline : bRollCursor;
+       // Плановые времена компиляции переводим в реальные (после перекрытий переходов)
+       let bRollStart = (bClip as any).timeInTimeline !== undefined ? mapPlannedTime((bClip as any).timeInTimeline) : bRollCursor;
 
        // Не выносим перебивку за пределы основного видеоряда (чёрный хвост под B-Roll — провал).
        if (bRollStart >= cursor - 0.6) continue;
@@ -620,7 +637,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
     for (const overlay of aiDecision.textOverlays) {
-      const oStart = Math.max(0, overlay.time || 0);
+      const oStart = Math.max(0, mapPlannedTime(overlay.time || 0));
       // Титр за пределами видеоряда или на последних долях секунды — визуальный мусор, пропускаем.
       if (oStart >= cursor - 0.5) continue;
       const oDur = Math.max(0.4, Math.min(overlay.duration || 2, cursor - oStart));
@@ -770,8 +787,13 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           const clipStart = bClip.start;
           const clipEnd = bClip.start + bClip.duration;
           // Ищем биты, которые попадают в середину B-Roll клипа
-          const containedBeats = beats.filter(b => b > clipStart + 0.3 && b < clipEnd - 0.3);
-          
+          const rawBeats = beats.filter(b => b > clipStart + 0.3 && b < clipEnd - 0.3);
+          // Не чаще одной вспышки в 0.9с: плотная темп-сетка превращает свет в стробоскоп
+          const containedBeats: number[] = [];
+          for (const b of rawBeats) {
+             if (containedBeats.length === 0 || b - containedBeats[containedBeats.length - 1] >= 0.9) containedBeats.push(b);
+          }
+
           for (const beat of containedBeats) {
               const localBeat = beat - clipStart;
               // Добавляем короткую вспышку яркости на каждый бит
@@ -928,6 +950,12 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     } catch (e) {
       console.warn("Failed to generate SFX", e);
     }
+  }
+
+  // Нормализация громкости SFX: синтезированные эффекты генерируются «в упор»
+  // (gain 0.6-1.0), в миксе они должны сидеть чуть НИЖЕ музыкальной кровати.
+  for (const s of sfxTrack.clips as import("./types").AudioClip[]) {
+     s.volume = { value: 0.55, keyframes: [] };
   }
 
   // --- MUSIC GENERATION (Fallback to Procedural if no musicAsset) ---

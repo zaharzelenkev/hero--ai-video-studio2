@@ -655,6 +655,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     usageCount.set(hookBeat.assetId, 1);
 
     let lastAssetId = hookBeat.assetId;
+    let waveIdx = 0;
 
     while (currentTime < target && (pool.length > 0 || (climaxReserve && !reserveUsed))) {
       const progress = currentTime / target;
@@ -691,7 +692,15 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       lastAssetId = beat.assetId;
       usageCount.set(beat.assetId, (usageCount.get(beat.assetId) || 0) + 1);
       
-      let dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 5;
+      // Ритмические волны для динамичных жанров: установочные кадры прерываются
+      // серией коротких акцентов — пульс (4-4-1-1-1-4) вместо ровного конвейера.
+      let dur: number;
+      if (phase === "buildup" && (strategy.genre === "tiktok" || strategy.genre === "ad")) {
+         const RHYTHM_WAVE = [3.6, 3.0, 1.1, 0.9, 1.2, 2.6];
+         dur = RHYTHM_WAVE[waveIdx++ % RHYTHM_WAVE.length];
+      } else {
+         dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 5;
+      }
       dur = Math.min(dur, beat.duration, target - currentTime);
       if (dur < 0.5) break;
       

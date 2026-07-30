@@ -20,6 +20,7 @@ export interface CompileResult {
   videoMapLabel: string | null;
   audioMapLabel: string | null;
   fontMounted: boolean;
+  totalDuration: number;
 }
 
 export type FileNameResolver = (clip: VideoClip | AudioClip) => string;
@@ -333,6 +334,7 @@ export function compileProjectToFfmpeg(
   const overlayTracks = videoTracks.slice(1);
 
   let composite: string | null = null;
+  let totalDuration = project.duration;
 
   if (baseTrack && baseTrack.clips.length) {
     const clips = [...baseTrack.clips].sort((a, b) => a.start - b.start) as VideoClip[];
@@ -375,9 +377,11 @@ export function compileProjectToFfmpeg(
 
     if (segments.length === 1) {
       composite = segments[0].label;
-    } else if (segments.length > 1) {
+    }
+    let accDur = segments[0]?.duration || 0;
+    if (segments.length > 1) {
       let acc = segments[0].label;
-      let accDur = segments[0].duration;
+
       for (let i = 1; i < segments.length; i++) {
         const seg = segments[i];
         if (seg.transition.type === "cut" || seg.transition.duration <= 0) {
@@ -400,6 +404,7 @@ export function compileProjectToFfmpeg(
       }
       composite = acc;
     }
+    totalDuration = accDur;
   }
 
   if (!composite) {
@@ -541,6 +546,7 @@ export function compileProjectToFfmpeg(
     videoMapLabel: finalVideo,
     audioMapLabel: finalAudio,
     fontMounted: usedFont,
+    totalDuration,
   };
 }
 

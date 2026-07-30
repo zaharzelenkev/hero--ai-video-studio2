@@ -42,6 +42,7 @@ export interface DirectorScript {
     duckingEnabled: boolean;
     denoiseSpeech: boolean;
     removeSilence: boolean;
+    muteOriginalAudio: boolean;
   };
 }
 
@@ -116,7 +117,7 @@ export class DirectorEngine {
    * для создания профессиональной структуры видео.
    */
   private static async buildNarrativeScriptWithLLM(
-    _request: AIAnalysisRequest, 
+    __request: AIAnalysisRequest, 
     strategy: any, 
     speechAssets: any[], 
     visualAssets: any[],
@@ -262,7 +263,8 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
                 musicStyle: "lofi",
                 duckingEnabled: true,
                 denoiseSpeech: true,
-                removeSilence: true
+                removeSilence: true,
+                muteOriginalAudio: false
             }
         };
 
@@ -274,7 +276,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
 
 
   private static async buildNarrativeScript(
-    _request: AIAnalysisRequest, 
+    __request: AIAnalysisRequest, 
     strategy: any, 
     speechAssets: any[], 
     visualAssets: any[]
@@ -292,7 +294,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
 
     if (words.length === 0) {
         // Fallback если нет таймкодов
-        return this.buildVisualScript(_request, strategy, [mainAsset, ...visualAssets]);
+        return this.buildVisualScript(__request, strategy, [mainAsset, ...visualAssets]);
     }
 
     // 2. Объединяем слова во фразы, автоматически вырезая тишину > 0.4s
@@ -456,14 +458,15 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
         audioStrategy: {
             musicStyle: "lofi",
             duckingEnabled: true,
-            denoiseSpeech: true,
-            removeSilence: true
+                denoiseSpeech: true,
+                removeSilence: true,
+                muteOriginalAudio: false
         }
     };
   }
 
   private static buildVisualScript(
-    request: AIAnalysisRequest, 
+    _request: AIAnalysisRequest, 
     strategy: any, 
     visualAssets: any[]
   ): DirectorScript {
@@ -476,7 +479,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
         musicStyle: strategy.genre === "travel" ? "cinematic" : "electronic",
         duckingEnabled: false,
         denoiseSpeech: false,
-        removeSilence: false
+        removeSilence: false,
+        muteOriginalAudio: true
       }
     };
 
@@ -607,15 +611,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       currentTime += dur;
     }
 
-    // Добавляем текст промпта на экран, если он есть
-    if (request.userPrompt && request.userPrompt.length > 3 && script.scenes.length > 0) {
-        script.scenes[0].captions.push({
-            text: request.userPrompt.slice(0, 60),
-            offsetInScene: 0.2,
-            duration: Math.min(3, script.scenes[0].duration - 0.2),
-            animation: "fade"
-        });
-    }
+
 
     return script;
   }
@@ -792,7 +788,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
         denoise: script.audioStrategy.denoiseSpeech,
         voiceEnhance: script.audioStrategy.denoiseSpeech,
         removeSilence: script.audioStrategy.removeSilence,
-        ducking: script.audioStrategy.duckingEnabled
+        ducking: script.audioStrategy.duckingEnabled,
+        muteOriginalAudio: script.audioStrategy.muteOriginalAudio
       },
       suggestions: [script.concept],
       analysisQuality: "ai"

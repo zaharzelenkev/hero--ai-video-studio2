@@ -284,6 +284,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       });
       
       clip.effects = activeTemplate.effects ? [...activeTemplate.effects] : [];
+      clip.muted = !!aiDecision?.audioEnhancements?.muteOriginalAudio || isBroll;
       
       if (isBroll) {
          clip.fitMode = "cover";
@@ -420,29 +421,6 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
        }
     }
 
-  } else {
-    const textTrack = project.tracks.find((t) => t.type === "text")!;
-    // Fallback: simple caption from prompt
-    const captionText = style.rawPrompt.trim().slice(0, 60);
-    if (captionText) {
-      const caption = createTextClip({
-        trackId: textTrack.id,
-        start: 0.2,
-        duration: Math.min(3, project.duration - 0.4 > 0 ? project.duration - 0.4 : project.duration),
-        text: captionText,
-      });
-      
-      caption.y.value = activeTemplate.text.yPosition;
-      caption.fontSize = activeTemplate.text.fontSize;
-      caption.fontFamily = activeTemplate.text.fontFamily;
-      caption.color = activeTemplate.text.color;
-      caption.backgroundColor = activeTemplate.text.backgroundColor;
-      caption.strokeWidth = activeTemplate.text.strokeWidth || 0;
-      caption.strokeColor = activeTemplate.text.strokeColor || "#000000";
-      caption.animationIn = activeTemplate.text.animation;
-      
-      textTrack.clips.push(caption);
-    }
   }
 
   // --- SUBTITLES & AI TEXT OVERLAYS ---
@@ -546,6 +524,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       }
     }
   }
+
+  project.duration = cursor;
 
   // --- SOUND EFFECTS (SFX) GENERATION ---
   // Create an SFX track

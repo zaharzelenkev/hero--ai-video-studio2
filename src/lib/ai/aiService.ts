@@ -59,6 +59,7 @@ export interface AIEditDecision {
     voiceEnhance: boolean;
     removeSilence: boolean;
     ducking: boolean;
+    muteOriginalAudio?: boolean;
   };
   
   colorCorrection?: {

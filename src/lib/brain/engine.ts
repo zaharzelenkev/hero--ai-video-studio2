@@ -456,11 +456,11 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
         targetDuration: strategy.targetDuration,
         scenes: finalScenes,
         audioStrategy: {
-            musicStyle: "lofi",
+            musicStyle: strategy.genre === "podcast" ? "lofi" : "electronic",
             duckingEnabled: true,
-                denoiseSpeech: true,
-                removeSilence: true,
-                muteOriginalAudio: false
+            denoiseSpeech: true,
+            removeSilence: true,
+            muteOriginalAudio: false // Оставляем звук, так как это нарратив (речь)
         }
     };
   }
@@ -476,11 +476,13 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       targetDuration: strategy.targetDuration,
       scenes: [],
       audioStrategy: {
-        musicStyle: strategy.genre === "travel" ? "cinematic" : "electronic",
+        // Выбираем жанр музыки исходя из жанра видео и эмоции
+        musicStyle: strategy.genre === "travel" || strategy.genre === "luxury" ? "cinematic" 
+                    : strategy.genre === "tiktok" || strategy.genre === "ad" ? "electronic" : "lofi",
         duckingEnabled: false,
         denoiseSpeech: false,
         removeSilence: false,
-        muteOriginalAudio: true
+        muteOriginalAudio: true // В визуальных скриптах мы ВСЕГДА мьютим оригинальный звук с камеры
       }
     };
 

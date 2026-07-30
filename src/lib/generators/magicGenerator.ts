@@ -250,12 +250,19 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
     vClip.transitionIn = i === 0 ? { type: "cut", duration: 0 } : { type: activeTemplate.transition, duration: 0.4 };
     videoTrack.clips.push(vClip);
 
-    // 2. Audio voiceover simulation (we assume it's roughly the same length)
-    // In actual implementation we'd map the actual audio blob, but we skipped putting it in the track for brevity. 
-    // Let's assume we saved voiceover files in filesByAssetId with id "voice_X".
-    // Wait, in the first loop I didn't push aAsset to assets array.
+    // 2. Audio voiceover 
+    const aAsset = project.assets.find((a: any) => a.name === `Voice ${i+1}`);
+    if (aAsset) {
+      const aClip = createAudioClip({
+        trackId: audioTrack.id,
+        asset: aAsset,
+        start: cursor,
+        duration: aAsset.duration || sceneDuration
+      });
+      audioTrack.clips.push(aClip);
+    }
     
-    // 3. Hormozi Text
+    // 3. Text
     const words = scene.voiceover.split(" ");
     let textStart = cursor;
     const timePerWord = sceneDuration / words.length;

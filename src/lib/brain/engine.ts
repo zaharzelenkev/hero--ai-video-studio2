@@ -119,43 +119,45 @@ export class DirectorEngine {
     _request: AIAnalysisRequest, 
     strategy: any, 
     speechAssets: any[], 
-    _visualAssets: any[],
+    visualAssets: any[],
     validPhrases: any[]
   ): Promise<DirectorScript> {
     const prompt = `Ты — элитный режиссер монтажа уровня MrBeast, Kurzgesagt и Veritasium с 15-летним опытом.
 Твоя задача — проанализировать исходные фразы спикера и создать гениальный, удерживающий внимание сценарий (Script).
 
 ПРАВИЛА МОНТАЖА:
-1. СТРУКТУРА: Hook (первые 3 сек) -> Setup (Контекст) -> Development (Развитие) -> Climax (Кульминация) -> Payoff (Вывод).
-2. РИТМ (Pacing): Не давай зрителю заскучать дольше 5 секунд. Чередуй быстрые склейки (jump cuts) и длинные глубокие мысли.
-3. УДЕРЖАНИЕ (Retention): Каждые 7-15 секунд используй Pattern Interrupt (смена ракурса, B-Roll, зум, или пауза).
-4. ОЦЕНКА КАДРОВ: Оценивай каждую фразу по шкале 1-10. Выкидывай всё, что ниже 7. Вода убивает удержание.
+1. СТРУКТУРА: Hook (первые 3 сек) -> Setup (Контекст) -> Development (Развитие) -> Climax (Кульминация) -> Payoff (Вывод). В первые 3 секунды вставь самый сильный, шокирующий или интригующий вопрос.
+2. РИТМ (Pacing): Не давай зрителю заскучать дольше 5 секунд. Чередуй быстрые склейки (jump cuts) и длинные глубокие мысли. Удаляй "воду", повторы и скучные подводки.
+3. УДЕРЖАНИЕ (Retention): Каждые 7-15 секунд используй Pattern Interrupt. Обязательно указывай bRollNeeded=true для длинных (более 3 секунд) фраз или когда спикер говорит о чем-то визуальном.
+4. ОЦЕНКА КАДРОВ: Оценивай каждую фразу по шкале 1-10. Выкидывай всё, что ниже 7. Мертвые паузы и вода убивают удержание.
 5. ИСПОЛЬЗУЙ J-Cuts и L-Cuts для переходов между мыслями.
+6. ВЫБОР B-ROLL: Если ставишь bRollNeeded=true, ОБЯЗАТЕЛЬНО заполни поле bRollKeyword на английском языке (1-2 слова, описывающих, что должно быть показано, например: "money", "nature", "happy people").
 
 МАТЕРИАЛЫ (ID: Текст [Старт - Конец]):
 ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end.toFixed(1)}s)`).join('\n')}
 
 ЗАДАЧА:
-СНАЧАЛА напиши рассуждение (Chain-of-Thought) о том, как ты будешь строить драматургию.
-ПОТОМ верни строго JSON объект с выбранными фразами.
+СНАЧАЛА напиши рассуждение (Chain-of-Thought) о том, как ты будешь строить драматургию, какие эмоции вызывает текст и почему ты вырезаешь определенные куски.
+ПОТОМ верни строго JSON объект с выбранными фразами в хронологическом порядке.
 
 ОЖИДАЕМЫЙ ФОРМАТ JSON:
 {
-  "reasoning": "Здесь твои рассуждения как монтажёра...",
+  "reasoning": "Здесь твои рассуждения как монтажёра... Я выбрал фразу X как хук, потому что...",
   "concept": "Главная идея ролика",
   "scenes": [
     {
-      "phase": "hook", // hook | setup | development | climax | payoff
-      "phraseId": 0, // ID фразы из списка
+      "phase": "hook", // Строго одно из: hook | setup | buildup | climax | outro
+      "phraseId": 0, // ID фразы из списка выше
       "score": 9, // Твоя оценка 1-10
-      "intent": "Захватить внимание вопросом",
-      "bRollNeeded": false,
+      "intent": "Захватить внимание вопросом (показывай, а не рассказывай)",
+      "bRollNeeded": true,
+      "bRollKeyword": "shocked face",
       "zoom": true
     }
   ]
 }
 
-Выбери от 3 до 10 лучших фраз, чтобы общая длительность (сумма длин фраз) была около ${strategy.targetDuration} секунд.`;
+Выбери лучшие фразы (откидывая мусор), чтобы их суммарная длительность была примерно ${strategy.targetDuration} секунд. Убедись, что история логична после твоей нарезки.`;
 
     try {
         const resp = await fetch(AI_CONFIG.apiUrl, {
@@ -184,7 +186,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
             
             isZoomed = s.zoom !== undefined ? s.zoom : !isZoomed;
             
-            scenes.push({
+            const scene: DirectorScene = {
                 id: `scene_${Date.now()}_${s.phraseId}`,
                 phase: s.phase === "setup" || s.phase === "development" ? "buildup" : s.phase === "payoff" ? "outro" : s.phase,
                 intent: s.intent || "Jump Cut",
@@ -192,7 +194,63 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
                 emotion: s.phase === "climax" || s.phase === "hook" ? "energetic" : "neutral",
                 mainClip: { assetId: mainAsset.id, sourceStart: p.start, sourceEnd: p.end, speed: 1, zoom: isZoomed },
                 bRolls: [], captions: []
-            });
+            };
+
+            // Process LLM bRollNeeded request
+            if (s.bRollNeeded && visualAssets.length > 1) {
+                const bRollPool = visualAssets.filter((a: any) => a.id !== mainAsset.id);
+                
+                // Умный семантический поиск: ищем B-Roll, имя которого совпадает с bRollKeyword от ИИ
+                let bestAsset = bRollPool[0];
+                let highestScore = -1;
+                
+                const kw = (s.bRollKeyword || "").toLowerCase();
+                if (kw.length > 2) {
+                    for (const b of bRollPool) {
+                        let score = 0;
+                        const bName = (b.name || "").toLowerCase();
+                        if (bName.includes(kw)) score += 50;
+                        if (kw.split(" ").some((w: string) => bName.includes(w))) score += 20;
+                        
+                        // Если запрашивают людей - ищем лица
+                        if (kw.includes("person") || kw.includes("face") || kw.includes("people")) {
+                            if (b.segments && b.segments.some((seg: any) => seg.hasFaces)) score += 30;
+                        }
+                        // Если запрашивают экшен - ищем движение
+                        if (kw.includes("action") || kw.includes("fast") || kw.includes("move")) {
+                            if (b.segments && b.segments.some((seg: any) => seg.hasAction || seg.motionLevel === "high")) score += 30;
+                        }
+                        
+                        if (score > highestScore) {
+                            highestScore = score;
+                            bestAsset = b;
+                        }
+                    }
+                }
+                
+                // Fallback, если ничего умного не нашли
+                if (highestScore <= 0) {
+                    bestAsset = bRollPool[Math.floor(Math.random() * bRollPool.length)];
+                }
+                
+                let bStart = 0;
+                if (bestAsset.segments && bestAsset.segments.length > 0) {
+                    // Берем фрагмент с лучшей эстетикой и качеством
+                    const bestSeg = bestAsset.segments.sort((a:any, b:any) => ((b.aestheticScore||0) + (b.qualityScore||0)) - ((a.aestheticScore||0) + (a.qualityScore||0)))[0];
+                    bStart = bestSeg.startTime;
+                } else if (bestAsset.type === "video") {
+                    bStart = Math.max(0, Math.random() * ((bestAsset.duration || 10) - scene.duration));
+                }
+
+                scene.bRolls.push({
+                    assetId: bestAsset.id,
+                    sourceStart: bStart,
+                    sourceEnd: bStart + Math.min(scene.duration, bestAsset.duration || 5),
+                    offsetInScene: Math.random() > 0.5 ? -0.3 : 0.2 // J-Cut / L-Cut
+                });
+            }
+
+            scenes.push(scene);
         }
 
         return {
@@ -315,7 +373,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     // 5. Построение основной истории (Body)
     let isZoomed = false;
     let bRollIndex = 0;
-    const bRollPool = visualAssets.filter(a => a.id !== mainAsset.id);
+    const bRollPool = visualAssets.filter((a: any) => a.id !== mainAsset.id);
 
     for (let i = 0; i < validPhrases.length; i++) {
         const p = validPhrases[i];

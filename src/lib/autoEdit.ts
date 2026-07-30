@@ -404,7 +404,16 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     let bRollCursor = 0.5; // Начинаем чуть позже первого кадра
     for (const bClip of bRollClips) {
        // Размещаем где-то поверх основного таймлайна
-       const bRollStart = (bClip as any).timeInTimeline !== undefined ? (bClip as any).timeInTimeline : bRollCursor;
+       // Align B-Rolls to music beats if beats exist
+       let bRollStart = (bClip as any).timeInTimeline !== undefined ? (bClip as any).timeInTimeline : bRollCursor;
+       
+       if (beats.length) {
+          const closestStartBeat = beats.find(b => Math.abs(b - bRollStart) < targetClipLen * 0.4);
+          if (closestStartBeat !== undefined) {
+             bRollStart = closestStartBeat;
+          }
+       }
+
        const dur = placeClip(bClip, bRollTrack!, true, bRollStart);
        if (dur) {
           bRollCursor = bRollStart + dur + (Math.random() * 2 + 1); // Следующий б-ролл минимум через пару секунд
@@ -591,10 +600,17 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
               const sfx = createAudioClip({ trackId: sfxTrack.id, asset: whooshAsset, start: Math.max(0, clip.start - 0.2), duration: whooshAsset.duration });
               sfxTrack.clips.push(sfx);
             }
-            // Riser before Climax, Hit at Climax
+            // Riser before Climax, Hit at Climax OR Major Beat Drops
             if (aiDecision && track.name === "Видео 1") {
                const dec = aiDecision.clips.find(c => c.assetId === clip.assetId && Math.abs((c.startTime||0) - clip.inPoint) < 0.5);
-               if (dec && dec.emotion === "dramatic" && clip.start > 2) {
+               
+               // Inject Hit SFX on strict beat sync boundaries if it's a fast/dynamic edit
+               let isBeatDrop = false;
+               if (beats.length && (style.pace === "fast" || style.pace === "dynamic")) {
+                  isBeatDrop = beats.some(b => Math.abs(b - clip.start) < 0.1);
+               }
+
+               if ((dec && dec.emotion === "dramatic" && clip.start > 2) || (isBeatDrop && Math.random() > 0.7)) {
                   const sfx = createAudioClip({ trackId: sfxTrack.id, asset: riserAsset, start: Math.max(0, clip.start - riserAsset.duration), duration: riserAsset.duration });
                   sfxTrack.clips.push(sfx);
                   const hit = createAudioClip({ trackId: sfxTrack.id, asset: hitAsset, start: clip.start, duration: hitAsset.duration });

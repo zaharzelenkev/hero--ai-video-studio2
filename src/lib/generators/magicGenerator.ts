@@ -10,14 +10,21 @@ export async function generateMagicVideo(prompt: string, style: import("../types
   const systemPrompt = `Ты — профессиональный креативный директор и сценарист.
 Твоя задача написать сценарий для короткого динамичного видео по запросу пользователя.
 Сделай от 4 до 6 сцен. Каждая сцена должна быть 3-6 секунд.
-Для каждой сцены напиши:
+Для каждой сцены реши, какая нужна картинка: сгенерированная ИИ (для абстракций, арта, киберпанка) или РЕАЛЬНОЕ ФОТО из интернета (для достопримечательностей, известных личностей, реальных городов, исторических событий).
+
+Для каждой сцены верни:
 - voiceover: текст озвучки (на русском)
-- imagePrompt: промпт для нейросети генерации картинок (ОБЯЗАТЕЛЬНО НА АНГЛИЙСКОМ, детальное описание, cinematic, photorealistic, 8k). Без текста на картинке!
+- imageType: "ai" или "real"
+- imagePrompt: 
+   - Если imageType="ai", напиши детальный промпт для нейросети на АНГЛИЙСКОМ (например: "A cyberpunk city at night, neon lights, 8k resolution").
+   - Если imageType="real", напиши точный короткий поисковый запрос на АНГЛИЙСКОМ (например: "Eiffel Tower", "Elon Musk", "Mount Everest").
+
 Ответь строго в JSON формате:
 {
   "title": "Название видео",
   "scenes": [
-    { "voiceover": "Текст озвучки", "imagePrompt": "A cyberpunk city at night, neon lights, 8k resolution, photorealistic" }
+    { "voiceover": "Эйфелева башня — самая известная достопримечательность...", "imageType": "real", "imagePrompt": "Eiffel Tower" },
+    { "voiceover": "Представьте себе город будущего...", "imageType": "ai", "imagePrompt": "Futuristic flying cars, sci-fi city, 8k" }
   ]
 }`;
 
@@ -47,9 +54,9 @@ export async function generateMagicVideo(prompt: string, style: import("../types
     scriptData = {
       title: "Генерация",
       scenes: [
-        { voiceover: prompt.slice(0, 50), imagePrompt: "beautiful cinematic landscape, epic lighting, 8k" },
-        { voiceover: "Продолжение...", imagePrompt: "beautiful cinematic landscape, epic lighting, 8k" },
-        { voiceover: "Финал.", imagePrompt: "beautiful cinematic landscape, epic lighting, 8k" }
+        { voiceover: prompt.slice(0, 50), imageType: "ai", imagePrompt: "beautiful cinematic landscape, epic lighting, 8k" },
+        { voiceover: "Продолжение...", imageType: "ai", imagePrompt: "beautiful cinematic landscape, epic lighting, 8k" },
+        { voiceover: "Финал.", imageType: "ai", imagePrompt: "beautiful cinematic landscape, epic lighting, 8k" }
       ]
     };
   }
@@ -93,7 +100,31 @@ export async function generateMagicVideo(prompt: string, style: import("../types
       const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
       const w = isLandscape ? 1920 : 1080;
       const h = isLandscape ? 1080 : 1920;
-      const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(Math.random()*10000)}`;
+      
+      let imgUrl = "";
+
+      if (scene.imageType === "real") {
+         onProgress?.(`🔍 Поиск фото: ${scene.imagePrompt}...`);
+         try {
+            const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(scene.imagePrompt)}&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url&format=json&origin=*`;
+            const wikiRes = await fetch(wikiUrl);
+            if (wikiRes.ok) {
+               const wikiData = await wikiRes.json();
+               const pages = wikiData.query?.pages;
+               if (pages) {
+                  imgUrl = (Object.values(pages) as any)[0].imageinfo[0].url;
+               }
+            }
+         } catch(e) {
+            console.warn("Wiki search failed", e);
+         }
+      }
+
+      if (!imgUrl) {
+         onProgress?.(`🎨 Генерация AI-иллюстрации: ${scene.imagePrompt.slice(0,20)}...`);
+         imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(Math.random()*10000)}`;
+      }
+      
       const imgRes = await fetch(imgUrl);
       if (imgRes.ok) {
         const imgBlob = await imgRes.blob();
@@ -175,14 +206,14 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
      for (const scene of scriptData.scenes) {
          // Assuming text speed roughly matches 12 chars/sec
          const sDur = Math.max(2, scene.voiceover.length / 12);
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.8, easing: "linear" });
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur, value: 0.1, easing: "linear" });
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur, value: 0.1, easing: "linear" });
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur + 0.5, value: 0.8, easing: "linear" });
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.4, easing: "linear" }); // lowered master volume of generator music
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur, value: 0.05, easing: "linear" }); // dip deeper to 0.05 for clarity
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur, value: 0.05, easing: "linear" });
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur + 0.5, value: 0.4, easing: "linear" });
          totalDur += sDur + 0.5;
      }
 
-     mClip.volume = { value: 0.8, keyframes: kfs };
+     mClip.volume = { value: 0.4, keyframes: kfs };
      audioTrack.clips.push(mClip);
   } catch (e) {}
 

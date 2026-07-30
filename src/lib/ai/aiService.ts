@@ -34,6 +34,8 @@ export interface AIEditDecision {
     zoom?: boolean;
     speedRamp?: { start: number; end: number; factor: number };
     speed?: number;
+    cameraAngle?: "wide" | "medium" | "close";
+    presentation?: "fullscreen" | "pip";
   }>;
   
   musicSync: boolean;

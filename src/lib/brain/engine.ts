@@ -15,13 +15,15 @@ export interface DirectorScene {
     sourceEnd: number;
     speed: number;
     zoom: boolean;
+    cameraAngle?: "wide" | "medium" | "close";
   };
   
   bRolls: Array<{
     assetId: string;
     sourceStart: number;
     sourceEnd: number;
-    offsetInScene: number; 
+    offsetInScene: number;
+    presentation?: "fullscreen" | "pip";
   }>;
   
   captions: Array<{
@@ -278,11 +280,13 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
                     bStart = Math.max(0, Math.random() * ((bestAsset.duration || 10) - scene.duration));
                 }
 
+                const isPip = (strategy.genre === "podcast" || strategy.genre === "tiktok" || strategy.genre === "ad") && Math.random() > 0.5;
                 scene.bRolls.push({
                     assetId: bestAsset.id,
                     sourceStart: bStart,
                     sourceEnd: bStart + Math.min(scene.duration, bestAsset.duration || 5),
-                    offsetInScene: Math.random() > 0.5 ? -0.3 : 0.2 // J-Cut / L-Cut
+                    offsetInScene: Math.random() > 0.5 ? -0.3 : 0.2, // J-Cut / L-Cut
+                    presentation: isPip ? "pip" : "fullscreen"
                 });
             }
 
@@ -805,6 +809,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
          endTime: scene.mainClip.sourceEnd,
          speed: scene.mainClip.speed,
          zoom: scene.mainClip.zoom,
+         cameraAngle: scene.mainClip.cameraAngle,
          emotion: scene.emotion,
          reason: `[${scene.phase.toUpperCase()}] ${scene.intent}`,
          importance: scene.phase === "hook" || scene.phase === "climax" ? 0.9 : 0.6
@@ -818,6 +823,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
            startTime: broll.sourceStart,
            endTime: broll.sourceEnd,
            timeInTimeline: Math.max(0, currentTimelineTime + broll.offsetInScene),
+           presentation: broll.presentation,
            reason: "B-Roll overlay",
            importance: 0.5
          } as any);

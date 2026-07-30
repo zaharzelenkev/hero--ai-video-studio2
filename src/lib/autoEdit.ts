@@ -295,53 +295,76 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       clip.muted = !!aiDecision?.audioEnhancements?.muteOriginalAudio || isBroll;
       
       if (isBroll) {
-         clip.fitMode = "cover";
-         // Native Overlay Transitions via opacity and position
-         if (transType.includes("fade") || transType === "hblur") {
-             clip.opacity.value = 0;
-             clip.opacity.keyframes = [
-                 { id: "k1", time: 0, value: 0, easing: "linear" },
-                 { id: "k2", time: transDur, value: 1, easing: "linear" },
-                 { id: "k3", time: duration - transDur, value: 1, easing: "linear" },
-                 { id: "k4", time: duration, value: 0, easing: "linear" }
-             ];
-         } else if (transType.includes("slide") || transType.includes("smooth") || transType === "wipeleft") {
-             const startY = transType.includes("up") ? 1 : transType.includes("down") ? -1 : 0;
-             const startX = transType.includes("left") ? 1 : transType.includes("right") ? -1 : 0;
+         const presentation = (aiClip as any).presentation || "fullscreen";
+         if (presentation === "pip") {
+             clip.fitMode = "contain";
+             clip.scale.value = 0.55; // Picture-in-picture size
+             clip.y.value = -0.20; // Top half of screen
              
-             clip.opacity.value = 0;
-             clip.opacity.keyframes = [
-                 { id: "k1", time: 0, value: 0, easing: "linear" },
-                 { id: "k2", time: 0.1, value: 1, easing: "linear" },
-                 { id: "k3", time: duration - 0.1, value: 1, easing: "linear" },
-                 { id: "k4", time: duration, value: 0, easing: "linear" }
+             const startX = Math.random() > 0.5 ? 1.5 : -1.5;
+             clip.x.value = startX;
+             clip.x.keyframes = [
+                 { id: "px1", time: 0, value: startX, easing: "easeOut" },
+                 { id: "px2", time: Math.min(0.4, duration/3), value: 0, easing: "easeOut" },
+                 { id: "px3", time: Math.max(0.4, duration - 0.4), value: 0, easing: "easeIn" },
+                 { id: "px4", time: duration, value: -startX, easing: "easeIn" }
              ];
              
-             if (startY !== 0) {
-                 clip.y.value = startY;
-                 clip.y.keyframes = [
-                     { id: "y1", time: 0, value: startY, easing: "easeOut" },
-                     { id: "y2", time: transDur, value: 0, easing: "easeOut" },
-                     { id: "y3", time: duration - transDur, value: 0, easing: "easeIn" },
-                     { id: "y4", time: duration, value: -startY, easing: "easeIn" }
+             // Dynamic rotation for aesthetic
+             clip.rotation.value = startX > 0 ? 3 : -3;
+             
+             // Always fully opaque
+             clip.opacity.value = 1;
+             clip.opacity.keyframes = [];
+         } else {
+             clip.fitMode = "cover";
+             // Native Overlay Transitions via opacity and position
+             if (transType.includes("fade") || transType === "hblur") {
+                 clip.opacity.value = 0;
+                 clip.opacity.keyframes = [
+                     { id: "k1", time: 0, value: 0, easing: "linear" },
+                     { id: "k2", time: transDur, value: 1, easing: "linear" },
+                     { id: "k3", time: duration - transDur, value: 1, easing: "linear" },
+                     { id: "k4", time: duration, value: 0, easing: "linear" }
                  ];
-             } else if (startX !== 0) {
-                 clip.x.value = startX;
-                 clip.x.keyframes = [
-                     { id: "x1", time: 0, value: startX, easing: "easeOut" },
-                     { id: "x2", time: transDur, value: 0, easing: "easeOut" },
-                     { id: "x3", time: duration - transDur, value: 0, easing: "easeIn" },
-                     { id: "x4", time: duration, value: -startX, easing: "easeIn" }
+             } else if (transType.includes("slide") || transType.includes("smooth") || transType === "wipeleft") {
+                 const startY = transType.includes("up") ? 1 : transType.includes("down") ? -1 : 0;
+                 const startX = transType.includes("left") ? 1 : transType.includes("right") ? -1 : 0;
+                 
+                 clip.opacity.value = 0;
+                 clip.opacity.keyframes = [
+                     { id: "k1", time: 0, value: 0, easing: "linear" },
+                     { id: "k2", time: 0.1, value: 1, easing: "linear" },
+                     { id: "k3", time: duration - 0.1, value: 1, easing: "linear" },
+                     { id: "k4", time: duration, value: 0, easing: "linear" }
+                 ];
+                 
+                 if (startY !== 0) {
+                     clip.y.value = startY;
+                     clip.y.keyframes = [
+                         { id: "y1", time: 0, value: startY, easing: "easeOut" },
+                         { id: "y2", time: transDur, value: 0, easing: "easeOut" },
+                         { id: "y3", time: duration - transDur, value: 0, easing: "easeIn" },
+                         { id: "y4", time: duration, value: -startY, easing: "easeIn" }
+                     ];
+                 } else if (startX !== 0) {
+                     clip.x.value = startX;
+                     clip.x.keyframes = [
+                         { id: "x1", time: 0, value: startX, easing: "easeOut" },
+                         { id: "x2", time: transDur, value: 0, easing: "easeOut" },
+                         { id: "x3", time: duration - transDur, value: 0, easing: "easeIn" },
+                         { id: "x4", time: duration, value: -startX, easing: "easeIn" }
+                     ];
+                 }
+             } else {
+                 // Fallback cut
+                 clip.opacity.value = 0;
+                 clip.opacity.keyframes = [
+                     { id: "k1", time: 0, value: 1, easing: "linear" },
+                     { id: "k2", time: duration - 0.1, value: 1, easing: "linear" },
+                     { id: "k3", time: duration, value: 0, easing: "linear" }
                  ];
              }
-         } else {
-             // Fallback cut
-             clip.opacity.value = 0;
-             clip.opacity.keyframes = [
-                 { id: "k1", time: 0, value: 1, easing: "linear" },
-                 { id: "k2", time: duration - 0.1, value: 1, easing: "linear" },
-                 { id: "k3", time: duration, value: 0, easing: "linear" }
-             ];
          }
       }
       
@@ -387,13 +410,25 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       
       clip.color.lut = style.bw ? "bw" : style.colorGrade;
       
+      // Multi-Cam Simulation (Camera Angles)
+      if ((aiClip as any).cameraAngle === "medium") {
+         clip.scale.value = 1.15;
+         clip.fitMode = "cover";
+      } else if ((aiClip as any).cameraAngle === "close") {
+         clip.scale.value = 1.30;
+         clip.fitMode = "cover";
+      }
+
       if (aiClip.speed && aiClip.speed !== 1) {
          clip.speed = aiClip.speed;
       }
 
+      // Dynamic Ken Burns (only if not already heavily cropped by camera angle, or if it's an image)
       if (aiClip.zoom || (asset.kind === "image" && style.kenBurns)) {
-        const motions: import("./types").CameraMotion[] = ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
-        clip.cameraMotion = motions[Math.floor(Math.random() * motions.length)];
+        if (!((aiClip as any).cameraAngle === "close")) {
+           const motions: import("./types").CameraMotion[] = ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
+           clip.cameraMotion = motions[Math.floor(Math.random() * motions.length)];
+        }
       }
       
       track.clips.push(clip);
@@ -679,9 +714,11 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                isFirstClip = false;
             }
             
-            // Swoosh on B-Roll
+            // Swoosh or Pop on B-Roll
             if (track.name === "Наложение" && clip.start > 0.5) {
-               const sfx = createAudioClip({ trackId: sfxTrack.id, asset: swooshAsset, start: clip.start, duration: swooshAsset.duration });
+               const isPip = clip.fitMode === "contain";
+               const tAsset = isPip ? popAsset : swooshAsset;
+               const sfx = createAudioClip({ trackId: sfxTrack.id, asset: tAsset, start: clip.start, duration: tAsset.duration });
                sfxTrack.clips.push(sfx);
             }
 

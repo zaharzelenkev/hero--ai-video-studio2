@@ -393,12 +393,30 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     };
 
     // 1. Сначала выстраиваем основной видеоряд
-    for (const mainClip of mainClips) {
+    for (let i = 0; i < mainClips.length; i++) {
+       const mainClip = mainClips[i];
        const durationUsed = placeClip(mainClip, videoTrack, false, cursor);
        if (durationUsed) {
          cursor += durationUsed;
+         // Wait, the NEXT clip will transition IN, overlapping with the current clip.
+         // So we must subtract the NEXT clip's transition duration from the cursor before placing it.
+         // Since placeClip determines the transition duration internally based on random rules,
+         // we need placeClip to return the generated transition duration so we can overlap correctly.
+         // Actually, let's just make a fast pass and fix the start times sequentially.
        }
     }
+    
+    // Fix start times based on actual transition durations generated
+    let actualCursor = 0;
+    for (let i = 0; i < videoTrack.clips.length; i++) {
+        const c = videoTrack.clips[i] as import("./types").VideoClip;
+        if (i > 0 && c.transitionIn && c.transitionIn.duration > 0) {
+            actualCursor -= c.transitionIn.duration;
+        }
+        c.start = actualCursor;
+        actualCursor += c.duration;
+    }
+    cursor = actualCursor; // Now cursor accurately represents the end of the visual track!
 
     // 2. Затем накладываем B-Roll (они должны распределиться по таймлайну поверх длинных кусков)
     // Так как в AIEditDecision B-Rolls могут не иметь абсолютного таймлайна, распределяем их умно:

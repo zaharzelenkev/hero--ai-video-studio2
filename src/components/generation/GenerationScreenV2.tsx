@@ -99,7 +99,7 @@ export default function GenerationScreenV2() {
         });
       } else {
         const { generateMagicVideo } = await import("@/lib/generators/magicGenerator");
-        project = await generateMagicVideo(prompt, style, setProgressLabel);
+        project = await generateMagicVideo(prompt, style, setProgressLabel, filesByAssetId);
       }
       
       await saveProject(project);

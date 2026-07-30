@@ -94,7 +94,10 @@ export async function renderProject(
       if (!asset) continue;
       
       const blob = await loadBlob(asset.blobKey);
-      if (!blob) throw new Error(`Отсутствует исходный файл для "${asset.name}"`);
+      if (!blob) {
+         console.warn(`Отсутствует исходный файл для "${asset.name}" в IndexedDB. Пробуем пропустить.`);
+         continue;
+      }
       const bytes = await fetchFileFromBlob(blob);
       
       const fname = `asset_${asset.id}.${extFor(asset)}`;
@@ -131,6 +134,10 @@ export async function renderProject(
 
     const args: string[] = [];
     for (const input of compiled.inputs) {
+      if (!input.path) {
+         console.warn("Empty input path found in filterGraph compilation!");
+         continue;
+      }
       args.push(...input.pre, "-i", input.path);
     }
     args.push("-filter_complex", compiled.filterComplex);

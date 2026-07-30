@@ -76,13 +76,6 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     if (file) {
       try {
         beats = await detectBeats(file);
-        // Добавляем биты как визуальные маркеры на таймлайн для удобства ручной правки
-        project.markers = beats.map((b, i) => ({
-           id: `beat_${i}`,
-           time: b,
-           label: i % 4 === 0 ? "Bar" : "Beat",
-           color: i % 4 === 0 ? "#FF3366" : "#A855F7"
-        }));
       } catch {
         beats = [];
       }
@@ -92,16 +85,20 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   
 
-  // 0.1 Analyze Audio Energy
+  // 0.1 Analyze Audio Energy для ВСЕХ дорожек с аудио:
+  // громкие пики камерного звука = эмоциональные кульминации (аплодисменты, крики драйва),
+  // пики музыки = дропы. Без этого кульминационная логика работала вслепую.
   const audioEnergyMap = new Map<string, import("./media").AudioEnergySegment[]>();
-  if (style.intelligentCuts && musicAsset) {
-    onProgress?.("Слушаем музыку...");
-    const file = filesByAssetId.get(musicAsset.id);
-    if (file) {
+  if (style.intelligentCuts || style.beatSync) {
+    onProgress?.("Слушаем энергию аудиодорожек...");
+    for (const a of assets) {
+      if (a.kind === "image") continue;
+      const file = filesByAssetId.get(a.id);
+      if (!file) continue;
       try {
         const { analyzeAudioEnergy } = await import("./media");
         const energies = await analyzeAudioEnergy(file);
-        audioEnergyMap.set(musicAsset.id, energies);
+        if (energies.length) audioEnergyMap.set(a.id, energies);
       } catch (e) { console.warn(e); }
     }
   }
@@ -197,6 +194,43 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   const targetClipLen = PACE_CLIP_SECONDS[style.pace];
 
+  // --- СТАРТ МУЗЫКИ С ДРОПА ---
+  // Профи начинают трек с энергетического крюка (дроп/припев), а не с произвольной
+  // нулевой секунды — иначе первые 10-20 секунд музыки часто бывают "пустым" интро.
+  // Выбираем inPoint на границе пикового энергосегмента, выровненную по сетке битов,
+  // и сдвигаем сетку: все склейки, вспышки и снаппинг ниже работают уже в слышимом ритме.
+  let musicInPoint = 0;
+  if (musicAsset && (musicAsset.duration || 0) > 0) {
+    const estDuration = Math.max(10, aiDecision?.targetDuration || 30);
+    const spareRoom = (musicAsset.duration || 0) - estDuration;
+    if (spareRoom > 4) {
+      const energies = audioEnergyMap.get(musicAsset.id);
+      let target = energies
+        ?.filter(e => (e.energyLevel === "drop" || e.energyLevel === "high") && e.startTime <= spareRoom + 1)
+        .map(e => e.startTime)
+        .find(t => t > 0.5) ?? 0;
+      if (target > 0 && beats.length) {
+        // начало музыкальной фразы: ближайший бит не позже пика энергии
+        const aligned = [...beats].filter(b => b <= target + 0.3).pop();
+        if (aligned !== undefined) target = aligned;
+      }
+      musicInPoint = Math.max(0, Math.min(target, spareRoom));
+    }
+    if (musicInPoint > 0.2 && beats.length) {
+      beats = beats.map(b => b - musicInPoint).filter(b => b >= 0.25);
+    }
+  }
+
+  // Биты как визуальные маркеры на таймлайне для удобства ручной правки
+  if (beats.length) {
+    project.markers = beats.map((b, i) => ({
+       id: `beat_${i}`,
+       time: b,
+       label: i % 4 === 0 ? "Bar" : "Beat",
+       color: i % 4 === 0 ? "#FF3366" : "#A855F7"
+    }));
+  }
+
   const videoTrack = project.tracks.find((t) => t.type === "video" && t.name === "Видео 1")!;
   // Ensure we have a B-roll overlay track
   let bRollTrack = project.tracks.find((t) => t.type === "video" && t.name === "Наложение");
@@ -223,8 +257,20 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
       const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
       const providedStart = aiClip.startTime !== undefined ? aiClip.startTime : Math.random() * Math.max(0, maxDur - aiClip.duration);
-      const inPoint = Math.max(0, Math.min(providedStart, Math.max(0, maxDur - 0.5)));
+      let inPoint = Math.max(0, Math.min(providedStart, Math.max(0, maxDur - 0.5)));
       let outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration * speed), maxDur));
+
+      // Стыки планов: B-Roll входит ровно на границе монтажного плана (если она рядом, ±0.5с) —
+      // случайный врез посередине плана выглядит дилетантски.
+      if (isBroll && asset.kind === "video") {
+         const segs = localSegments.get(asset.id);
+         const boundary = segs?.find(s => s.isSceneChange && s.startTime > 0.3 && Math.abs(s.startTime - inPoint) < 0.5);
+         if (boundary) {
+            const span = outPoint - inPoint;
+            inPoint = boundary.startTime;
+            outPoint = Math.min(maxDur, inPoint + span);
+         }
+      }
 
       // Длительность на таймлайне в секундах воспроизведения (превью считает так же).
       let duration = (outPoint - inPoint) / speed;
@@ -817,6 +863,11 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         if (track.type === "text") {
           for (const clip of track.clips as import("./types").TextClip[]) {
             if (clip.animationIn && clip.animationIn !== "none" && clip.animationIn !== "fade") {
+              // Не озвучиваем КАЖДОЕ слово субтитров — иначе получаем пулемётную очередь попов.
+              // Звук даём только акцентным словам и крупным титрам (Hormozi/Beast так и звучат).
+              const isSubtitleWord = clip.duration < 0.9;
+              const isEmphasized = clip.color === "#00FF00" || clip.color === "#FFE81A";
+              if (isSubtitleWord && !isEmphasized) continue;
               let chosenAsset = popAsset;
               if (clip.animationIn === "typewriter") chosenAsset = dingAsset;
               else if (clip.animationIn === "glitch") chosenAsset = glitchAsset;
@@ -920,14 +971,16 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     const musicAssetDur = finalMusicAsset.duration || project.duration;
     // Если трек короче ролика — зацикливаем бесшовно, иначе хвост видео уходит в тишину.
     const needsLoop = musicAssetDur < project.duration - 0.5;
+    // Для сгенерированной музыки сдвиг нулевой, для пользовательского трека — стартуем с дропа.
+    const inPoint = finalMusicAsset === musicAsset ? musicInPoint : 0;
     const { createAudioClip } = require("./factories");
     const clip = createAudioClip({
       trackId: audioTrack.id,
       asset: finalMusicAsset,
       start: 0,
       duration: project.duration,
-      inPoint: 0,
-      outPoint: needsLoop ? project.duration : Math.min(musicAssetDur, project.duration),
+      inPoint,
+      outPoint: needsLoop ? inPoint + project.duration : inPoint + Math.min(musicAssetDur - inPoint, project.duration),
     });
     clip.loop = needsLoop;
     // Вход музыки: для динамичных жанров — почти мгновенно (удар в бит), для кино — плавное вхождение.

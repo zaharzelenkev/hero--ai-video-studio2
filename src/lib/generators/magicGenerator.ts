@@ -4,7 +4,7 @@ import type { Project, MediaAsset } from "../types";
 import { uid } from "../id";
 import { saveBlob } from "../db";
 
-export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void): Promise<Project> {
+export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void, filesByAssetId?: Map<string, File>): Promise<Project> {
   onProgress?.("📝 Пишем сценарий...");
 
   const systemPrompt = `Ты — гениальный креативный директор и копирайтер топового YouTube-продакшена.
@@ -71,7 +71,7 @@ export async function generateMagicVideo(prompt: string, style: import("../types
   }
 
   const assets: MediaAsset[] = [];
-  const filesByAssetId = new Map<string, File>();
+  const _filesByAssetId = filesByAssetId || new Map<string, File>();
 
   for (let i = 0; i < scriptData.scenes.length; i++) {
     const scene = scriptData.scenes[i];
@@ -88,7 +88,7 @@ export async function generateMagicVideo(prompt: string, style: import("../types
         const audioKey = uid("blob");
         const file = new File([audioBlob], `Voiceover ${i+1}`, { type: "audio/mpeg" });
         await saveBlob(audioKey, file);
-        filesByAssetId.set(audioKey, file);
+        _filesByAssetId.set(audioKey, file);
         
         audioDuration = Math.max(2, scene.voiceover.length / 12);
         
@@ -154,7 +154,7 @@ export async function generateMagicVideo(prompt: string, style: import("../types
             hasAudio: true
         };
         assets.push(vAsset);
-        filesByAssetId.set(imgKey, file);
+        _filesByAssetId.set(imgKey, file);
         
         // Also save audio if generated, but maybe just use the image with transcript to trick the narrative engine into making a voiceover?
         // Actually, we must include audio track somehow.
@@ -171,11 +171,11 @@ export async function generateMagicVideo(prompt: string, style: import("../types
   }
 
   // fallback to full generator logic but enhanced
-  return generateEnhancedMagicVideo(scriptData, assets, filesByAssetId, onProgress, style);
+  return generateEnhancedMagicVideo(scriptData, assets, _filesByAssetId, onProgress, style);
 }
 
 // Re-implementing the loop to make it extremely pro
-async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _filesByAssetId: any, _onProgress: any, style: any) {
+async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _filesByAssetId: Map<string, File>, _onProgress: any, style: any) {
   const { createAudioClip, createTextClip, createVideoClip, createEmptyProject } = await import("../factories");
   const { applyTextAnimation } = await import("../textAnimations");
   
@@ -204,7 +204,9 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
      const mBlob = await generateProceduralMusic("electronic", 30);
      const mId = "bgm_" + Date.now();
      const { saveBlob } = await import("../db");
-     await saveBlob(mId, new File([mBlob], "bgm.wav", {type:"audio/wav"}));
+     const bgmFile = new File([mBlob], "bgm.wav", {type:"audio/wav"});
+     await saveBlob(mId, bgmFile);
+     _filesByAssetId.set(mId, bgmFile);
      const mAsset = { id: mId, name: "BGM", kind: "audio", mime: "audio/wav", blobKey: mId, duration: 30, createdAt: Date.now() };
      project.assets.push(mAsset as any);
      

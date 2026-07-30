@@ -22,10 +22,20 @@ export async function detectBeats(file: File, minIntervalSec = 0.25): Promise<nu
   }
 
   const sampleRate = buffer.sampleRate;
-  const data = buffer.getChannelData(0);
+  // Моно-сумма каналов: басы и ударные часто смещены в один канал, иначе биты теряются.
+  let data = buffer.getChannelData(0);
+  if (buffer.numberOfChannels > 1) {
+    const mixed = new Float32Array(data.length);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const ch = buffer.getChannelData(c);
+      for (let i = 0; i < data.length; i++) mixed[i] += ch[i] / buffer.numberOfChannels;
+    }
+    data = mixed;
+  }
 
   const windowSize = Math.floor(sampleRate * 0.05); // 50ms windows
   const hop = Math.floor(windowSize / 2);
+  const hopSec = hop / sampleRate;
   const energies: number[] = [];
   for (let i = 0; i + windowSize < data.length; i += hop) {
     let sum = 0;
@@ -55,6 +65,79 @@ export async function detectBeats(file: File, minIntervalSec = 0.25): Promise<nu
     if (flux[i] > threshold && i - lastBeatFrame >= minGapFrames) {
       beats.push((i * hop) / sampleRate);
       lastBeatFrame = i;
+    }
+  }
+
+  // --- Темп-сетка (Beat Grid) ---
+  // Онсеты без темпа дают неровный ритм склеек. Оцениваем BPM автокорреляцией
+  // energy-flux (классический метод из open-source beat trackers, напр. aubio/essentia),
+  // находим фазу и строим равномерную сетку. Возвращаем сетку + сильные внесеточные онсеты.
+  const minPeriodSec = 0.315; // ~190 BPM
+  const maxPeriodSec = 1.0;   // 60 BPM
+  const minLag = Math.round(minPeriodSec / hopSec);
+  const maxLag = Math.round(maxPeriodSec / hopSec);
+
+  if (flux.length > maxLag * 4) {
+    // Нормализация flux для устойчивой автокорреляции
+    let meanF = 0;
+    for (const v of flux) meanF += v;
+    meanF /= flux.length;
+    const centered = flux.map((v) => v - meanF);
+
+    let bestLag = -1;
+    let bestScore = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let corr = 0;
+      for (let i = 0; i + lag < centered.length; i++) corr += centered[i] * centered[i + lag];
+      corr /= centered.length - lag;
+      // Метрика чётности сетки: пики должны повторяться и через 2 периода
+      let corr2 = 0;
+      if (lag * 2 < centered.length) {
+        for (let i = 0; i + lag * 2 < centered.length; i++) corr2 += centered[i] * centered[i + lag * 2];
+        corr2 /= centered.length - lag * 2;
+      }
+      let score = corr + corr2 * 0.5;
+      const bpm = 60 / (lag * hopSec);
+      if (bpm >= 100 && bpm <= 150) score *= 1.12; // лёгкий приоритет танцевальному диапазону
+      if (score > bestScore) { bestScore = score; bestLag = lag; }
+    }
+
+    if (bestLag > 0 && bestScore > 0) {
+      const periodSec = bestLag * hopSec;
+
+      // Фаза сетки: сдвиг 0..period, максимизирующий суммарный flux на узлах сетки
+      let bestPhase = 0;
+      let bestPhaseScore = -1;
+      const phaseSteps = 24;
+      for (let s = 0; s < phaseSteps; s++) {
+        const phase = (s / phaseSteps) * periodSec;
+        let score = 0;
+        for (let t = phase; t < buffer.duration; t += periodSec) {
+          const fi = Math.round(t / hopSec);
+          if (fi < flux.length) score += flux[fi];
+        }
+        if (score > bestPhaseScore) { bestPhaseScore = score; bestPhase = phase; }
+      }
+
+      const grid: number[] = [];
+      for (let t = bestPhase; t <= buffer.duration; t += periodSec) {
+        grid.push(Math.round(t * 1000) / 1000);
+      }
+
+      // Добавляем сильные внесеточные онсеты (акценты между долями, типично для дропов)
+      let avgFlux = 0;
+      for (const v of flux) avgFlux += v;
+      avgFlux /= flux.length || 1;
+      for (const b of beats) {
+        const nearGrid = grid.some((g) => Math.abs(g - b) < 0.09);
+        if (nearGrid) continue;
+        const fi = Math.round(b / hopSec);
+        if (fi < flux.length && flux[fi] > avgFlux * 2.2) grid.push(b);
+      }
+
+      if (grid.length > beats.length * 0.5) {
+        return grid.sort((a, b) => a - b);
+      }
     }
   }
 

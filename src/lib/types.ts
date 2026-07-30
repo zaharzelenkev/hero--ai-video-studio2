@@ -500,8 +500,10 @@ export interface Project {
   style: GenerationStyle;
   exportSettings: ExportSettings;
 
-  /** Длительность вступления музыки (fade-in) в секундах. */
-  musicFadeIn?: number;
+  /** Кинематографичный вход из чёрного (секунды). 0/undefined — без затемнения. */
+  openingFadeIn?: number;
+  /** Кинематографичный уход в чёрный (секунды). 0/undefined — без затемнения. */
+  endingFadeOut?: number;
 
   /** Rendered proxy of the current timeline, used on the results screen. */
   previewBlobKey?: string;

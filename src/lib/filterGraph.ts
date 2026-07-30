@@ -517,6 +517,19 @@ export function compileProjectToFfmpeg(
     }
   }
 
+  // Кинематографичный вход/уход в чёрный (задаётся автомонтажом на уровне проекта).
+  // Применяется к готовому композиту ПОСЛЕ титров, чтобы титры уходили вместе с кадром.
+  const openFade = project.openingFadeIn ?? 0;
+  const endFade = project.endingFadeOut ?? 0;
+  if (openFade > 0 || endFade > 0) {
+    const fades: string[] = [];
+    if (openFade > 0) fades.push(`fade=t=in:st=0:d=${openFade}`);
+    if (endFade > 0) fades.push(`fade=t=out:st=${Math.max(0, totalDuration - endFade)}:d=${endFade}`);
+    const faded = id("fade_");
+    lines.push(`[${composite}]${fades.join(",")}[${faded}]`);
+    composite = faded;
+  }
+
   const finalVideo = id("vout_");
   lines.push(`[${composite}]format=yuv420p[${finalVideo}]`);
 

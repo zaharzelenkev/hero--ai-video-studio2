@@ -642,25 +642,37 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     
     let pool = beats.filter(b => b !== hookBeat);
 
+    // Правило пика: самый эпичный кадр резервируется под кульминацию (~70-85% таймлайна),
+    // иначе fair-usage тратит лучший момент на середину и финал проседает.
+    let climaxReserve: VisualBeat | null = null;
+    const epicIdx = pool.findIndex(b => b.isEpic);
+    if (epicIdx >= 0) climaxReserve = pool.splice(epicIdx, 1)[0];
+    let reserveUsed = false;
+
     // Track usage per asset to ensure absolute fairness across all files
     const usageCount = new Map<string, number>();
     for (const a of visualAssets) usageCount.set(a.id, 0);
     usageCount.set(hookBeat.assetId, 1);
-    
+
     let lastAssetId = hookBeat.assetId;
-    
-    while (currentTime < target && pool.length > 0) {
+
+    while (currentTime < target && (pool.length > 0 || (climaxReserve && !reserveUsed))) {
       const progress = currentTime / target;
       const phase = progress < 0.7 ? "buildup" : progress < 0.9 ? "climax" : "outro";
-      
+
+      let beat: VisualBeat;
+      if (climaxReserve && !reserveUsed && (progress >= 0.7 || pool.length === 0)) {
+        beat = climaxReserve;
+        reserveUsed = true;
+      } else {
       // We want an asset that has been used the LEAST number of times, and is NOT the last asset used
       let bestBeatIndex = -1;
       let lowestUsage = Infinity;
-      
+
       for (let i = 0; i < pool.length; i++) {
          const b = pool[i];
          if (b.assetId === lastAssetId && pool.length > 1) continue; // Don't repeat consecutively if possible
-         
+
          const usage = usageCount.get(b.assetId) || 0;
          if (usage < lowestUsage) {
              if (phase === "climax" && !b.isEpic && !b.hasAction && pool.some(p => p.isEpic || p.hasAction)) continue;
@@ -668,12 +680,13 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
              bestBeatIndex = i;
          }
       }
-      
+
       // Fallback
       if (bestBeatIndex === -1) bestBeatIndex = 0;
-      
-      const beat = pool[bestBeatIndex];
+
+      beat = pool[bestBeatIndex];
       pool.splice(bestBeatIndex, 1);
+      }
       
       lastAssetId = beat.assetId;
       usageCount.set(beat.assetId, (usageCount.get(beat.assetId) || 0) + 1);

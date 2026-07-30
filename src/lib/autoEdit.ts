@@ -315,7 +315,17 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
           clip.effects.push("noise");
       }
-      clip.muted = !!aiDecision?.audioEnhancements?.muteOriginalAudio || isBroll;
+
+      // Nat-sound: в кинематографичных жанрах оставляем атмосферный звук площадки
+      // тихим слоем под музыкой — кадр «дышит», а не звучит как GIF.
+      const keepNatSound = isBroll && asset.kind === "video"
+        && (activeTemplate.id === "cinematic" || activeTemplate.id === "documentary" || activeTemplate.id === "luxury");
+      if (keepNatSound) {
+         clip.muted = false;
+         clip.volume = { value: 0.22, keyframes: [] };
+      } else {
+         clip.muted = !!aiDecision?.audioEnhancements?.muteOriginalAudio || isBroll;
+      }
       
       if (isBroll) {
          const presentation = (aiClip as any).presentation || "fullscreen";
@@ -557,6 +567,11 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // --- SUBTITLES & AI TEXT OVERLAYS ---
   const textTrack = project.tracks.find((t) => t.type === "text") || project.tracks[project.tracks.push(require("./factories").createTrack("text", "Текст")) - 1];
 
+  // Safe-zone: интерфейс TikTok/Reels перекрывает низ и правый край вертикального кадра —
+  // опускаем титры не ниже 72% высоты на портретном канвасе.
+  const isPortraitCanvas = project.resolution.height > project.resolution.width;
+  const safeTextY = (y: number) => (isPortraitCanvas ? Math.min(y, 0.72) : y);
+
   if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
     for (const overlay of aiDecision.textOverlays) {
       const oStart = Math.max(0, overlay.time || 0);
@@ -569,7 +584,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         duration: oDur,
         text: overlay.text,
       });
-      clip.y.value = activeTemplate.text.yPosition;
+      clip.y.value = safeTextY(activeTemplate.text.yPosition);
       clip.fontSize = activeTemplate.text.fontSize;
       clip.fontFamily = activeTemplate.text.fontFamily;
       clip.color = activeTemplate.text.color;
@@ -578,8 +593,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       clip.strokeColor = activeTemplate.text.strokeColor;
       const anim = (overlay.animation as import("./types").TextAnimation) || activeTemplate.text.animation;
       clip.animationIn = anim;
-      
-      applyTextAnimation(clip, anim, activeTemplate.text.yPosition, clip.duration);
+
+      applyTextAnimation(clip, anim, clip.y.value, clip.duration);
       textTrack.clips.push(clip);
     }
   } else if (segmentsByAssetId.size > 0) {
@@ -641,7 +656,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                         accumulatedLine = ""; // Сбрасываем строку после конца предложения!
                     }
                     
-                    textClip.y.value = activeTemplate.text.yPosition;
+                    textClip.y.value = safeTextY(activeTemplate.text.yPosition);
                     textClip.fontSize = activeTemplate.text.fontSize || 72;
                     textClip.fontFamily = activeTemplate.text.fontFamily || "DejaVu Sans Bold";
                     
@@ -666,6 +681,38 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         }
       }
     }
+  }
+
+  // Титульная карточка: у визуальных роликов без речи и титров первые секунды
+  // без текста выглядят "голыми" — открываем фильм названием проекта.
+  if (textTrack.clips.length === 0 && title.trim().length > 2 && cursor > 3.5) {
+    const tClip = createTextClip({
+      trackId: textTrack.id,
+      start: Math.min(0.6, cursor * 0.1),
+      duration: Math.min(3.2, cursor - 1.2),
+      text: wrapText(title.trim().toUpperCase(), 16),
+    });
+    tClip.y.value = safeTextY(activeTemplate.text.yPosition);
+    tClip.fontSize = Math.round((activeTemplate.text.fontSize || 60) * 1.15);
+    tClip.fontFamily = activeTemplate.text.fontFamily;
+    tClip.color = activeTemplate.text.color;
+    tClip.backgroundColor = "transparent";
+    tClip.strokeWidth = activeTemplate.text.strokeWidth ?? 2;
+    tClip.strokeColor = activeTemplate.text.strokeColor || "#000000";
+    tClip.animationIn = "blur-in";
+    applyTextAnimation(tClip, "blur-in", tClip.y.value, tClip.duration);
+    textTrack.clips.push(tClip);
+  }
+
+  // Кинематографичный вход/финал: мягкий уход в чёрный читается как завершённость,
+  // резкий обрыв выглядит браком экспорта почти в любом жанре.
+  if (activeTemplate.pace === "slow") {
+    project.openingFadeIn = 0.5;
+    project.endingFadeOut = 0.7;
+  } else if (activeTemplate.pace === "medium") {
+    project.endingFadeOut = 0.4;
+  } else {
+    project.endingFadeOut = 0.2;
   }
 
   // --- MICRO-CHOREOGRAPHY ENGINE (PUNCH ZOOMS & BEAT FLASHES) ---

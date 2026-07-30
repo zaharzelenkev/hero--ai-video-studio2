@@ -572,6 +572,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       hasFaces: boolean;
       hasAction: boolean;
       isEpic: boolean;
+      /** Площадь крупнейшего лица (0..1) — если крупно, движение камеры срежет лицо. */
+      faceSize?: number;
     }
     
     const beats: VisualBeat[] = [];
@@ -617,6 +619,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
              score,
              hasFaces: seg.hasFaces,
              hasAction: seg.hasAction || false,
+             faceSize: seg.faceSize,
              isEpic: isAbsoluteClimax || (seg.motionLevel === "high" && seg.aestheticScore > 7)
            });
         }
@@ -714,7 +717,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
       script.scenes.push({
         id: `scene_${Date.now()}_${currentTime}`, phase, intent: "Flow", duration: dur / speed, emotion: phase === "climax" ? "dramatic" : "calm",
-        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: speed, zoom: !beat.hasAction },
+        // Зум запрещён для крупных планов лиц (срезает подбородок/лоб) и экшена (склейка режется в движении).
+        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: speed, zoom: !beat.hasAction && !(beat.faceSize !== undefined && beat.faceSize >= 0.08) },
         bRolls: [], captions: []
       });
       currentTime += dur;

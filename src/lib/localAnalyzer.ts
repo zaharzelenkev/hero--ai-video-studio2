@@ -22,6 +22,12 @@ export interface VideoSegmentMetadata {
   faceY?: number;
   /** Относительная площадь самого крупного лица (0..1) — характер кадра: общий/средний/крупный план. */
   faceSize?: number;
+  /** Средняя яркость кадра (0..255) — для авто-экспозиции при склейке разных камер. */
+  brightness?: number;
+  /** Размах яркости (0..255) — мера контраста кадра. */
+  contrast?: number;
+  /** Средняя насыщенность (0..255). */
+  saturation?: number;
   qualityScore: number; // 1-10
   isSceneChange: boolean;
   hasAction: boolean;
@@ -322,6 +328,9 @@ export async function analyzeVideoLocally(
           faceX,
           faceY,
           faceSize,
+          brightness: Math.round(avgBrightness),
+          contrast: Math.round(contrast),
+          saturation: Math.round(avgSaturation),
           qualityScore: qScore,
           isSceneChange,
           hasAction: actionScore > 0,
@@ -387,6 +396,10 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       // Average out the quality score
       current.qualityScore = Math.round((current.qualityScore + next.qualityScore) / 2);
       (current as any).aestheticScore = Math.round(((current as any).aestheticScore + (next as any).aestheticScore) / 2);
+      // Усредняем статистику света/цвета для авто-экспозиции
+      if (next.brightness !== undefined) (current as any).brightness = Math.round((((current as any).brightness ?? next.brightness) + next.brightness) / 2);
+      if (next.contrast !== undefined) (current as any).contrast = Math.round((((current as any).contrast ?? next.contrast) + next.contrast) / 2);
+      if (next.saturation !== undefined) (current as any).saturation = Math.round((((current as any).saturation ?? next.saturation) + next.saturation) / 2);
       // If any frame had faces or motion, keep the higher priority tags
       if (next.hasFaces) {
         current.hasFaces = true;

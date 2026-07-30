@@ -303,19 +303,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           }
         }
       }
-      
+
+      // Всё содержимое клипа (сегменты анализа) — единая точка правды ниже по функции.
+      const localSegsForAsset = localSegments.get(asset.id);
+      const clipSegs = localSegsForAsset?.filter(s => s.endTime > inPoint && s.startTime < outPoint) ?? [];
+      const hasFacesInClip = clipSegs.some(s => s.hasFaces);
+      const isActionPacked = clipSegs.some(s => s.hasAction || s.motionLevel === "high" || s.motionLevel === "shake");
+
       let transType = style.transition;
       let transDur = 0.4;
-      
-      
-      const localSegsForAsset = localSegments.get(asset.id);
-      let isActionPacked = false;
-      if (localSegsForAsset && localSegsForAsset.length > 0) {
-        const clipSegs = localSegsForAsset.filter(s => s.endTime > inPoint && s.startTime < outPoint);
-        isActionPacked = clipSegs.some(s => s.hasAction || s.motionLevel === "high" || s.motionLevel === "shake");
-      }
-      
+
+      const prevMainClip = !isBroll && track.clips.length > 0 ? (track.clips[track.clips.length - 1] as import("./types").VideoClip) : null;
+
       if (timelineStart === 0 || duration < 1.0 || isBroll) {
+         transType = "cut";
+         transDur = 0;
+      } else if (prevMainClip && prevMainClip.assetId === asset.id) {
+         // Jump cut на одном исходнике: любой наплыв между соседними фразами одного
+         // кадра превращается в морфинг-артефакт лица — только резкая склейка (+ punch zoom ниже).
          transType = "cut";
          transDur = 0;
       } else {
@@ -359,6 +364,25 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         outPoint,
         transitionIn: { type: transType, duration: transDur },
       });
+
+      // Авто-экспозиция: фрагменты с разных камер разной светимости разрывают ролик.
+      // Акуратно подтягиваем тёмные/вялые куски к эталонному свету (нормальные не трогаем).
+      if (clipSegs.length > 0 && asset.kind === "video") {
+         const stats = clipSegs.filter(s => s.brightness !== undefined);
+         if (stats.length > 0) {
+            const avgB = stats.reduce((a, s) => a + (s.brightness ?? 0), 0) / stats.length;
+            const avgC = stats.reduce((a, s) => a + (s.contrast ?? 0), 0) / stats.length;
+            let dB = 0;
+            let dC = 0;
+            if (avgB < 78) dB = Math.min(0.15, (78 - avgB) / 255 + 0.05);
+            else if (avgB > 188) dB = Math.max(-0.1, (188 - avgB) / 255);
+            if (avgC < 55 && avgB < 130) dC = 0.08;
+            if (dB !== 0 || dC !== 0) {
+               clip.color.brightness.value += dB;
+               clip.color.contrast.value += dC;
+            }
+         }
+      }
       
       clip.effects = activeTemplate.effects ? [...activeTemplate.effects] : [];
       if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
@@ -537,10 +561,13 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
          clip.speed = speed;
       }
 
-      // Dynamic Ken Burns (only if not already heavily cropped by camera angle, or if it's an image)
+      // Dynamic Ken Burns (only if not already heavily cropped by camera angle, or if it's an image).
+      // На кадрах с лицами — ТОЛЬКО центрированные наезды: панорамирование срезает лицо.
       if (aiClip.zoom || (asset.kind === "image" && style.kenBurns)) {
         if (!((aiClip as any).cameraAngle === "close")) {
-           const motions: import("./types").CameraMotion[] = ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
+           const motions: import("./types").CameraMotion[] = hasFacesInClip
+              ? ["zoom-in", "zoom-out"]
+              : ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
            clip.cameraMotion = motions[Math.floor(Math.random() * motions.length)];
         }
       }

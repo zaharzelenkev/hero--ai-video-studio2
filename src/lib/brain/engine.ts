@@ -124,6 +124,12 @@ export class DirectorEngine {
     validPhrases: any[]
   ): Promise<DirectorScript> {
     const prompt = `Ты — элитный режиссер монтажа уровня MrBeast, Kurzgesagt и Veritasium с 15-летним опытом.
+Твоя задача — проанализировать исходные фразы спикера, ПРОЧИТАТЬ ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ и создать гениальный, удерживающий внимание сценарий (Script).
+
+ОСОБОЕ ПОЖЕЛАНИЕ ПОЛЬЗОВАТЕЛЯ (Игнорируй, если пусто или не имеет смысла):
+"${__request.userPrompt}"
+
+Если пользователь просит "напиши такой-то текст" или "поставь заголовок" — ОБЯЗАТЕЛЬНО добавь его в поле customText в сцене "hook" или там, где просит пользователь.
 Твоя задача — проанализировать исходные фразы спикера и создать гениальный, удерживающий внимание сценарий (Script).
 
 ПРАВИЛА МОНТАЖА:
@@ -153,7 +159,8 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
       "intent": "Захватить внимание вопросом (показывай, а не рассказывай)",
       "bRollNeeded": true,
       "bRollKeyword": "shocked face",
-      "zoom": true
+      "zoom": true,
+      "customText": "Крутой заголовок из промпта пользователя" // Заполни только если пользователь явно попросил текст!
     }
   ]
 }
@@ -194,7 +201,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
                 duration: p.end - p.start,
                 emotion: s.phase === "climax" || s.phase === "hook" ? "energetic" : "neutral",
                 mainClip: { assetId: mainAsset.id, sourceStart: p.start, sourceEnd: p.end, speed: 1, zoom: isZoomed },
-                bRolls: [], captions: []
+                bRolls: [], captions: s.customText ? [{text: s.customText, offsetInScene: 0.2, duration: Math.max(1, p.end - p.start - 0.2), animation: "elastic"}] : []
             };
 
             // Process LLM bRollNeeded request
@@ -260,7 +267,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
             targetDuration: strategy.targetDuration,
             scenes,
             audioStrategy: {
-                musicStyle: "lofi",
+                musicStyle: (strategy.instructions.match(/MUSIC_STYLE:(\w+)/) || [])[1] || "lofi",
                 duckingEnabled: true,
                 denoiseSpeech: true,
                 removeSilence: true,
@@ -476,7 +483,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       targetDuration: strategy.targetDuration,
       scenes: [],
       audioStrategy: {
-        musicStyle: strategy.genre === "travel" ? "cinematic" : "electronic",
+        musicStyle: (strategy.instructions.match(/MUSIC_STYLE:(\w+)/) || [])[1] || (strategy.genre === "travel" ? "cinematic" : "electronic"),
         duckingEnabled: false,
         denoiseSpeech: false,
         removeSilence: false,

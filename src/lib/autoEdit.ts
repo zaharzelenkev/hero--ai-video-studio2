@@ -247,8 +247,13 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
          transType = "cut";
          transDur = 0;
       } else {
-         if (isActionPacked && Math.random() > 0.3) {
-            // Match on Action: Экшен-кадры лучше смотрятся с резкой склейкой (cut) или Whip Pan
+         if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
+            const flashes = ["pixelize", "hlslice", "hblur"];
+            transType = flashes[Math.floor(Math.random() * flashes.length)] as any;
+            transDur = 0.2;
+            // We will push noise after clip is created
+         } else if (isActionPacked && Math.random() > 0.3) {
+            // Match on Action
             transType = Math.random() > 0.5 ? "cut" : "hblur";
             transDur = transType === "cut" ? 0 : 0.2;
          } else if (style.pace === "fast" || style.pace === "dynamic") {
@@ -284,6 +289,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       });
       
       clip.effects = activeTemplate.effects ? [...activeTemplate.effects] : [];
+      if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
+          clip.effects.push("noise");
+      }
       clip.muted = !!aiDecision?.audioEnhancements?.muteOriginalAudio || isBroll;
       
       if (isBroll) {
@@ -494,6 +502,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                        start: currentGroup[0].start,
                        end: currentGroup[currentGroup.length - 1].end,
                        text: currentGroup.map(c => (c as any).word || (c as any).text).join(" "),
+                       hasPunctuation,
                        isEmphasized: currentGroup.some(c => {
                           const t = ((c as any).word || (c as any).text).replace(/[^а-яА-Яa-zA-Z0-9]/g, "");
                           return t.length > 6 || /^(не|нет|все|очень|важно|супер|как|что|это)$/i.test(t);
@@ -503,18 +512,25 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                  }
               }
 
+              let accumulatedLine = "";
               for (const g of groups) {
                  const timelineStart = clip.start + (g.start - clip.inPoint);
                  const durInAsset = g.end - g.start;
                  const durOnTimeline = Math.min(durInAsset + (wordsPerGroup > 1 ? 0.3 : 0.05), clip.outPoint - g.start);
                  
+                 accumulatedLine += (accumulatedLine ? " " : "") + g.text;
+
                  if (durOnTimeline > 0.1) {
                     const textClip = createTextClip({
                       trackId: textTrack.id,
                       start: timelineStart,
                       duration: durOnTimeline,
-                      text: wrapText(g.text, 22),
+                      text: wrapText(accumulatedLine, 22),
                     });
+                    
+                    if (g.hasPunctuation) {
+                        accumulatedLine = ""; // Сбрасываем строку после конца предложения!
+                    }
                     
                     textClip.y.value = activeTemplate.text.yPosition;
                     textClip.fontSize = activeTemplate.text.fontSize || 72;

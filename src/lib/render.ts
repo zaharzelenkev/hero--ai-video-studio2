@@ -112,7 +112,10 @@ export async function renderProject(
           }
         };
         ffmpeg.on("log", probeLog);
-        await ffmpeg.exec(["-i", fname]);
+        // Note: exec with just -i prints the info and returns 1, which might print "Aborted()" in some environments but it's harmless
+        try {
+           await ffmpeg.exec(["-i", fname]);
+        } catch(e) {}
         ffmpeg.off("log", probeLog);
         asset.hasAudio = hasAudio;
       }
@@ -153,6 +156,7 @@ export async function renderProject(
         const code = await ffmpeg.exec(args);
     if (code !== 0) {
       console.error("FFmpeg Error! Args used:", args);
+      console.error("Filter graph:", compiled.filterComplex);
       throw new Error("FFmpeg failed: " + lastLogs.join(" | "));
     }
     

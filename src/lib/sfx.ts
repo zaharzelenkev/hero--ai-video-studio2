@@ -1,4 +1,4 @@
-export type SfxType = "pop" | "whoosh" | "riser" | "hit";
+export type SfxType = "pop" | "whoosh" | "riser" | "hit" | "swoosh" | "glitch" | "impact" | "ding";
 
 function audioBufferToWav(buffer: AudioBuffer): Blob {
   const numOfChan = buffer.numberOfChannels;
@@ -127,6 +127,81 @@ export async function generateSfx(type: SfxType): Promise<Blob> {
     gain.connect(ctx.destination);
     osc.start(0);
     osc.stop(dur);
+    const rendered = await ctx.startRendering();
+    return audioBufferToWav(rendered);
+  }
+
+  
+  if (type === "swoosh") {
+    const dur = 0.6;
+    const ctx = new OfflineAudioContext(1, sr * dur, sr);
+    const buffer = ctx.createBuffer(1, sr * dur, sr);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource(); noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter(); filter.type = "lowpass";
+    filter.frequency.setValueAtTime(100, 0);
+    filter.frequency.exponentialRampToValueAtTime(800, dur / 2);
+    filter.frequency.exponentialRampToValueAtTime(100, dur);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.01, 0);
+    gain.gain.exponentialRampToValueAtTime(0.3, dur / 2);
+    gain.gain.exponentialRampToValueAtTime(0.01, dur);
+    noise.connect(filter).connect(gain).connect(ctx.destination);
+    noise.start(0);
+    const rendered = await ctx.startRendering();
+    return audioBufferToWav(rendered);
+  }
+
+  if (type === "glitch") {
+    const dur = 0.3;
+    const ctx = new OfflineAudioContext(1, sr * dur, sr);
+    const osc = ctx.createOscillator(); osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(100, 0);
+    osc.frequency.setValueAtTime(800, 0.1);
+    osc.frequency.setValueAtTime(50, 0.2);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.6, 0); gain.gain.linearRampToValueAtTime(0.01, dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(0); osc.stop(dur);
+    const rendered = await ctx.startRendering();
+    return audioBufferToWav(rendered);
+  }
+
+  if (type === "impact") {
+    const dur = 1.0;
+    const ctx = new OfflineAudioContext(1, sr * dur, sr);
+    const osc = ctx.createOscillator(); osc.type = "sine";
+    osc.frequency.setValueAtTime(100, 0);
+    osc.frequency.exponentialRampToValueAtTime(20, 0.5);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(1, 0); gain.gain.exponentialRampToValueAtTime(0.01, dur);
+    
+    // Add white noise punch
+    const nBuf = ctx.createBuffer(1, sr * 0.1, sr);
+    const nData = nBuf.getChannelData(0);
+    for (let i = 0; i < nData.length; i++) nData[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource(); noise.buffer = nBuf;
+    const nFilter = ctx.createBiquadFilter(); nFilter.type = "lowpass"; nFilter.frequency.value = 500;
+    const nGain = ctx.createGain(); nGain.gain.setValueAtTime(0.5, 0); nGain.gain.exponentialRampToValueAtTime(0.01, 0.1);
+    noise.connect(nFilter).connect(nGain).connect(ctx.destination);
+    noise.start(0);
+    
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(0); osc.stop(dur);
+    const rendered = await ctx.startRendering();
+    return audioBufferToWav(rendered);
+  }
+
+  if (type === "ding") {
+    const dur = 0.8;
+    const ctx = new OfflineAudioContext(1, sr * dur, sr);
+    const osc = ctx.createOscillator(); osc.type = "sine";
+    osc.frequency.value = 1200;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.5, 0); gain.gain.exponentialRampToValueAtTime(0.01, dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(0); osc.stop(dur);
     const rendered = await ctx.startRendering();
     return audioBufferToWav(rendered);
   }

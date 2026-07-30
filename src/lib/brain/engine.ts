@@ -104,6 +104,37 @@ export class DirectorEngine {
     // Самоанализ, извлечение уроков (RAG Engine)
     script = await this.critiqueAndLearn(script, strategy);
     
+    // Глобальное извлечение текста из промпта пользователя
+    if (request.userPrompt && script.scenes.length > 0) {
+        const p = request.userPrompt;
+        let customText = null;
+        
+        // Match quotes
+        const quoteMatch = p.match(/(?:текст|заголовок|надпись|напиши).*?["'«]([^"'»]+)["'»]/i);
+        if (quoteMatch && quoteMatch[1]) {
+            customText = quoteMatch[1];
+        } else {
+            // Match keywords and take the rest of the string
+            const keywordMatch = p.match(/(?:напиши|добавь текст|заголовок)[:\s]+(.+)/i);
+            if (keywordMatch && keywordMatch[1]) {
+                customText = keywordMatch[1].trim();
+            }
+        }
+        
+        if (customText && customText.length > 0) {
+            // Check if not already added by visual fallback
+            const alreadyHas = script.scenes[0].captions.some(c => c.text === customText);
+            if (!alreadyHas) {
+                script.scenes[0].captions.push({
+                    text: customText,
+                    offsetInScene: 0.1,
+                    duration: Math.max(2, script.scenes[0].duration - 0.2),
+                    animation: "elastic"
+                });
+            }
+        }
+    }
+
     return script;
   }
 

@@ -550,7 +550,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           kind: "audio",
           mime: "audio/wav",
           blobKey: assetId,
-          duration: type === "whoosh" ? 0.5 : type === "pop" ? 0.15 : type === "riser" ? 2.0 : 0.4,
+          duration: (type === "whoosh" || type === "swoosh") ? 0.5 : (type === "pop" || type === "glitch") ? 0.3 : type === "riser" ? 2.0 : type === "impact" ? 1.0 : type === "ding" ? 0.8 : 0.4,
           createdAt: Date.now()
         };
         project.assets.push(asset);
@@ -562,29 +562,54 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       const whooshAsset = await addSfxAsset("whoosh", "SFX: Whoosh");
       const riserAsset = await addSfxAsset("riser", "SFX: Riser");
       const hitAsset = await addSfxAsset("hit", "SFX: Hit");
+      const swooshAsset = await addSfxAsset("swoosh", "SFX: Swoosh");
+      const glitchAsset = await addSfxAsset("glitch", "SFX: Glitch");
+      const impactAsset = await addSfxAsset("impact", "SFX: Impact");
+      const dingAsset = await addSfxAsset("ding", "SFX: Ding");
 
       // Place SFX based on visual and text events
+      let isFirstClip = true;
       for (const track of project.tracks) {
         if (track.type === "text") {
           for (const clip of track.clips as import("./types").TextClip[]) {
             if (clip.animationIn && clip.animationIn !== "none" && clip.animationIn !== "fade") {
-              const sfx = createAudioClip({ trackId: sfxTrack.id, asset: popAsset, start: clip.start, duration: popAsset.duration });
+              let chosenAsset = popAsset;
+              if (clip.animationIn === "typewriter") chosenAsset = dingAsset;
+              else if (clip.animationIn === "glitch") chosenAsset = glitchAsset;
+              
+              const sfx = createAudioClip({ trackId: sfxTrack.id, asset: chosenAsset, start: clip.start, duration: chosenAsset.duration });
               sfxTrack.clips.push(sfx);
             }
           }
         }
         if (track.type === "video") {
           for (const clip of track.clips as import("./types").VideoClip[]) {
-            // Whoosh on fast transitions
+            // First clip impact
+            if (isFirstClip && track.name === "Видео 1" && clip.start === 0) {
+               const sfx = createAudioClip({ trackId: sfxTrack.id, asset: impactAsset, start: 0, duration: impactAsset.duration });
+               sfxTrack.clips.push(sfx);
+               isFirstClip = false;
+            }
+            
+            // Swoosh on B-Roll
+            if (track.name === "Наложение" && clip.start > 0.5) {
+               const sfx = createAudioClip({ trackId: sfxTrack.id, asset: swooshAsset, start: clip.start, duration: swooshAsset.duration });
+               sfxTrack.clips.push(sfx);
+            }
+
+            // Transitions
             if (clip.transitionIn.type !== "cut" && clip.transitionIn.type !== "crossfade" && clip.transitionIn.type !== "fadeblack" && clip.transitionIn.duration <= 0.8) {
-              const sfx = createAudioClip({ trackId: sfxTrack.id, asset: whooshAsset, start: Math.max(0, clip.start - 0.2), duration: whooshAsset.duration });
+              let tAsset = whooshAsset;
+              if (clip.transitionIn.type === "pixelize" || clip.transitionIn.type === "hlslice") tAsset = glitchAsset;
+              
+              const sfx = createAudioClip({ trackId: sfxTrack.id, asset: tAsset, start: Math.max(0, clip.start - 0.2), duration: tAsset.duration });
               sfxTrack.clips.push(sfx);
             }
+            
             // Riser before Climax, Hit at Climax OR Major Beat Drops
             if (aiDecision && track.name === "Видео 1") {
                const dec = aiDecision.clips.find(c => c.assetId === clip.assetId && Math.abs((c.startTime||0) - clip.inPoint) < 0.5);
                
-               // Inject Hit SFX on strict beat sync boundaries if it's a fast/dynamic edit
                let isBeatDrop = false;
                if (beats.length && (style.pace === "fast" || style.pace === "dynamic")) {
                   isBeatDrop = beats.some(b => Math.abs(b - clip.start) < 0.1);

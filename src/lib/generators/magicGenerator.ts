@@ -88,6 +88,7 @@ export async function generateMagicVideo(prompt: string, style: import("../types
         const audioKey = uid("blob");
         const file = new File([audioBlob], `Voiceover ${i+1}`, { type: "audio/mpeg" });
         await saveBlob(audioKey, file);
+        filesByAssetId.set(audioKey, file);
         
         audioDuration = Math.max(2, scene.voiceover.length / 12);
         

@@ -112,7 +112,9 @@ export default function GenerationScreenV2() {
           setProgress(ratio);
           setProgressLabel(`Рендеринг финального видео... ${Math.round(ratio * 100)}%`);
         },
-        () => {}
+        (msg) => {
+           console.log("[FFmpeg Log]:", msg);
+        }
       );
 
       const previewKey = uid("blob");

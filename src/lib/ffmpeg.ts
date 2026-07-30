@@ -18,9 +18,18 @@ export type ProgressListener = (ratio: number) => void;
 export type LogListener = (message: string) => void;
 
 async function loadCoreFrom(ffmpeg: FFmpeg, base: string): Promise<void> {
+  const isCdn = base.includes("unpkg");
+  let coreURL = isCdn ? `${base}/ffmpeg-core.js` : `${base}/ffmpeg-core.js`;
+  let wasmURL = isCdn ? `${base}/ffmpeg-core.wasm` : `${base}/ffmpeg-core.wasm`;
+  
+  if (!isCdn) {
+    coreURL = await toBlobURL(coreURL, "text/javascript");
+    wasmURL = await toBlobURL(wasmURL, "application/wasm");
+  }
+  
   await ffmpeg.load({
-    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+    coreURL: coreURL,
+    wasmURL: wasmURL,
   });
 }
 

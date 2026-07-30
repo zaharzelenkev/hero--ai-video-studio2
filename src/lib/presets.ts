@@ -98,6 +98,7 @@ export const EFFECT_PRESETS: { id: string; label: string; ffmpeg: string; css: s
   { id: "mirror", label: "Зеркало", ffmpeg: "hflip", css: "" },
   { id: "sharpen", label: "Резкость", ffmpeg: "unsharp=5:5:1.0", css: "contrast(1.05)" },
   { id: "noise", label: "Плёночное зерно", ffmpeg: "noise=alls=8:allf=t", css: "" },
+  { id: "letterbox", label: "Кино-полосы", ffmpeg: "drawbox=y=0:color=black:width=iw:height=ih*0.12:t=max,drawbox=y=ih-ih*0.12:color=black:width=iw:height=ih*0.12:t=max", css: "" },
 ];
 
 export const TEXT_FONTS = [

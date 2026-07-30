@@ -610,7 +610,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                   isBeatDrop = beats.some(b => Math.abs(b - clip.start) < 0.1);
                }
 
-               if ((dec && dec.emotion === "dramatic" && clip.start > 2) || (isBeatDrop && Math.random() > 0.7)) {
+               if (dec && dec.reason && dec.reason.includes("Teaser")) {
+                  const hit = createAudioClip({ trackId: sfxTrack.id, asset: hitAsset, start: clip.start, duration: hitAsset.duration });
+                  sfxTrack.clips.push(hit);
+               } else if ((dec && dec.emotion === "dramatic" && clip.start > 2) || (isBeatDrop && Math.random() > 0.7)) {
                   const sfx = createAudioClip({ trackId: sfxTrack.id, asset: riserAsset, start: Math.max(0, clip.start - riserAsset.duration), duration: riserAsset.duration });
                   sfxTrack.clips.push(sfx);
                   const hit = createAudioClip({ trackId: sfxTrack.id, asset: hitAsset, start: clip.start, duration: hitAsset.duration });

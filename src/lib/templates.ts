@@ -81,7 +81,7 @@ export const TEMPLATES: VideoTemplate[] = [
     transition: "crossfade",
     kenBurns: true,
     text: { fontFamily: "Playfair Display", fontSize: 50, color: "#F0F0F0", backgroundColor: "transparent", align: "center", yPosition: 0.85, animation: "fade" },
-    effects: ["glow", "vignette"]
+    effects: ["glow", "vignette", "letterbox"]
   },
   {
     id: "documentary",
@@ -93,7 +93,7 @@ export const TEMPLATES: VideoTemplate[] = [
     transition: "fadegrays",
     kenBurns: true,
     text: { fontFamily: "Playfair Display", fontSize: 45, color: "#ffffff", backgroundColor: "black@0.5", align: "center", yPosition: 0.9, animation: "slide-up" },
-    effects: ["noise", "vignette"]
+    effects: ["noise", "vignette", "letterbox"]
   },
   {
     id: "tiktok",

@@ -630,6 +630,39 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
          }
       }
     }
+    
+    // Flash-Forward Teaser Hook (The "MrBeast/TikTok" Secret)
+    if (genre === "tiktok" || genre === "ad" || genre === "youtube" || genre === "podcast") {
+         const climaxScene = script.scenes.find(s => s.phase === "climax");
+         const hookScene = script.scenes.find(s => s.phase === "hook");
+         
+         if (climaxScene && hookScene && climaxScene.mainClip.assetId !== hookScene.mainClip.assetId && script.scenes.length > 3) {
+             const teaserDur = Math.min(1.0, climaxScene.duration);
+             const teaserScene = {
+                 id: "scene_teaser_" + Date.now(),
+                 phase: "hook" as const,
+                 intent: "Flash-forward Teaser",
+                 duration: teaserDur,
+                 emotion: "dramatic" as const,
+                 mainClip: { 
+                     assetId: climaxScene.mainClip.assetId, 
+                     sourceStart: climaxScene.mainClip.sourceStart + (climaxScene.duration / 2) - (teaserDur / 2),
+                     sourceEnd: climaxScene.mainClip.sourceStart + (climaxScene.duration / 2) + (teaserDur / 2), 
+                     speed: 1, 
+                     zoom: true 
+                 },
+                 bRolls: [],
+                 captions: [{
+                     text: "СМОТРИ ДО КОНЦА...",
+                     offsetInScene: 0,
+                     duration: teaserDur,
+                     animation: "glitch"
+                 }]
+             };
+             script.scenes.unshift(teaserScene);
+         }
+    }
+
     return script;
   }
 

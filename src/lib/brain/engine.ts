@@ -332,18 +332,24 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
         return this.buildVisualScript(__request, strategy, [mainAsset, ...visualAssets]);
     }
 
-    // 2. Объединяем слова во фразы, автоматически вырезая тишину > 0.4s
-    const phrases: {start: number, end: number, text: string}[] = [];
-    let curr = { start: words[0].start, end: words[0].end, text: words[0].text };
+    // 2. Умное объединение во фразы с сохранением ДРАМАТИЧЕСКИХ ПАУЗ
+    const phrases: {start: number, end: number, text: string, isPause?: boolean}[] = [];
+    let curr = { start: words[0].start, end: words[0].end, text: words[0].text, isPause: false };
 
     for (let i = 1; i < words.length; i++) {
         const w = words[i];
         const gap = w.start - curr.end;
         
-        // Разрываем фразу, если тишина слишком долгая (dead air) или фраза уже длиннее 4-х секунд
+        // Разрываем фразу на паузе > 0.4s или если она стала слишком длинной
         if (gap > 0.4 || (curr.end - curr.start > 4.0)) {
             phrases.push(curr);
-            curr = { start: w.start, end: w.end, text: w.text };
+            
+            // Эвристика топовых монтажеров: если пауза от 0.7 до 2.5 секунд, это эмоциональный момент (Reaction). Сохраняем его!
+            if (gap >= 0.7 && gap <= 2.5) {
+                phrases.push({ start: curr.end, end: w.start, text: "[ПАУЗА]", isPause: true });
+            }
+            
+            curr = { start: w.start, end: w.end, text: w.text, isPause: false };
         } else {
             curr.end = w.end;
             curr.text += " " + w.text;
@@ -351,8 +357,9 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
     }
     phrases.push(curr);
 
-    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья)
+    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья), но защита пауз
     const validPhrases = phrases.filter(p => {
+        if (p.isPause) return true;
         const t = p.text.toLowerCase().replace(/[^а-яa-z]/g, "");
         if (/^(ну|э|ээ|м|мм|типа|какбы|вот|короче|значит)$/i.test(t)) return false;
         if (p.end - p.start < 0.2) return false;

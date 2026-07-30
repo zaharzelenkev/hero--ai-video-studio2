@@ -559,6 +559,60 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
+  // --- MICRO-CHOREOGRAPHY ENGINE (PUNCH ZOOMS & BEAT FLASHES) ---
+  onProgress?.("Финальная полировка ритма (Micro-Choreography)...");
+  
+  // 1. Beat Flashes on B-Rolls (Оптическая пульсация под музыку)
+  if (beats.length > 0 && (style.pace === "fast" || style.pace === "dynamic")) {
+      for (const bClip of bRollTrack!.clips as import("./types").VideoClip[]) {
+          const clipStart = bClip.start;
+          const clipEnd = bClip.start + bClip.duration;
+          // Ищем биты, которые попадают в середину B-Roll клипа
+          const containedBeats = beats.filter(b => b > clipStart + 0.3 && b < clipEnd - 0.3);
+          
+          for (const beat of containedBeats) {
+              const localBeat = beat - clipStart;
+              // Добавляем короткую вспышку яркости на каждый бит
+              bClip.color.brightness.keyframes.push(
+                  { id: `fl_${Date.now()}_${Math.random()}`, time: Math.max(0, localBeat - 0.1), value: 0, easing: "linear" },
+                  { id: `fl_${Date.now()}_${Math.random()}`, time: localBeat, value: 0.3, easing: "easeOut" },
+                  { id: `fl_${Date.now()}_${Math.random()}`, time: Math.min(bClip.duration, localBeat + 0.3), value: 0, easing: "easeIn" }
+              );
+          }
+      }
+  }
+
+  // 2. Semantic Punch Zooms (Резкие наезды камеры на акцентных словах)
+  for (const tClip of textTrack.clips as import("./types").TextClip[]) {
+      // Ищем выделенные цветом слова (акценты из Hormozi/MrBeast стилей)
+      const isHighlight = tClip.color === "#00FF00" || tClip.color === "#FFE81A";
+      
+      if (isHighlight) {
+          // Находим видеоклип, который играет в этот момент
+          const activeBroll = bRollTrack!.clips.find(c => c.start <= tClip.start && (c.start + c.duration) >= tClip.start + 0.1) as import("./types").VideoClip;
+          const activeMain = videoTrack.clips.find(c => c.start <= tClip.start && (c.start + c.duration) >= tClip.start + 0.1) as import("./types").VideoClip;
+          const targetClip = activeBroll || activeMain;
+
+          if (targetClip) {
+              const localStart = tClip.start - targetClip.start;
+              const localEnd = localStart + tClip.duration;
+              
+              // Делаем панч только если клип еще не перегружен анимациями
+              if (targetClip.scale.keyframes.length <= 2) {
+                  const baseV = targetClip.scale.keyframes[0]?.value || targetClip.scale.value;
+                  const punchV = baseV * 1.1; // 10% резкий зум
+                  
+                  targetClip.scale.keyframes.push(
+                      { id: `pz_${Date.now()}_${Math.random()}`, time: Math.max(0, localStart - 0.05), value: baseV, easing: "linear" },
+                      { id: `pz_${Date.now()}_${Math.random()}`, time: localStart, value: punchV, easing: "easeOut" },
+                      { id: `pz_${Date.now()}_${Math.random()}`, time: localEnd, value: punchV, easing: "linear" },
+                      { id: `pz_${Date.now()}_${Math.random()}`, time: Math.min(targetClip.duration, localEnd + 0.1), value: baseV, easing: "easeIn" }
+                  );
+              }
+          }
+      }
+  }
+
   project.duration = cursor;
 
   // --- SOUND EFFECTS (SFX) GENERATION ---

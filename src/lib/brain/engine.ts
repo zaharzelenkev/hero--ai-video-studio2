@@ -293,11 +293,22 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
             scenes.push(scene);
         }
 
+        // LLM часто переоценивает хронометраж — принудительно подрезаем по целевой длительности,
+        // иначе ролик расползается и темп проседает.
+        let accDur = 0;
+        const trimmedScenes: DirectorScene[] = [];
+        for (const s of scenes) {
+            if (trimmedScenes.length > 0 && accDur + s.duration > strategy.targetDuration) break;
+            trimmedScenes.push(s);
+            accDur += s.duration;
+        }
+        if (trimmedScenes.length > 0) trimmedScenes[trimmedScenes.length - 1].phase = "outro";
+
         return {
             concept: parsed.concept || "Pro LLM Edit",
             genre: strategy.genre,
             targetDuration: strategy.targetDuration,
-            scenes,
+            scenes: trimmedScenes,
             audioStrategy: {
                 musicStyle: (strategy.instructions.match(/MUSIC_STYLE:(\w+)/) || [])[1] || "lofi",
                 duckingEnabled: true,
@@ -425,7 +436,11 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
     for (let i = 0; i < validPhrases.length; i++) {
         const p = validPhrases[i];
-        
+
+        // Cold-open: если хук взят из самого начала истории, НЕ повторяем его сразу второй раз —
+        // зритель слышит дубль и теряет доверие. (Хук из середины намеренно повторяется как payoff.)
+        if (i === hookIndex && hookIndex <= 1) continue;
+
         // Динамическое чередование зума для имитации работы двух камер (Punch Zoom)
         isZoomed = !isZoomed;
         
@@ -693,8 +708,14 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       if (scene.phase === "climax") {
          scene.mainClip.zoom = true;
          if (genre === "travel") {
+            // Slow-mo на кульминации: растягиваем ЦЕНТРАЛЬНУЮ часть исходного фрагмента
+            // на тот же таймлайн-интервал (таймлайн НЕ удлиняется — склейки и титры не съезжают).
+            const srcSpan = scene.mainClip.sourceEnd - scene.mainClip.sourceStart;
+            const mid = scene.mainClip.sourceStart + srcSpan / 2;
+            const neededSpan = scene.duration * 0.5; // исходные секунды = timeline * speed
+            scene.mainClip.sourceStart = Math.max(0, mid - neededSpan / 2);
+            scene.mainClip.sourceEnd = scene.mainClip.sourceStart + neededSpan;
             scene.mainClip.speed = 0.5;
-            scene.duration *= 2; 
          }
       }
     }

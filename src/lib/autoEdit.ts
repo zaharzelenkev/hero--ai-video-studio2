@@ -61,7 +61,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   } else if (style.contentType === "shorts" || style.contentType === "reels" || style.contentType === "tiktok") {
     project.resolution = { width: 1080, height: 1920 };
   } else if (visualAssets.length && portraitVotes > visualAssets.length / 2) {
-    project.resolution = { width: 720, height: 1280 };
+    project.resolution = { width: 1080, height: 1920 };
   } else {
     project.resolution = { width: 1920, height: 1080 };
   }
@@ -214,22 +214,45 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     const bRollClips = aiDecision.clips.filter(c => c.trackType === "b-roll");
     
     // Вспомогательная функция для размещения
-    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean, timelineStart: number) => {
+    const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean, timelineStart: number, maxTimelineDur?: number) => {
       const asset = assets.find((a) => a.id === aiClip.assetId);
       if (!asset || (asset.kind !== "video" && asset.kind !== "image")) return null;
-      
+
+      // Скорость воспроизведения (slow-mo / time-lapse). Длительность на таймлайне = исходные секунды / speed.
+      const speed = (typeof aiClip.speed === "number" && aiClip.speed > 0) ? aiClip.speed : 1;
+
       const maxDur = asset.kind === "video" ? (asset.duration || 10) : 10;
       const providedStart = aiClip.startTime !== undefined ? aiClip.startTime : Math.random() * Math.max(0, maxDur - aiClip.duration);
-      const inPoint = Math.max(0, Math.min(providedStart, maxDur - 0.5));
-      const outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration), maxDur));
-      let duration = outPoint - inPoint;
-      
-      if (!isBroll && beats.length) {
+      const inPoint = Math.max(0, Math.min(providedStart, Math.max(0, maxDur - 0.5)));
+      let outPoint = Math.max(inPoint + 0.5, Math.min(aiClip.endTime !== undefined ? aiClip.endTime : (inPoint + aiClip.duration * speed), maxDur));
+
+      // Длительность на таймлайне в секундах воспроизведения (превью считает так же).
+      let duration = (outPoint - inPoint) / speed;
+
+      if (maxTimelineDur !== undefined && duration > maxTimelineDur) {
+        duration = Math.max(0.5, maxTimelineDur);
+        outPoint = Math.min(maxDur, inPoint + duration * speed);
+        duration = (outPoint - inPoint) / speed;
+      }
+
+      if (!isBroll && beats.length && duration > 1.0) {
+        // Квантование конца клипа к БЛИЖАЙШЕМУ биту (в обе стороны) — ритм ощущается "сшитым".
         const rawEnd = timelineStart + duration;
-        const closeBeat = beats.find(b => Math.abs(b - rawEnd) < targetClipLen * 0.6);
-        const snappedEnd = closeBeat !== undefined ? closeBeat : rawEnd;
-        const adjusted = Math.min(snappedEnd - timelineStart, duration);
-        if (adjusted > 0.5) duration = adjusted;
+        let closestEnd = rawEnd;
+        let bestDist = Infinity;
+        for (const b of beats) {
+          if (b <= timelineStart + 0.6) continue;
+          const d = Math.abs(b - rawEnd);
+          if (d < bestDist) { bestDist = d; closestEnd = b; }
+        }
+        if (bestDist <= targetClipLen * 0.5) {
+          const newDuration = closestEnd - timelineStart;
+          const newOut = inPoint + newDuration * speed;
+          if (newDuration > 0.6 && newOut <= maxDur) {
+            duration = newDuration;
+            outPoint = newOut;
+          }
+        }
       }
       
       let transType = style.transition;
@@ -284,7 +307,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         start: timelineStart,
         duration: duration,
         inPoint,
-        outPoint: inPoint + duration,
+        outPoint,
         transitionIn: { type: transType, duration: transDur },
       });
       
@@ -375,13 +398,38 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         if (clipSegs.some(s => s.hasFaces && s.faceX !== undefined)) {
            clip.focusX = { value: 0.5, keyframes: [] };
            clip.focusY = { value: 0.5, keyframes: [] };
-           
-           for (const s of clipSegs) {
-              if (s.hasFaces && s.faceX !== undefined && s.faceY !== undefined) {
-                 const t = Math.max(0, s.startTime - inPoint);
-                 clip.focusX.keyframes.push({ id: `fx_${t}`, time: t, value: s.faceX, easing: "easeInOut" });
-                 clip.focusY.keyframes.push({ id: `fy_${t}`, time: t, value: s.faceY, easing: "easeInOut" });
-              }
+
+           // 1. Собираем сырые точки трекера (позиции лица внутри исходного клипа)
+           const raw = clipSegs
+             .filter(s => s.hasFaces && s.faceX !== undefined && s.faceY !== undefined)
+             .map(s => ({ t: Math.max(0, s.startTime - inPoint), x: s.faceX!, y: s.faceY! }))
+             .filter(p => p.t <= duration);
+
+           // 2. Скользящее среднее (окно 3) — убираем дрожание детектора
+           const smoothed = raw.map((p, i) => {
+             const win = raw.slice(Math.max(0, i - 1), Math.min(raw.length, i + 2));
+             return {
+               t: p.t,
+               x: win.reduce((a, q) => a + q.x, 0) / win.length,
+               y: win.reduce((a, q) => a + q.y, 0) / win.length,
+             };
+           });
+
+           // 3. Подавляем микродёргание: ставим ключ только при заметном смещении (>5% кадра),
+           //    иначе камера будет "прыгать" между близкими точками.
+           const kept: typeof smoothed = [];
+           for (const p of smoothed) {
+             const lastK = kept[kept.length - 1];
+             if (!lastK || Math.abs(p.x - lastK.x) > 0.05 || Math.abs(p.y - lastK.y) > 0.05) kept.push(p);
+           }
+           if (smoothed.length > 0 && kept[kept.length - 1] !== smoothed[smoothed.length - 1]) {
+             kept.push(smoothed[smoothed.length - 1]); // гарантируем финальное положение камеры
+           }
+
+           for (const p of kept) {
+              const kId = Math.random().toString(36).slice(2, 8);
+              clip.focusX.keyframes.push({ id: `fx_${kId}`, time: p.t, value: p.x, easing: "easeInOut" });
+              clip.focusY.keyframes.push({ id: `fy_${kId}`, time: p.t, value: p.y, easing: "easeInOut" });
            }
            if (clip.focusX.keyframes.length > 0) {
               clip.focusX.value = clip.focusX.keyframes[0].value;
@@ -410,17 +458,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       
       clip.color.lut = style.bw ? "bw" : style.colorGrade;
       
-      // Multi-Cam Simulation (Camera Angles)
+      // Multi-Cam Simulation (Camera Angles) + вертикальный рефрейминг:
+      // горизонтальный исходник на 9:16 канвасе получает push-in, чтобы субъект читался на мобильном.
+      const portraitBoost = (project.resolution.height > project.resolution.width
+        && (asset.width ?? 1) > (asset.height ?? 1)
+        && !isBroll) ? 1.18 : 1;
       if ((aiClip as any).cameraAngle === "medium") {
-         clip.scale.value = 1.15;
+         clip.scale.value = Math.min(1.6, 1.15 * portraitBoost);
          clip.fitMode = "cover";
       } else if ((aiClip as any).cameraAngle === "close") {
-         clip.scale.value = 1.30;
+         clip.scale.value = Math.min(1.8, 1.30 * portraitBoost);
+         clip.fitMode = "cover";
+      } else if (portraitBoost > 1 && clip.scale.value === 1) {
+         clip.scale.value = portraitBoost;
          clip.fitMode = "cover";
       }
 
-      if (aiClip.speed && aiClip.speed !== 1) {
-         clip.speed = aiClip.speed;
+      if (speed !== 1) {
+         clip.speed = speed;
       }
 
       // Dynamic Ken Burns (only if not already heavily cropped by camera angle, or if it's an image)
@@ -430,7 +485,19 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
            clip.cameraMotion = motions[Math.floor(Math.random() * motions.length)];
         }
       }
-      
+
+      // Hook Push-In: медленный наезд на самом первом кадре — мгновенное ощущение движения,
+      // зритель не успевает свайпнуть (применяем только если кадр ещё не анимирован).
+      if (timelineStart === 0 && !isBroll
+          && (!clip.cameraMotion || clip.cameraMotion === "none")
+          && clip.scale.keyframes.length === 0 && duration > 1.5) {
+        const baseScale = clip.scale.value || 1;
+        clip.scale.keyframes = [
+          { id: `hk1_${Math.random().toString(36).slice(2, 8)}`, time: 0, value: baseScale, easing: "easeOut" },
+          { id: `hk2_${Math.random().toString(36).slice(2, 8)}`, time: duration, value: baseScale * 1.12, easing: "linear" },
+        ];
+      }
+
       track.clips.push(clip);
       return duration;
     };
@@ -468,7 +535,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
        // Размещаем где-то поверх основного таймлайна
        // Align B-Rolls to music beats if beats exist
        let bRollStart = (bClip as any).timeInTimeline !== undefined ? (bClip as any).timeInTimeline : bRollCursor;
-       
+
+       // Не выносим перебивку за пределы основного видеоряда (чёрный хвост под B-Roll — провал).
+       if (bRollStart >= cursor - 0.6) continue;
+
        if (beats.length) {
           const closestStartBeat = beats.find(b => Math.abs(b - bRollStart) < targetClipLen * 0.4);
           if (closestStartBeat !== undefined) {
@@ -476,7 +546,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           }
        }
 
-       const dur = placeClip(bClip, bRollTrack!, true, bRollStart);
+       const dur = placeClip(bClip, bRollTrack!, true, bRollStart, Math.min(cursor - bRollStart, 6));
        if (dur) {
           bRollCursor = bRollStart + dur + (Math.random() * 2 + 1); // Следующий б-ролл минимум через пару секунд
        }
@@ -489,10 +559,14 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
     for (const overlay of aiDecision.textOverlays) {
+      const oStart = Math.max(0, overlay.time || 0);
+      // Титр за пределами видеоряда или на последних долях секунды — визуальный мусор, пропускаем.
+      if (oStart >= cursor - 0.5) continue;
+      const oDur = Math.max(0.4, Math.min(overlay.duration || 2, cursor - oStart));
       const clip = createTextClip({
         trackId: textTrack.id,
-        start: overlay.time || 0,
-        duration: overlay.duration || 2,
+        start: oStart,
+        duration: oDur,
         text: overlay.text,
       });
       clip.y.value = activeTemplate.text.yPosition;
@@ -796,7 +870,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // Add music
   if (finalMusicAsset) {
     const audioTrack = project.tracks.find((t) => t.type === "audio")!;
-    const musicDuration = Math.min(finalMusicAsset.duration || project.duration, project.duration);
+    const musicAssetDur = finalMusicAsset.duration || project.duration;
+    // Если трек короче ролика — зацикливаем бесшовно, иначе хвост видео уходит в тишину.
+    const needsLoop = musicAssetDur < project.duration - 0.5;
     const { createAudioClip } = require("./factories");
     const clip = createAudioClip({
       trackId: audioTrack.id,
@@ -804,8 +880,11 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       start: 0,
       duration: project.duration,
       inPoint: 0,
-      outPoint: musicDuration,
+      outPoint: needsLoop ? project.duration : Math.min(musicAssetDur, project.duration),
     });
+    clip.loop = needsLoop;
+    // Вход музыки: для динамичных жанров — почти мгновенно (удар в бит), для кино — плавное вхождение.
+    clip.fadeIn = activeTemplate.pace === "slow" ? 1.2 : 0.35;
     // Set appropriate volume
     clip.volume = { value: style.templateId === "podcast" || style.templateId === "hormozi" ? 0.15 : 0.6, keyframes: [] };
     clip.fadeOut = Math.min(2, project.duration / 4);
@@ -856,18 +935,23 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       }
       
       // Generate keyframes
-            const randId = () => Math.random().toString(36).substring(7);
-      
+      const randId = () => Math.random().toString(36).substring(7);
+
+      // Базовый уровень музыки берём из шаблона (подкаст ~0.15, иначе ~0.6),
+      // а НЕ из константы — иначе музыка заглушает речь между репликами.
+      const baseLevel = musicClip.volume.value;
+      const duckLevel = Math.min(0.15, baseLevel * 0.25);
+
       const kfs: import("./types").Keyframe[] = [];
       let lastTime = 0;
       for (const m of mergedSpeech) {
-         kfs.push({ id: randId(), time: Math.max(lastTime, m.start - 0.5), value: 0.9, easing: "linear" });
-         kfs.push({ id: randId(), time: m.start, value: 0.15, easing: "linear" });
-         kfs.push({ id: randId(), time: m.end, value: 0.15, easing: "linear" });
-         kfs.push({ id: randId(), time: m.end + 1.0, value: 0.9, easing: "linear" });
+         kfs.push({ id: randId(), time: Math.max(lastTime, m.start - 0.5), value: baseLevel, easing: "linear" });
+         kfs.push({ id: randId(), time: m.start, value: duckLevel, easing: "linear" });
+         kfs.push({ id: randId(), time: m.end, value: duckLevel, easing: "linear" });
+         kfs.push({ id: randId(), time: m.end + 1.0, value: baseLevel, easing: "linear" });
          lastTime = m.end + 1.0;
       }
-      musicClip.volume = { value: 0.9, keyframes: kfs };
+      musicClip.volume = { value: baseLevel, keyframes: kfs };
     }
   }
 

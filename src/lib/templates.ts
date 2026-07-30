@@ -120,6 +120,30 @@ export const TEMPLATES: VideoTemplate[] = [
     effects: ["vignette"]
   },
   {
+    id: "minimal",
+    name: "Minimal",
+    icon: "◻️",
+    description: "Чистый монтаж без лишних эффектов",
+    pace: "medium",
+    colorGrade: "neutral",
+    transition: "crossfade",
+    kenBurns: true,
+    text: { fontFamily: "Inter", fontSize: 58, color: "#ffffff", backgroundColor: "black@0.45", align: "center", yPosition: 0.8, animation: "fade" },
+    effects: []
+  },
+  {
+    id: "luxury",
+    name: "Luxury",
+    icon: "💎",
+    description: "Премиальные тона, золотой свет",
+    pace: "slow",
+    colorGrade: "luxury",
+    transition: "smoothleft",
+    kenBurns: true,
+    text: { fontFamily: "Playfair Display", fontSize: 55, color: "#E8D5A3", backgroundColor: "transparent", strokeColor: "black", strokeWidth: 1, align: "center", yPosition: 0.82, animation: "blur-in" },
+    effects: ["glow", "vignette"]
+  },
+  {
     id: "tech",
     name: "Tech Review",
     icon: "💻",

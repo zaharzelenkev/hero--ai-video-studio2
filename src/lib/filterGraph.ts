@@ -257,10 +257,24 @@ function buildAudioChain(
   normalize: boolean,
   duration: number,
   lines: string[],
+  speed = 1,
 ): string {
   const tag = clipId.replace(/[^a-zA-Z0-9]/g, "");
   let current = id(`a${tag}_`);
   lines.push(`[${sourceRef}]atrim=start=${inPoint}:end=${outPoint},asetpts=PTS-STARTPTS[${current}]`);
+
+  // Keep audio in sync with speed-ramped video (slow-mo / time-lapse).
+  // atempo accepts 0.5..100 per filter instance, so chain filters for extremes.
+  if (speed && speed !== 1) {
+    const n = id(`a${tag}_`);
+    const chain: string[] = [];
+    let remaining = speed;
+    while (remaining > 2.0) { chain.push("atempo=2.0"); remaining /= 2.0; }
+    while (remaining < 0.5) { chain.push("atempo=0.5"); remaining /= 0.5; }
+    chain.push(`atempo=${remaining}`);
+    lines.push(`[${current}]${chain.join(",")}[${n}]`);
+    current = n;
+  }
 
   const volExpr = paramToFfmpegExpr(volume, "t");
   const next1 = id(`a${tag}_`);
@@ -370,6 +384,7 @@ export function compileProjectToFfmpeg(
           (clip as any).normalize || false,
           clip.duration,
           lines,
+          clip.speed || 1,
         );
         audioLabels.push(audioLabel);
       }
@@ -396,7 +411,7 @@ export function compileProjectToFfmpeg(
           const next = id("xfade_");
           // xfade requires inputs to have exactly the same framerate and timebase. We format them to ensure safety.
           lines.push(
-            `[${acc}]format=yuv420p,fps=30,settb=1/30[${acc}_tb];[${seg.label}]format=yuv420p,fps=30,settb=1/30[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
+            `[${acc}]format=yuv420p,fps=${fps},settb=1/${fps}[${acc}_tb];[${seg.label}]format=yuv420p,fps=${fps},settb=1/${fps}[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
           );
           acc = next;
           accDur = accDur - dur + seg.duration;
@@ -452,6 +467,7 @@ export function compileProjectToFfmpeg(
           (clip as any).normalize || false,
           clip.duration,
           lines,
+          clip.speed || 1,
         );
         audioLabels.push(audioLabel);
       }
@@ -509,7 +525,8 @@ export function compileProjectToFfmpeg(
     for (const clip of track.clips as AudioClip[]) {
       if (clip.muted) continue;
       const idx = inputs.length;
-      inputs.push({ pre: [], path: fileNameFor(clip) });
+      // Short music beds are looped to cover the whole timeline seamlessly.
+      inputs.push({ pre: clip.loop ? ["-stream_loop", "-1"] : [], path: fileNameFor(clip) });
       const audioLabel = buildAudioChain(
         `${idx}:a`,
         clip.id,
@@ -527,6 +544,7 @@ export function compileProjectToFfmpeg(
           clip.normalize || false,
           clip.duration,
         lines,
+          clip.speed || 1,
       );
       audioLabels.push(audioLabel);
     }

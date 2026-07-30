@@ -259,6 +259,8 @@ export interface VideoClip extends BaseClip {
   scaleY?: AnimParam; // Separate Y scale
   focusX?: AnimParam; // 0..1 for smart auto-framing (crop center)
   focusY?: AnimParam;
+  /** Если true, рефрейминг агрессивно зумируется к субъекту (2x+) и плавно следует за лицом/объектом. */
+  subjectLocked?: boolean;
   rotation: AnimParam; // degrees
   rotationX?: AnimParam; // 3D rotation
   rotationY?: AnimParam;
@@ -296,6 +298,8 @@ export interface AudioClip extends BaseClip {
   inPoint: number;
   outPoint: number;
   speed?: number;
+  /** Если true, источник зацикливается, чтобы покрыть всю длительность клипа (для короткой музыки). */
+  loop?: boolean;
   
   // Volume & Fade
   volume: AnimParam;
@@ -495,13 +499,16 @@ export interface Project {
   markers: Marker[];
   style: GenerationStyle;
   exportSettings: ExportSettings;
-  
+
+  /** Длительность вступления музыки (fade-in) в секундах. */
+  musicFadeIn?: number;
+
   /** Rendered proxy of the current timeline, used on the results screen. */
   previewBlobKey?: string;
-  
+
   /** Undo/redo support */
   historyIndex?: number;
-  
+
   /** Auto-save timestamp */
   lastAutoSave?: number;
 }

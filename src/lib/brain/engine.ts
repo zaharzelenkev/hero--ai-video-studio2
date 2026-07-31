@@ -374,11 +374,24 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
     }
     phrases.push(curr);
 
-    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья), но защита пауз
+    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья), но защита пауз.
+    // Правило по словам, а не по всей фразе: цепочки «ну эээ типа» — самый частый
+    // мусор говорящих голов, их вырезание и есть фирменный «плотный» автомонтаж.
+    const FILLERS = new Set([
+        "ну", "э", "ээ", "эээ", "м", "мм", "ммм", "аа", "эээ", "эх",
+        "типа", "какбы", "вот", "короче", "значит", "угу", "ага",
+    ]);
     const validPhrases = phrases.filter(p => {
         if (p.isPause) return true;
-        const t = p.text.toLowerCase().replace(/[^а-яa-z]/g, "");
-        if (/^(ну|э|ээ|м|мм|типа|какбы|вот|короче|значит)$/i.test(t)) return false;
+        const toks = p.text.toLowerCase().split(/\s+/)
+            .map((w: string) => w.replace(/[^а-яa-zё]/g, ""))
+            .filter(Boolean);
+        if (toks.length === 0) return false;
+        // вся фраза — чистые паразиты («ну эээ», «типа как бы»)
+        if (toks.every((w: string) => FILLERS.has(w))) return false;
+        // короткая по времени стоп-фраза почти без смысловых слов («ну короче да»)
+        const contentToks = toks.filter((w: string) => !FILLERS.has(w));
+        if (toks.length <= 3 && contentToks.length <= 1 && (p.end - p.start) < 1.0) return false;
         if (p.end - p.start < 0.2) return false;
         return true;
     });

@@ -737,7 +737,9 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
          const RHYTHM_WAVE = [3.6, 3.0, 1.1, 0.9, 1.2, 2.6];
          dur = RHYTHM_WAVE[waveIdx++ % RHYTHM_WAVE.length];
       } else {
-         dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 5;
+         // Аутро 3.2с: 5 секунд статики в конце убивает удержание — зритель свайпает
+         // до финального аккорда; платформа считает это проседанием ретеншна.
+         dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 3.2;
       }
       dur = Math.min(dur, beat.duration, target - currentTime);
       if (dur < 0.5) break;

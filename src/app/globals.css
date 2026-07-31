@@ -53,3 +53,17 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* Mobile / tablet adaptations */
+@media (max-width: 1023px) {
+  .lg\:hidden { display: block !important; }
+  .lg\:flex { display: flex !important; }
+  .md\:flex { display: flex !important; }
+  .md\:hidden { display: none !important; }
+}
+
+/* Prevent scroll on body when using editor */
+body.editor-active { overflow: hidden; touch-action: manipulation; }
+
+/* Touch-friendly inputs */
+input[type="range"] { touch-action: pan-y; }

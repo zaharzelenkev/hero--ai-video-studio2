@@ -1,426 +1,75 @@
 "use client";
 
 import { useProjectStore } from "@/store/projectStore";
-import type { VideoClip, BlendMode } from "@/lib/types";
-
-const EFFECT_LIBRARY = [
-  { id: "blur", name: "Blur", category: "Основные" },
-  { id: "blur-gaussian", name: "Gaussian Blur", category: "Blur" },
-  { id: "blur-motion", name: "Motion Blur", category: "Blur" },
-  { id: "blur-radial", name: "Radial Blur", category: "Blur" },
-  
-  { id: "sharpen", name: "Sharpen", category: "Основные" },
-  { id: "glow", name: "Glow", category: "Основные" },
-  { id: "vignette", name: "Vignette", category: "Основные" },
-  
-  { id: "rgb-split", name: "RGB Split", category: "Glitch" },
-  { id: "glitch-digital", name: "Digital Glitch", category: "Glitch" },
-  { id: "glitch-vhs", name: "VHS Glitch", category: "Glitch" },
-  { id: "glitch-scan", name: "Scan Lines", category: "Glitch" },
-  
-  { id: "noise-film", name: "Film Grain", category: "Texture" },
-  { id: "noise-static", name: "Static Noise", category: "Texture" },
-  
-  { id: "distortion-wave", name: "Wave Distortion", category: "Distortion" },
-  { id: "distortion-ripple", name: "Ripple", category: "Distortion" },
-  { id: "distortion-lens", name: "Lens Distortion", category: "Distortion" },
-  
-  { id: "chromatic", name: "Chromatic Aberration", category: "Lens" },
-  { id: "lens-flare", name: "Lens Flare", category: "Lens" },
-  { id: "bokeh", name: "Bokeh", category: "Lens" },
-  
-  { id: "pixelate", name: "Pixelate", category: "Stylize" },
-  { id: "posterize", name: "Posterize", category: "Stylize" },
-  { id: "halftone", name: "Halftone", category: "Stylize" },
-  { id: "edge-detect", name: "Edge Detect", category: "Stylize" },
-  
-  { id: "chroma-key", name: "Chroma Key", category: "Keying" },
-  { id: "luma-key", name: "Luma Key", category: "Keying" },
-];
-
-const BLEND_MODES: BlendMode[] = [
-  "normal",
-  "multiply",
-  "screen",
-  "overlay",
-  "darken",
-  "lighten",
-  "colorDodge",
-  "colorBurn",
-  "hardLight",
-  "softLight",
-  "difference",
-  "exclusion",
-  "hue",
-  "saturation",
-  "color",
-  "luminosity",
-];
+import type { VideoClip } from "@/lib/types";
 
 export default function EffectsPanelV2() {
   const project = useProjectStore((s) => s.project);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const updateClip = useProjectStore((s) => s.updateClip);
 
-  if (!project || !selectedClipId) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-3xl shadow-inner border border-white/5">
-          ✨
-        </div>
-        <h3 className="mb-2 text-sm font-bold text-slate-200">Ничего не выбрано</h3>
-        <p className="text-xs text-slate-500 max-w-[200px]">Выберите клип на таймлайне внизу, чтобы открыть его параметры.</p>
-      </div>
-    );
-  }
+  if (!project || !selectedClipId) return <div className="text-sm text-slate-400">Выберите клип для эффектов.</div>;
+  const clip = project.tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
+  if (!clip || (clip.type !== "video" && clip.type !== "image")) return <div className="text-sm text-slate-400">Клип не поддерживает эффекты.</div>;
+  const v = clip as VideoClip;
 
-  const clip = project.tracks
-    .flatMap((t) => t.clips)
-    .find((c) => c.id === selectedClipId) as VideoClip | undefined;
+  const setVideo = (fn: (c: VideoClip) => VideoClip) => updateClip(selectedClipId, (c: any) => fn({ ...(c as VideoClip) }));
 
-  if (!clip || (clip.type !== "video" && clip.type !== "image")) {
-    return (
-      <div className="p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Эффекты</h3>
-        <p className="text-xs text-slate-500">Эффекты доступны только для видео и фото</p>
-      </div>
-    );
-  }
-
-  const toggleEffect = (effectId: string) => {
-    updateClip(selectedClipId, (c) => {
-      if (c.type !== "video" && c.type !== "image") return c;
-      const current = (c as VideoClip).effects || [];
-      const hasEffect = current.includes(effectId);
-      return {
-        ...c,
-        effects: hasEffect ? current.filter((e) => e !== effectId) : [...current, effectId],
-      };
-    });
-  };
-
-  const activeEffects = clip.effects || [];
-  const categories = Array.from(new Set(EFFECT_LIBRARY.map((e) => e.category)));
+  const Slider = ({ label, value, min, max, step, unit, onChange }: any) => (
+    <div className="mb-2">
+      <div className="flex justify-between text-[10px] font-medium text-slate-300 mb-0.5"><span>{label}</span><span className="text-violet-300">{value}{unit || ""}</span></div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} className="w-full h-1.5 rounded-full bg-gradient-to-r from-violet-800 to-fuchsia-800 appearance-none cursor-pointer accent-violet-400" aria-label={label} />
+    </div>
+  );
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
-        Библиотека эффектов
-      </h3>
-
-      {/* Active Effects */}
-      {activeEffects.length > 0 && (
-        <div className="mb-6 rounded-lg border border-violet-500/30 bg-violet-500/10 p-3">
-          <h4 className="mb-2 text-[11px] font-semibold text-violet-300">
-            Активные эффекты ({activeEffects.length})
-          </h4>
-          <div className="space-y-1.5">
-            {activeEffects.map((effectId) => {
-              const effect = EFFECT_LIBRARY.find((e) => e.id === effectId);
-              return (
-                <div
-                  key={effectId}
-                  className="flex items-center justify-between rounded-md bg-white/5 px-2 py-1.5"
-                >
-                  <span className="text-[11px] text-slate-300">{effect?.name || effectId}</span>
-                  <button
-                    onClick={() => toggleEffect(effectId)}
-                    className="text-[10px] text-red-400 hover:text-red-300"
-                  >
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+    <div className="space-y-3">
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Маски и Размытие</h3>
+        <div className="flex gap-2 mb-2">
+          <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={v.mask?.enabled} onChange={() => setVideo(c => ({ ...c, mask: { ...c.mask!, enabled: !c.mask!.enabled } }))} aria-label="Включить маску" /> Маска</label>
+          <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={v.chroma?.enabled} onChange={() => setVideo(c => ({ ...c, chroma: { ...c.chroma!, enabled: !c.chroma!.enabled } }))} aria-label="Хромакей" /> Хромакей</label>
         </div>
-      )}
+        <Slider label="Мягкость маски (Feather)" value={v.mask?.feather ?? 0} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, mask: { ...c.mask!, feather: v } }))} />
+        <Slider label="Хрома Similarity" value={v.chroma?.similarity ?? 0.3} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, chroma: { ...c.chroma!, similarity: v } }))} />
+        <Slider label="Хрома Blend" value={v.chroma?.blend ?? 0.5} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, chroma: { ...c.chroma!, blend: v } }))} />
+      </section>
 
-      {/* Blend Mode */}
-      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-        <label className="mb-2 block text-[11px] font-medium text-slate-300">Blend Mode</label>
-        <select
-          value={clip.blendMode || "normal"}
-          onChange={(e) =>
-            updateClip(selectedClipId, (c) => ({ ...c, blendMode: e.target.value as BlendMode }))
-          }
-          className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-slate-100"
-        >
-          {BLEND_MODES.map((mode) => (
-            <option key={mode} value={mode}>
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </option>
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Трансформ и Движение</h3>
+        <Slider label="X (смещение)" value={v.x?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, x: { value: v, keyframes: [] } }))} pct />
+        <Slider label="Y (смещение)" value={v.y?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, y: { value: v, keyframes: [] } }))} pct />
+        <Slider label="Масштаб" value={v.scale?.value ?? 1} min={0.1} max={3} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, scale: { value: v, keyframes: [] } }))} />
+        <Slider label="Поворот (°)" value={v.rotation?.value ?? 0} min={-180} max={180} step={1} onChange={(v: number) => setVideo(c => ({ ...c, rotation: { value: v, keyframes: [] } }))} />
+        <Slider label="Прозрачность" value={v.opacity?.value ?? 1} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, opacity: { value: v, keyframes: [] } }))} />
+      </section>
+
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Crop (Кадрирование)</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <Slider label="Слева" value={v.cropLeft?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropLeft: { value: v, keyframes: [] } }))} pct />
+          <Slider label="Справа" value={v.cropRight?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropRight: { value: v, keyframes: [] } }))} pct />
+          <Slider label="Сверху" value={v.cropTop?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropTop: { value: v, keyframes: [] } }))} pct />
+          <Slider label="Снизу" value={v.cropBottom?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropBottom: { value: v, keyframes: [] } }))} pct />
+        </div>
+      </section>
+
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Blur / Sharpen / Motion</h3>
+        <Slider label="Размытие" value={(v as any).blurAmount ?? 0} min={0} max={10} step={0.1} onChange={() => {}} />
+        <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={v.motionBlur?.enabled} onChange={() => setVideo(c => ({ ...c, motionBlur: { ...c.motionBlur!, enabled: !c.motionBlur!.enabled } }))} aria-label="Motion Blur" /> Движение (Motion Blur)</label>
+        <Slider label="Shutter Angle" value={v.motionBlur?.shutterAngle ?? 180} min={0} max={360} step={1} onChange={(v: number) => setVideo(c => ({ ...c, motionBlur: { ...c.motionBlur!, shutterAngle: v } }))} />
+      </section>
+
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Blend Mode и Переходы</h3>
+        <div className="flex flex-wrap gap-1 mb-2">
+          {["normal","multiply","screen","overlay","darken","lighten","hardLight","softLight","difference","hue","color"].map(b => (
+            <button key={b} onClick={() => setVideo(c => ({ ...c, blendMode: b as any }))} className={`rounded-lg px-2 py-0.5 text-[10px] border transition ${v.blendMode === b ? "bg-violet-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10"}`}>{b}</button>
           ))}
-        </select>
-      </div>
-
-      {/* Motion Blur */}
-      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <label className="text-[11px] font-medium text-slate-300">Motion Blur</label>
-          <input
-            type="checkbox"
-            checked={clip.motionBlur?.enabled || false}
-            onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({
-                ...c,
-                motionBlur: {
-                  enabled: e.target.checked,
-                  samples: 8,
-                  shutterAngle: 180,
-                  ...(c as VideoClip).motionBlur,
-                },
-              }))
-            }
-            className="h-4 w-4 accent-violet-500"
-          />
         </div>
-
-        {clip.motionBlur?.enabled && (
-          <div className="space-y-2">
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">
-                Samples: {clip.motionBlur.samples}
-              </label>
-              <input
-                type="range"
-                min={2}
-                max={32}
-                step={2}
-                value={clip.motionBlur.samples}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    motionBlur: { ...(c as VideoClip).motionBlur!, samples: parseInt(e.target.value) },
-                  }))
-                }
-                className="h-1 w-full accent-violet-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">
-                Shutter Angle: {clip.motionBlur.shutterAngle}°
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={360}
-                step={15}
-                value={clip.motionBlur.shutterAngle}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    motionBlur: { ...(c as VideoClip).motionBlur!, shutterAngle: parseInt(e.target.value) },
-                  }))
-                }
-                className="h-1 w-full accent-violet-500"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Chroma Key */}
-      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <label className="text-[11px] font-medium text-slate-300">Chroma Key (Green Screen)</label>
-          <input
-            type="checkbox"
-            checked={clip.chroma.enabled}
-            onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({
-                ...c,
-                chroma: { ...(c as VideoClip).chroma, enabled: e.target.checked },
-              }))
-            }
-            className="h-4 w-4 accent-violet-500"
-          />
-        </div>
-
-        {clip.chroma.enabled && (
-          <div className="space-y-2">
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">Цвет ключа</label>
-              <input
-                type="color"
-                value={clip.chroma.color}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    chroma: { ...(c as VideoClip).chroma, color: e.target.value },
-                  }))
-                }
-                className="h-8 w-full rounded-md border border-white/10"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">
-                Чувствительность: {(clip.chroma.similarity * 100).toFixed(0)}%
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={clip.chroma.similarity}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    chroma: { ...(c as VideoClip).chroma, similarity: parseFloat(e.target.value) },
-                  }))
-                }
-                className="h-1 w-full accent-green-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">
-                Смягчение краев: {(clip.chroma.blend * 100).toFixed(0)}%
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={clip.chroma.blend}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    chroma: { ...(c as VideoClip).chroma, blend: parseFloat(e.target.value) },
-                  }))
-                }
-                className="h-1 w-full accent-green-500"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Mask */}
-      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <label className="text-[11px] font-medium text-slate-300">Маска</label>
-          <input
-            type="checkbox"
-            checked={clip.mask.enabled}
-            onChange={(e) =>
-              updateClip(selectedClipId, (c) => ({
-                ...c,
-                mask: { ...(c as VideoClip).mask, enabled: e.target.checked },
-              }))
-            }
-            className="h-4 w-4 accent-violet-500"
-          />
-        </div>
-
-        {clip.mask.enabled && (
-          <div className="space-y-2">
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">Форма</label>
-              <select
-                value={clip.mask.shape}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    mask: { ...(c as VideoClip).mask, shape: e.target.value as "rect" | "ellipse" | "polygon" },
-                  }))
-                }
-                className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs text-slate-100"
-              >
-                <option value="rect">Прямоугольник</option>
-                <option value="ellipse">Эллипс</option>
-                <option value="polygon">Полигон</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] text-slate-400">
-                Размытие (Feather): {clip.mask.feather}px
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={clip.mask.feather}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    mask: { ...(c as VideoClip).mask, feather: parseInt(e.target.value) },
-                  }))
-                }
-                className="h-1 w-full accent-violet-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="invert-mask"
-                checked={clip.mask.inverted}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    mask: { ...(c as VideoClip).mask, inverted: e.target.checked },
-                  }))
-                }
-                className="h-4 w-4 accent-violet-500"
-              />
-              <label htmlFor="invert-mask" className="text-[10px] text-slate-300">
-                Инвертировать маску
-              </label>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Effect Library */}
-      <div className="mb-4">
-        <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Доступные эффекты</h4>
-
-        {categories.map((category) => (
-          <div key={category} className="mb-4">
-            <h5 className="mb-2 text-[10px] font-medium text-slate-400">{category}</h5>
-            <div className="grid grid-cols-2 gap-2">
-              {EFFECT_LIBRARY.filter((e) => e.category === category).map((effect) => {
-                const isActive = activeEffects.includes(effect.id);
-                return (
-                  <button
-                    key={effect.id}
-                    onClick={() => toggleEffect(effect.id)}
-                    className={`rounded-lg border px-2 py-2 text-[10px] font-medium transition-colors ${
-                      isActive
-                        ? "border-violet-500/50 bg-violet-500/20 text-violet-300"
-                        : "border-white/10 bg-white/[0.02] text-slate-400 hover:bg-white/5"
-                    }`}
-                  >
-                    {effect.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Clear All */}
-      {activeEffects.length > 0 && (
-        <button
-          onClick={() =>
-            updateClip(selectedClipId, (c) => ({
-              ...c,
-              effects: [],
-              blendMode: "normal",
-              motionBlur: { enabled: false, samples: 8, shutterAngle: 180 },
-            }))
-          }
-          className="w-full rounded-lg border border-red-400/30 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500/10"
-        >
-          Очистить все эффекты
-        </button>
-      )}
+        <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={!!v.transitionIn?.duration} onChange={() => setVideo(c => ({ ...c, transitionIn: { type: "crossfade", duration: 0.3 } }))} aria-label="Переход" /> Переход на вход (Crossfade 0.3с)</label>
+      </section>
     </div>
   );
 }

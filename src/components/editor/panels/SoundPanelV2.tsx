@@ -1,386 +1,62 @@
 "use client";
 
 import { useProjectStore } from "@/store/projectStore";
-import type { AudioClip, VideoClip } from "@/lib/types";
-import ParamControl from "../ParamControl";
+import type { AudioClip } from "@/lib/types";
 
 export default function SoundPanelV2() {
   const project = useProjectStore((s) => s.project);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const updateClip = useProjectStore((s) => s.updateClip);
 
-  if (!project || !selectedClipId) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-3xl shadow-inner border border-white/5">
-          🎵
-        </div>
-        <h3 className="mb-2 text-sm font-bold text-slate-200">Ничего не выбрано</h3>
-        <p className="text-xs text-slate-500 max-w-[200px]">Выберите клип на таймлайне внизу, чтобы открыть его параметры.</p>
-      </div>
-    );
-  }
+  if (!project || !selectedClipId) return <div className="text-sm text-slate-400">Выберите аудиоклип для работы со звуком.</div>;
+  const clip = project.tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
+  if (!clip || clip.type !== "audio") return <div className="text-sm text-slate-400">Выберите аудиоклип.</div>;
+  const a = clip as AudioClip;
 
-  const clip = project.tracks
-    .flatMap((t) => t.clips)
-    .find((c) => c.id === selectedClipId) as (AudioClip | VideoClip) | undefined;
+  const setAudio = (fn: (c: AudioClip) => AudioClip) => updateClip(selectedClipId, (c: any) => fn({ ...(c as AudioClip) }));
 
-  if (!clip || (clip.type !== "audio" && clip.type !== "video")) {
-    return (
-      <div className="p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Звук</h3>
-        <p className="text-xs text-slate-500">Редактирование звука доступно для аудио и видео</p>
-      </div>
-    );
-  }
-
-  const isAudio = clip.type === "audio";
+  const Slider = ({ label, value, min, max, step, onChange }: any) => (
+    <div className="mb-2">
+      <div className="flex justify-between text-[10px] font-medium text-slate-300 mb-0.5"><span>{label}</span><span className="text-violet-300">{value}</span></div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} className="w-full h-1.5 rounded-full bg-gradient-to-r from-violet-800 to-fuchsia-800 appearance-none cursor-pointer accent-violet-400" aria-label={label} />
+    </div>
+  );
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
-        Профессиональный аудиоредактор
-      </h3>
+    <div className="space-y-3">
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Громкость и Фейды</h3>
+        <Slider label="Громкость" value={a.volume?.value ?? 1} min={0} max={2} step={0.01} onChange={(v: number) => setAudio(c => ({ ...c, volume: { value: v, keyframes: [] } }))} />
+        <Slider label="Fade In (сек)" value={a.fadeIn ?? 0} min={0} max={3} step={0.05} onChange={(v: number) => setAudio(c => ({ ...c, fadeIn: v }))} />
+        <Slider label="Fade Out (сек)" value={a.fadeOut ?? 0} min={0} max={3} step={0.05} onChange={(v: number) => setAudio(c => ({ ...c, fadeOut: v }))} />
+      </section>
 
-      {/* Volume & Fade */}
-      <div className="mb-6">
-        <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Громкость и затухание</h4>
-        
-        <ParamControl
-          label="Громкость"
-          value={clip.volume}
-          min={0}
-          max={2}
-          onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, volume: v }))}
-          unit="%"
-          displayFn={(v) => Math.round(v * 100)}
-        />
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Эквалайзер</h3>
+        <Slider label="Low (Низкие)" value={a.eqLow ?? 0} min={-15} max={15} step={0.5} onChange={(v: number) => setAudio(c => ({ ...c, eqLow: v }))} />
+        <Slider label="Mid (Средние)" value={a.eqMid ?? 0} min={-15} max={15} step={0.5} onChange={(v: number) => setAudio(c => ({ ...c, eqMid: v }))} />
+        <Slider label="High (Высокие)" value={a.eqHigh ?? 0} min={-15} max={15} step={0.5} onChange={(v: number) => setAudio(c => ({ ...c, eqHigh: v }))} />
+      </section>
 
-        {isAudio && (
-          <>
-            <div className="mb-2">
-              <label className="mb-1 block text-[11px] text-slate-400">Fade In (сек)</label>
-              <input
-                type="number"
-                min={0}
-                max={10}
-                step={0.1}
-                value={(clip as AudioClip).fadeIn}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({ ...c, fadeIn: parseFloat(e.target.value) || 0 }))
-                }
-                className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-slate-100"
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="mb-1 block text-[11px] text-slate-400">Fade Out (сек)</label>
-              <input
-                type="number"
-                min={0}
-                max={10}
-                step={0.1}
-                value={(clip as AudioClip).fadeOut}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({ ...c, fadeOut: parseFloat(e.target.value) || 0 }))
-                }
-                className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-slate-100"
-              />
-            </div>
-          </>
-        )}
-
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="muted"
-            checked={clip.muted}
-            onChange={(e) => updateClip(selectedClipId, (c) => ({ ...c, muted: e.target.checked }))}
-            className="h-4 w-4 accent-violet-500"
-          />
-          <label htmlFor="muted" className="text-xs text-slate-300">
-            Отключить звук
-          </label>
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Профессиональные инструменты</h3>
+        <div className="flex flex-wrap gap-2 mb-2">
+          <button onClick={() => setAudio(c => ({ ...c, denoise: !c.denoise }))} className={`rounded-lg px-3 py-1.5 text-xs font-bold border transition ${a.denoise ? "bg-rose-600 text-white border-rose-400 shadow-lg shadow-rose-500/30" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>Шумоподавление</button>
+          <button onClick={() => setAudio(c => ({ ...c, normalize: !c.normalize }))} className={`rounded-lg px-3 py-1.5 text-xs font-bold border transition ${a.normalize ? "bg-amber-600 text-white border-amber-400 shadow-lg shadow-amber-500/30" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>Нормализация</button>
+          <button onClick={() => setAudio(c => ({ ...c, loop: !c.loop }))} className={`rounded-lg px-3 py-1.5 text-xs font-bold border transition ${a.loop ? "bg-emerald-600 text-white border-emerald-400 shadow-lg" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>Зациклить</button>
         </div>
-      </div>
+        <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={a.muted} onChange={() => setAudio(c => ({ ...c, muted: !c.muted }))} aria-label="Mute" /> Приглушить</label>
+        <div className="text-[10px] text-slate-500 mt-1">Нормализация громкости автоматически подстраивает пики под -1 dBTP.</div>
+      </section>
 
-      {/* Equalizer */}
-      {isAudio && (
-        <div className="mb-6">
-          <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Эквалайзер (3-полосный)</h4>
-          
-          <div className="mb-2">
-            <label className="mb-1 block text-[11px] text-slate-400">
-              Низкие частоты: {(clip as AudioClip).eqLow > 0 ? "+" : ""}{(clip as AudioClip).eqLow} dB
-            </label>
-            <input
-              type="range"
-              min={-15}
-              max={15}
-              step={0.5}
-              value={(clip as AudioClip).eqLow}
-              onChange={(e) =>
-                updateClip(selectedClipId, (c) => ({ ...c, eqLow: parseFloat(e.target.value) }))
-              }
-              className="h-1 w-full accent-green-500"
-            />
-          </div>
-
-          <div className="mb-2">
-            <label className="mb-1 block text-[11px] text-slate-400">
-              Средние частоты: {(clip as AudioClip).eqMid > 0 ? "+" : ""}{(clip as AudioClip).eqMid} dB
-            </label>
-            <input
-              type="range"
-              min={-15}
-              max={15}
-              step={0.5}
-              value={(clip as AudioClip).eqMid}
-              onChange={(e) =>
-                updateClip(selectedClipId, (c) => ({ ...c, eqMid: parseFloat(e.target.value) }))
-              }
-              className="h-1 w-full accent-green-500"
-            />
-          </div>
-
-          <div className="mb-2">
-            <label className="mb-1 block text-[11px] text-slate-400">
-              Высокие частоты: {(clip as AudioClip).eqHigh > 0 ? "+" : ""}{(clip as AudioClip).eqHigh} dB
-            </label>
-            <input
-              type="range"
-              min={-15}
-              max={15}
-              step={0.5}
-              value={(clip as AudioClip).eqHigh}
-              onChange={(e) =>
-                updateClip(selectedClipId, (c) => ({ ...c, eqHigh: parseFloat(e.target.value) }))
-              }
-              className="h-1 w-full accent-green-500"
-            />
-          </div>
+      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Компрессор</h3>
+        <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={!!a.compressor?.enabled} onChange={() => setAudio(c => ({ ...c, compressor: { ...(c.compressor || { enabled: false, threshold: -20, ratio: 4, attack: 5, release: 50 }), enabled: !(c.compressor?.enabled ?? false) } }))} aria-label="Компрессор" /> Включить компрессор</label>
+        <div className="flex gap-2 mt-2">
+          <Slider label="Threshold dB" value={a.compressor?.threshold ?? -20} min={-60} max={0} step={1} onChange={(v: number) => setAudio(c => ({ ...c, compressor: { ...(c.compressor || { enabled: true, threshold: -20, ratio: 4, attack: 5, release: 50 }), threshold: v } }))} />
+          <Slider label="Ratio" value={a.compressor?.ratio ?? 4} min={1} max={20} step={0.5} onChange={(v: number) => setAudio(c => ({ ...c, compressor: { ...(c.compressor || { enabled: true, threshold: -20, ratio: 4, attack: 5, release: 50 }), ratio: v } }))} />
         </div>
-      )}
-
-      {/* Audio Effects */}
-      {isAudio && (
-        <div className="mb-6">
-          <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Аудиоэффекты</h4>
-          
-          <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-[11px] font-medium text-slate-300">Шумоподавление</label>
-                <p className="text-[9px] text-slate-500">Убирает фоновый шум</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={(clip as AudioClip).denoise}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({ ...c, denoise: e.target.checked }))
-                }
-                className="h-4 w-4 accent-violet-500"
-              />
-            </div>
-
-            {(clip as AudioClip).denoise && (
-              <div className="ml-2">
-                <label className="mb-1 block text-[10px] text-slate-400">
-                  Уровень: {((clip as AudioClip).denoiseAmount || 0.5) * 100}%
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={(clip as AudioClip).denoiseAmount || 0.5}
-                  onChange={(e) =>
-                    updateClip(selectedClipId, (c) => ({
-                      ...c,
-                      denoiseAmount: parseFloat(e.target.value),
-                    }))
-                  }
-                  className="h-1 w-full accent-violet-500"
-                />
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-[11px] font-medium text-slate-300">Нормализация</label>
-                <p className="text-[9px] text-slate-500">Выравнивает громкость</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={(clip as AudioClip).normalize || false}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({ ...c, normalize: e.target.checked }))
-                }
-                className="h-4 w-4 accent-violet-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-[11px] font-medium text-slate-300">Voice Enhance</label>
-                <p className="text-[9px] text-slate-500">Улучшает голос</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={(clip as AudioClip).voiceEnhance || false}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({ ...c, voiceEnhance: e.target.checked }))
-                }
-                className="h-4 w-4 accent-violet-500"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Compressor */}
-      {isAudio && (
-        <div className="mb-6">
-          <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Компрессор</h4>
-          
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <div className="mb-3 flex items-center justify-between">
-              <label className="text-[11px] font-medium text-slate-300">Включить компрессор</label>
-              <input
-                type="checkbox"
-                checked={(clip as AudioClip).compressor?.enabled || false}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    compressor: {
-                      enabled: e.target.checked,
-                      threshold: -20,
-                      ratio: 4,
-                      attack: 5,
-                      release: 100,
-                      ...(c as AudioClip).compressor,
-                    },
-                  }))
-                }
-                className="h-4 w-4 accent-violet-500"
-              />
-            </div>
-
-            {(clip as AudioClip).compressor?.enabled && (
-              <div className="space-y-2">
-                <div>
-                  <label className="mb-1 block text-[10px] text-slate-400">
-                    Порог (Threshold): {(clip as AudioClip).compressor!.threshold} dB
-                  </label>
-                  <input
-                    type="range"
-                    min={-60}
-                    max={0}
-                    step={1}
-                    value={(clip as AudioClip).compressor!.threshold}
-                    onChange={(e) =>
-                      updateClip(selectedClipId, (c) => ({
-                        ...c,
-                        compressor: { ...(c as AudioClip).compressor!, threshold: parseFloat(e.target.value) },
-                      }))
-                    }
-                    className="h-1 w-full accent-violet-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[10px] text-slate-400">
-                    Сжатие (Ratio): {(clip as AudioClip).compressor!.ratio}:1
-                  </label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={20}
-                    step={0.5}
-                    value={(clip as AudioClip).compressor!.ratio}
-                    onChange={(e) =>
-                      updateClip(selectedClipId, (c) => ({
-                        ...c,
-                        compressor: { ...(c as AudioClip).compressor!, ratio: parseFloat(e.target.value) },
-                      }))
-                    }
-                    className="h-1 w-full accent-violet-500"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Pan Control */}
-      {isAudio && (
-        <div className="mb-6">
-          <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Панорама</h4>
-          
-          <ParamControl
-            label="Баланс L/R"
-            value={(clip as AudioClip).pan || { value: 0, keyframes: [] }}
-            min={-1}
-            max={1}
-            onChange={(v) => updateClip(selectedClipId, (c) => ({ ...c, pan: v }))}
-            displayFn={(v) => (v === 0 ? "Center" : v < 0 ? `L ${Math.abs(v * 100).toFixed(0)}%` : `R ${(v * 100).toFixed(0)}%`)}
-          />
-        </div>
-      )}
-
-      {/* Remove Silence */}
-      {isAudio && (
-        <div className="mb-6">
-          <h4 className="mb-3 text-[11px] font-semibold text-slate-300">Удаление тишины</h4>
-          
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-            <div className="mb-3 flex items-center justify-between">
-              <label className="text-[11px] font-medium text-slate-300">Убрать тишину</label>
-              <input
-                type="checkbox"
-                checked={(clip as AudioClip).removeSilence?.enabled || false}
-                onChange={(e) =>
-                  updateClip(selectedClipId, (c) => ({
-                    ...c,
-                    removeSilence: {
-                      enabled: e.target.checked,
-                      threshold: -40,
-                      minDuration: 0.5,
-                      ...(c as AudioClip).removeSilence,
-                    },
-                  }))
-                }
-                className="h-4 w-4 accent-violet-500"
-              />
-            </div>
-
-            {(clip as AudioClip).removeSilence?.enabled && (
-              <div className="space-y-2">
-                <div>
-                  <label className="mb-1 block text-[10px] text-slate-400">
-                    Порог: {(clip as AudioClip).removeSilence!.threshold} dB
-                  </label>
-                  <input
-                    type="range"
-                    min={-60}
-                    max={-20}
-                    step={1}
-                    value={(clip as AudioClip).removeSilence!.threshold}
-                    onChange={(e) =>
-                      updateClip(selectedClipId, (c) => ({
-                        ...c,
-                        removeSilence: { ...(c as AudioClip).removeSilence!, threshold: parseFloat(e.target.value) },
-                      }))
-                    }
-                    className="h-1 w-full accent-violet-500"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      </section>
     </div>
   );
 }

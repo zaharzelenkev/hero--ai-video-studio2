@@ -1,749 +1,138 @@
 "use client";
 
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useProjectStore } from "@/store/projectStore";
-import { getAssetWaveform } from "./mediaCache";
-import { createTrack } from "@/lib/factories";
-import type { Clip, Track } from "@/lib/types";
-
-const TRACK_HEIGHT = 64;
-const RULER_HEIGHT = 28;
-const MIN_ZOOM = 20;
-const MAX_ZOOM = 400;
-
-interface DragState {
-  clipId: string;
-  mode: "move" | "trim-left" | "trim-right";
-  startX: number;
-  startY: number;
-  originalClip: Clip;
-  originalTrackId: string;
-}
-
-interface Selection {
-  clipIds: Set<string>;
-  groupId?: string;
-}
-
-function trackColor(track: Track) {
-  if (track.type === "video") return "from-blue-600/70 to-blue-700/70 border-blue-400/40";
-  if (track.type === "audio") return "from-green-600/70 to-green-700/70 border-green-400/40";
-  if (track.type === "subtitle") return "from-purple-600/70 to-purple-700/70 border-purple-400/40";
-  return "from-amber-600/70 to-amber-700/70 border-amber-400/40";
-}
-
-function clipLabel(clip: Clip) {
-  if (clip.type === "text") return `📝 ${clip.text.slice(0, 18)}`;
-  if (clip.type === "subtitle") return `💬 ${clip.text.slice(0, 18)}`;
-  if (clip.type === "audio") return `🎵 ${clip.name}`;
-  if (clip.type === "image") return `🖼️ ${clip.name}`;
-  return `🎬 ${clip.name}`;
-}
-
-
-
-
-function ClipWaveform({ clip, asset, trackType }: { clip: Clip, asset: import("@/lib/types").MediaAsset, trackType: string }) {
-  const [peaks, setPeaks] = useState<number[] | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    getAssetWaveform(asset).then(p => { if (active) setPeaks(p); }).catch(() => {});
-    return () => { active = false; };
-  }, [asset]);
-
-  if (!peaks || peaks.length === 0) return null;
-
-  const points = peaks.map((p, i) => `${(i / peaks.length) * 100},${100 - p * 100}`).join(" ");
-  const polygon = `0,100 ${points} 100,100`;
-
-  const inPt = "inPoint" in clip ? (clip as any).inPoint : 0;
-  const assetDur = asset.duration || clip.duration;
-  if (assetDur <= 0 || clip.duration <= 0) return null;
-
-  const widthPct = (assetDur / clip.duration) * 100;
-  const leftPct = -(inPt / clip.duration) * 100;
-  
-  const isVideo = trackType === "video";
-
-  return (
-    <div className={`pointer-events-none absolute left-0 w-full overflow-hidden opacity-40 ${isVideo ? "bottom-0 h-[40%]" : "top-0 h-full opacity-60"}`}>
-      <svg
-        preserveAspectRatio="none"
-        viewBox="0 0 100 100"
-        style={{ position: 'absolute', height: '100%', width: `${widthPct}%`, left: `${leftPct}%`, bottom: 0 }}
-      >
-        <polygon points={polygon} fill="currentColor" className="text-white mix-blend-overlay" />
-      </svg>
-    </div>
-  );
-}
-
-function PlayheadTimeDisplay() {
-  const playhead = useProjectStore((s) => s.playhead);
-  return (
-    <span className="font-mono text-slate-300">
-      {Math.floor(playhead / 60)}:{String(Math.floor(playhead % 60)).padStart(2, "0")}.{String(Math.floor((playhead % 1) * 100)).padStart(2, "0")}
-    </span>
-  );
-}
-
-function PlayheadIndicator({ pxPerSecond }: { pxPerSecond: number }) {
-  const playhead = useProjectStore((s) => s.playhead);
-  const setPlayhead = useProjectStore((s) => s.setPlayhead);
-  const setPlaying = useProjectStore((s) => s.setPlaying);
-  const isPlaying = useProjectStore((s) => s.isPlaying);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    e.stopPropagation();
-    if (isPlaying) setPlaying(false);
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-
-    const onMove = (moveEv: PointerEvent) => {
-      // Find the ruler's left boundary
-      const ruler = document.getElementById("timeline-ruler");
-      if (!ruler) return;
-      const rect = ruler.getBoundingClientRect();
-      const x = moveEv.clientX - rect.left;
-      setPlayhead(Math.max(0, x / pxPerSecond));
-    };
-
-    const onUp = (upEv: PointerEvent) => {
-      el.releasePointerCapture(upEv.pointerId);
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerup", onUp);
-    };
-
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerup", onUp);
-  };
-
-  return (
-    <div
-      className="absolute top-0 z-30 h-full w-px bg-gradient-to-b from-fuchsia-400 to-fuchsia-600"
-      style={{ left: 180 + playhead * pxPerSecond }}
-    >
-      <div onPointerDown={handlePointerDown} className="h-4 w-4 -translate-x-1/2 cursor-grab active:cursor-grabbing rounded-full bg-fuchsia-400 shadow-lg shadow-fuchsia-500/50 hover:scale-125 transition-transform" />
-      <div className="absolute left-1/2 top-4 -translate-x-1/2 text-[9px] font-bold text-fuchsia-300">
-        <PlayheadTimeDisplay />
-      </div>
-    </div>
-  );
-}
+import type { Track, Clip, VideoClip } from "@/lib/types";
 
 export default function TimelineV2() {
   const project = useProjectStore((s) => s.project);
+  const playhead = useProjectStore((s) => s.playhead);
   const pxPerSecond = useProjectStore((s) => s.pxPerSecond);
-  const setZoom = useProjectStore((s) => s.setZoom);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const selectClip = useProjectStore((s) => s.selectClip);
-  const setPlayhead = useProjectStore((s) => s.setPlayhead);
-  const updateClip = useProjectStore((s) => s.updateClip);
-  const updateProject = useProjectStore((s) => s.updateProject);
-  const removeClip = useProjectStore((s) => s.removeClip);
-  const duplicateClip = useProjectStore((s) => s.duplicateClip);
   const splitClipAt = useProjectStore((s) => s.splitClipAt);
-  const detachAudio = useProjectStore((s) => s.detachAudio);
-  const toggleTrackProp = useProjectStore((s) => s.toggleTrackProp);
-  const persist = useProjectStore((s) => s.persist);
+  const updateClip = useProjectStore((s) => s.updateClip);
+  const duration = project ? project.duration : 60;
+  const tracks = project ? project.tracks : [];
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
-  const [selection, setSelection] = useState<Selection>({ clipIds: new Set() });
-  const [snapEnabled, setSnapEnabled] = useState(true);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; clipId?: string } | null>(null);
-  const [magnetEnabled, setMagnetEnabled] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragInfo, setDragInfo] = useState<{ trackId: string; clipId: string; startX: number; originalStart: number } | null>(null);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
-  // Snap to grid (every 0.5 seconds when zoomed in)
-  const snapToGrid = useCallback(
-    (time: number) => {
-      if (!snapEnabled) return time;
-      const gridSize = pxPerSecond > 100 ? 0.1 : pxPerSecond > 50 ? 0.5 : 1;
-      return Math.round(time / gridSize) * gridSize;
-    },
-    [snapEnabled, pxPerSecond]
-  );
+  const totalWidth = Math.max(600, duration * pxPerSecond + 200);
 
-  // Magnet snap to other clips and playhead
-  const magnetSnap = useCallback(
-    (time: number, excludeClipId?: string) => {
-      if (!magnetEnabled || !project) return time;
-      
-      const threshold = 10 / pxPerSecond; // 10px threshold
-      const snapPoints: number[] = [useProjectStore.getState().playhead];
-      
-      // Add all clip boundaries as snap points
-      project.tracks.forEach((track) => {
-        track.clips.forEach((clip) => {
-          if (clip.id !== excludeClipId) {
-            snapPoints.push(clip.start);
-            snapPoints.push(clip.start + clip.duration);
-          }
-        });
-      });
-      
-      // Find closest snap point
-      for (const point of snapPoints) {
-        if (Math.abs(time - point) < threshold) {
-          return point;
-        }
-      }
-      
-      return time;
-    },
-    [magnetEnabled, project, pxPerSecond]
-  );
-
-  const onClipPointerDown = useCallback(
-    (e: React.PointerEvent, clip: Clip, mode: "move" | "trim-left" | "trim-right") => {
-      e.stopPropagation();
-      const track = project?.tracks.find((t) => t.id === clip.trackId);
-      if (track?.locked) {
-        selectClip(clip.id);
-        return;
-      }
-      
-      if (e.shiftKey && mode === "move") {
-        // Multi-select
-        const newSelection = new Set(selection.clipIds);
-        if (newSelection.has(clip.id)) {
-          newSelection.delete(clip.id);
-        } else {
-          newSelection.add(clip.id);
-        }
-        setSelection({ clipIds: newSelection });
-      } else {
-        selectClip(clip.id);
-        setSelection({ clipIds: new Set([clip.id]) });
-      }
-      
-      setDrag({
-        clipId: clip.id,
-        mode,
-        startX: e.clientX,
-        startY: e.clientY,
-        originalClip: clip,
-        originalTrackId: clip.trackId,
-      });
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    [selectClip, project, selection]
-  );
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!drag || !project) return;
-      
-      const dxSec = (e.clientX - drag.startX) / pxPerSecond;
-      const dyPx = e.clientY - drag.startY;
-      
-      updateClip(drag.clipId, (c) => {
-        if (drag.mode === "move") {
-          let newStart = snapToGrid(drag.originalClip.start + dxSec);
-          newStart = magnetSnap(newStart, drag.clipId);
-          newStart = Math.max(0, newStart);
-          
-          // Check if moved to different track
-          const trackIndex = Math.floor(Math.abs(dyPx) / TRACK_HEIGHT);
-          if (Math.abs(dyPx) > TRACK_HEIGHT / 2) {
-            const tracksOfType = project.tracks.filter((t) => t.type === c.type);
-            const currentIndex = tracksOfType.findIndex((t) => t.id === drag.originalTrackId);
-            const direction = dyPx > 0 ? 1 : -1;
-            const newIndex = currentIndex + direction * (trackIndex > 0 ? 1 : 0);
-            
-            if (newIndex >= 0 && newIndex < tracksOfType.length) {
-              const newTrack = tracksOfType[newIndex];
-              return { ...c, start: newStart, trackId: newTrack.id };
-            }
-          }
-          
-          return { ...c, start: newStart };
-        }
-        
-        if (drag.mode === "trim-right") {
-          const newDuration = Math.max(0.1, drag.originalClip.duration + dxSec);
-          if ("outPoint" in c && "inPoint" in drag.originalClip) {
-            const origAny = drag.originalClip as Clip & { inPoint: number; outPoint: number };
-            return { ...c, duration: newDuration, outPoint: origAny.inPoint + newDuration } as Clip;
-          }
-          return { ...c, duration: newDuration };
-        }
-        
-        // trim-left
-        const maxShift = drag.originalClip.duration - 0.1;
-        const shift = Math.max(-drag.originalClip.start, Math.min(maxShift, dxSec));
-        if ("inPoint" in drag.originalClip) {
-          const origAny = drag.originalClip as Clip & { inPoint: number };
-          return {
-            ...c,
-            start: drag.originalClip.start + shift,
-            duration: drag.originalClip.duration - shift,
-            inPoint: Math.max(0, origAny.inPoint + shift),
-          } as Clip;
-        }
-        return { ...c, start: drag.originalClip.start + shift, duration: drag.originalClip.duration - shift };
-      });
-    },
-    [drag, pxPerSecond, updateClip, snapToGrid, magnetSnap, project]
-  );
-
-  const endDrag = useCallback(() => {
-    if (drag) persist();
-    setDrag(null);
-  }, [drag, persist]);
-
-
-  const handleRulerPointerDown = (e: React.PointerEvent) => {
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    
-    const updatePlayhead = (clientX: number) => {
-      const rect = el.getBoundingClientRect();
-      const x = clientX - rect.left;
-      setPlayhead(Math.max(0, x / pxPerSecond));
-    };
-    
-    updatePlayhead(e.clientX);
-    
-    const onMove = (moveEv: PointerEvent) => {
-      updatePlayhead(moveEv.clientX);
-    };
-    
-    const onUp = (upEv: PointerEvent) => {
-      el.releasePointerCapture(upEv.pointerId);
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerup", onUp);
-    };
-    
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerup", onUp);
+  const getTimeFromX = (clientX: number) => {
+    if (!containerRef.current) return 0;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = clientX - rect.left - 80; // timeline offset
+    return Math.max(0, Math.min(duration, x / pxPerSecond));
   };
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
-      
-      // Delete selected clips
-      if ((e.key === "Delete" || e.key === "Backspace") && selection.clipIds.size > 0) {
-        e.preventDefault();
-        selection.clipIds.forEach((id) => removeClip(id));
-        setSelection({ clipIds: new Set() });
-      }
-      
-      // Duplicate (Cmd/Ctrl + D)
-      if ((e.metaKey || e.ctrlKey) && e.key === "d" && selectedClipId) {
-        e.preventDefault();
-        duplicateClip(selectedClipId);
-      }
-      
-      // Split at playhead (S)
-      if (e.key === "s" && selectedClipId) {
-        e.preventDefault();
-        splitClipAt(selectedClipId, useProjectStore.getState().playhead);
-      }
-      
-      // Toggle snap (N)
-      if (e.key === "n") {
-        e.preventDefault();
-        setSnapEnabled((v) => !v);
-      }
-      
-      // Toggle magnet (M)
-      if (e.key === "m") {
-        e.preventDefault();
-        setMagnetEnabled((v) => !v);
-      }
-    },
-    [selection, selectedClipId, removeClip, duplicateClip, splitClipAt]
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const t = getTimeFromX(e.clientX);
+    setHoverTime(t);
+    if (dragInfo) {
+      const delta = (e.clientX - dragInfo.startX) / pxPerSecond;
+      const newStart = Math.max(0, dragInfo.originalStart + delta);
+      // Update clip start in store
+      updateClip(dragInfo.clipId, (c: Clip) => ({ ...c, start: newStart }));
+    }
+  }, [dragInfo, pxPerSecond, updateClip]);
+
+  const handleMouseUp = useCallback(() => {
+    setDragInfo(null);
+  }, []);
+
+  useEffect(() => {
+    if (dragInfo) {
+      window.addEventListener("mousemove", handleMouseMove as any);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove as any);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragInfo, handleMouseMove, handleMouseUp]);
+
+
+  if (!project) return (
+    <div className="h-full flex items-center justify-center text-slate-500 text-sm">Загрузка проекта...</div>
   );
 
-  useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
-
-  // Context menu handlers
-  const handleContextMenu = useCallback((e: React.MouseEvent, clipId?: string) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, clipId });
-  }, []);
-
-  useEffect(() => {
-    const closeContextMenu = () => setContextMenu(null);
-    window.addEventListener("click", closeContextMenu);
-    return () => window.removeEventListener("click", closeContextMenu);
-  }, []);
-
-  if (!project) return null;
-
-  const totalWidth = Math.max(1200, (project.duration + 20) * pxPerSecond);
-  const selectedClip = project.tracks.flatMap((t) => t.clips).find((c) => c.id === selectedClipId);
-  const markers = project.markers || [];
-
   return (
-    <div className="flex h-full flex-col border-t border-white/10 bg-[#0d0d16]">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() =>
-              updateProject((p) => ({
-                ...p,
-                tracks: [...p.tracks, createTrack("video", `Видео ${p.tracks.filter((t) => t.type === "video").length + 1}`)],
-              }))
-            }
-            className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
-            title="Добавить видеодорожку"
-          >
-            ➕ Видео
-          </button>
-          <button
-            onClick={() =>
-              updateProject((p) => ({
-                ...p,
-                tracks: [...p.tracks, createTrack("audio", `Аудио ${p.tracks.filter((t) => t.type === "audio").length + 1}`)],
-              }))
-            }
-            className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
-            title="Добавить аудиодорожку"
-          >
-            ➕ Аудио
-          </button>
-          <button
-            onClick={() =>
-              updateProject((p) => ({
-                ...p,
-                tracks: [...p.tracks, createTrack("text", `Текст ${p.tracks.filter((t) => t.type === "text").length + 1}`)],
-              }))
-            }
-            className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
-            title="Добавить текстовую дорожку"
-          >
-            ➕ Текст
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {selectedClip && (
-            <>
-              <button
-                onClick={() => splitClipAt(selectedClip.id, useProjectStore.getState().playhead)}
-                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
-                title="Разрезать на плейхеде (S)"
-              >
-                ✂️ Разрезать
-              </button>
-              <button
-                onClick={() => duplicateClip(selectedClip.id)}
-                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/5"
-                title="Дублировать (Cmd+D)"
-              >
-                ⧉ Дублировать
-              </button>
-              <button
-                onClick={() => removeClip(selectedClip.id)}
-                className="rounded-md border border-red-400/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-500/10"
-                title="Удалить (Delete)"
-              >
-                🗑 Удалить
-              </button>
-            </>
-          )}
-          
-          <div className="h-4 w-px bg-white/10" />
-          
-          <button
-            onClick={() => setSnapEnabled((v) => !v)}
-            className={`rounded-md border px-2 py-1 text-[11px] ${
-              snapEnabled ? "border-violet-400/50 bg-violet-500/20 text-violet-300" : "border-white/10 text-slate-400"
-            }`}
-            title="Привязка к сетке (N)"
-          >
-            📐 Snap
-          </button>
-          
-          <button
-            onClick={() => setMagnetEnabled((v) => !v)}
-            className={`rounded-md border px-2 py-1 text-[11px] ${
-              magnetEnabled ? "border-violet-400/50 bg-violet-500/20 text-violet-300" : "border-white/10 text-slate-400"
-            }`}
-            title="Магнит (M)"
-          >
-            🧲 Magnet
-          </button>
-          
-          <div className="h-4 w-px bg-white/10" />
-          
-          <span className="text-[11px] text-slate-500">Zoom</span>
-          <input
-            type="range"
-            min={MIN_ZOOM}
-            max={MAX_ZOOM}
-            value={pxPerSecond}
-            onChange={(e) => setZoom(parseInt(e.target.value))}
-            className="h-1 w-24 accent-violet-500"
-          />
-          <span className="text-[11px] text-slate-500">{Math.round((pxPerSecond / MAX_ZOOM) * 100)}%</span>
+    <div ref={containerRef} className="h-full flex flex-col bg-[#0a0a12] select-none overflow-hidden" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
+      {/* Timeline ruler */}
+      <div className="flex h-6 border-b border-white/10 bg-[#0d0d16] relative overflow-hidden">
+        <div className="w-20 shrink-0 bg-gradient-to-r from-[#0d0d16] to-[#0a0a12] border-r border-white/10 flex items-center justify-center text-[10px] text-slate-400 font-mono">TRK</div>
+        <div className="flex-1 relative" style={{ width: totalWidth }}>
+          {Array.from({ length: Math.ceil(duration / 10) + 1 }).map((_, i) => {
+            const t = i * 10;
+            return (
+              <div key={i} className="absolute top-0 bottom-0 border-l border-white/10 text-[9px] text-slate-500 pl-1 font-mono leading-6" style={{ left: t * pxPerSecond }}>{t}s</div>
+            );
+          })}
+          {/* Playhead line */}
+          <div className="absolute top-0 bottom-0 w-0.5 bg-gradient-to-b from-violet-400 via-fuchsia-400 to-rose-400 shadow-lg shadow-violet-500/50 z-20 pointer-events-none" style={{ left: playhead * pxPerSecond + 80 }} />
         </div>
       </div>
 
-      {/* Timeline Content */}
-      <div
-        ref={scrollRef}
-        className="relative flex-1 overflow-auto scroll-smooth custom-scrollbar"
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerLeave={endDrag}
-        onContextMenu={(e) => handleContextMenu(e)}
-      >
-        <div style={{ width: totalWidth + 180, position: "relative" }}>
-          {/* Ruler */}
-          <div
-              id="timeline-ruler"
-              className="sticky top-0 z-20 flex cursor-pointer border-b border-white/10 bg-[#0d0d16]"
-            style={{ height: RULER_HEIGHT, paddingLeft: 180 }}
-            onPointerDown={handleRulerPointerDown}
-          >
-            {Array.from({ length: Math.ceil(totalWidth / pxPerSecond) + 1 }).map((_, i) => (
-              <div key={i} style={{ width: pxPerSecond }} className="relative shrink-0 border-r border-white/5">
-                <span className="absolute left-1 top-0.5 text-[10px] font-medium text-slate-400">
-                  {Math.floor(i / 60)}:{String(i % 60).padStart(2, "0")}
-                </span>
-                {/* Sub-divisions */}
-                {pxPerSecond > 80 && (
-                  <div className="absolute left-1/2 top-2 h-1.5 w-px bg-white/10" />
-                )}
+      <div className="flex-1 overflow-auto">
+        <div className="flex" style={{ minWidth: totalWidth + 80 }}>
+          {/* Track headers */}
+          <div className="w-20 shrink-0 bg-[#0d0d16] border-r border-white/10 flex flex-col">
+            {tracks.map((track: Track) => (
+              <div key={track.id} className={`h-16 border-b border-white/5 flex items-center justify-center text-[10px] font-bold text-slate-300 ${track.muted ? "opacity-50" : ""} ${track.hidden ? "text-slate-600" : ""}`} title={track.name}>
+                <button onClick={() => { const s = useProjectStore.getState(); s.toggleTrackProp(track.id, "hidden"); }} className="truncate px-1">{track.type === "video" ? "🎥" : track.type === "audio" ? "🎵" : track.type === "text" ? "📝" : "•"} <span className="truncate">{track.name}</span></button>
               </div>
             ))}
           </div>
 
-          {/* Markers */}
-          {markers.map((marker) => (
-            <div
-              key={marker.id}
-              className="absolute top-0 z-10 flex flex-col items-center"
-              style={{ left: 180 + marker.time * pxPerSecond }}
-            >
-              <div
-                className="h-3 w-3 -translate-x-1/2 cursor-pointer rounded-full border-2 border-white bg-amber-500"
-                title={marker.label}
-              />
-              <div className="h-full w-px bg-amber-500/30" />
-            </div>
-          ))}
-
-          {/* Tracks */}
-          {project.tracks.map((track) => (
-            <div
-              key={track.id}
-              className="flex border-b border-white/5"
-              style={{ height: track.height || TRACK_HEIGHT }}
-            >
-              {/* Track Header */}
-              <div className="sticky left-0 z-10 flex w-[180px] shrink-0 flex-col justify-between border-r border-white/10 bg-[#12121d] px-2 py-1.5">
-                <div className="flex items-center justify-between">
-                  <input
-                    type="text"
-                    value={track.name}
-                    onChange={(e) =>
-                      updateProject((p) => ({
-                        ...p,
-                        tracks: p.tracks.map((t) => (t.id === track.id ? { ...t, name: e.target.value } : t)),
-                      }))
-                    }
-                    className="w-24 truncate bg-transparent text-[11px] font-medium text-slate-300 outline-none"
-                  />
-                  <button
-                    onClick={() =>
-                      updateProject((p) => ({ ...p, tracks: p.tracks.filter((t) => t.id !== track.id) }))
-                    }
-                    className="text-[10px] text-slate-500 hover:text-red-400"
-                    title="Удалить дорожку"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px]">
-                  <button
-                    title="Показать/скрыть"
-                    onClick={() => toggleTrackProp(track.id, "hidden")}
-                    className={`flex h-5 w-5 items-center justify-center rounded ${
-                      track.hidden ? "bg-white/5 opacity-40" : "hover:bg-white/5"
-                    }`}
-                  >
-                    {track.hidden ? "👁️‍🗨️" : "👁️"}
-                  </button>
-                  <button
-                    title="Звук"
-                    onClick={() => toggleTrackProp(track.id, "muted")}
-                    className={`flex h-5 w-5 items-center justify-center rounded ${
-                      track.muted ? "bg-white/5 opacity-40" : "hover:bg-white/5"
-                    }`}
-                  >
-                    {track.muted ? "🔇" : "🔊"}
-                  </button>
-                  <button
-                    title="Заблокировать"
-                    onClick={() => toggleTrackProp(track.id, "locked")}
-                    className={`flex h-5 w-5 items-center justify-center rounded ${
-                      track.locked ? "bg-amber-500/20 text-amber-400" : "hover:bg-white/5"
-                    }`}
-                  >
-                    {track.locked ? "🔒" : "🔓"}
-                  </button>
-                  {track.type === "audio" && (
+          {/* Timeline area */}
+          <div className="flex-1 relative bg-gradient-to-b from-[#08080f] to-[#0a0a12]">
+            {tracks.map((track: Track) => (
+              <div key={track.id} className="h-16 border-b border-white/5 relative flex items-center" style={{ height: 64 }}>
+                {track.clips.map((clip: Clip) => {
+                  const c = clip as VideoClip;
+                  const left = clip.start * pxPerSecond;
+                  const width = Math.max(20, clip.duration * pxPerSecond);
+                  const isSelected = selectedClipId === clip.id;
+                  return (
                     <button
-                      title="Solo"
-                      onClick={() =>
-                        updateProject((p) => ({
-                          ...p,
-                          tracks: p.tracks.map((t) => (t.id === track.id ? { ...t, solo: !t.solo } : t)),
-                        }))
-                      }
-                      className={`flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold ${
-                        track.solo ? "bg-yellow-500/20 text-yellow-400" : "text-slate-500 hover:bg-white/5"
-                      }`}
+                      key={clip.id}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        selectClip(clip.id);
+                        setDragInfo({ trackId: track.id, clipId: clip.id, startX: e.clientX, originalStart: clip.start });
+                      }}
+                      onDoubleClick={() => splitClipAt(clip.id, playhead)}
+                      className={`absolute h-12 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-violet-400 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : "bg-gradient-to-br from-violet-800/60 to-fuchsia-800/60 border-violet-400/30 text-slate-100"}`}
+                      style={{ left: left + 80, width, top: 4 }}
+                      title={`${clip.name}\nСтарт: ${clip.start.toFixed(2)}\nДлительность: ${clip.duration.toFixed(2)}\nДвойной клик - разделить`}
+                      aria-label={`Клип ${clip.name}, начало ${clip.start.toFixed(1)}`}
                     >
-                      S
+                      <div className="truncate font-bold">{clip.name}</div>
+                      <div className="flex gap-1 text-[8px] opacity-70">
+                        {c.speed && c.speed !== 1 ? <span>⚡{c.speed}x</span> : null}
+                        {c.reversed ? <span>↺</span> : null}
+                        {c.color && c.color.lut && c.color.lut !== "none" ? <span>🎨</span> : null}
+                      </div>
                     </button>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-
-              {/* Track Content */}
-              <div className="relative flex-1">
-                {track.clips.map((clip) => (
-                  <div
-                    key={clip.id}
-                    onPointerDown={(e) => onClipPointerDown(e, clip, "move")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      selectClip(clip.id);
-                    }}
-                    onContextMenu={(e) => handleContextMenu(e, clip.id)}
-                    className={`absolute top-1 flex h-[calc(100%-8px)] cursor-grab items-center overflow-hidden rounded-lg border bg-gradient-to-br px-2 text-[10px] font-medium text-white shadow-lg ${trackColor(
-                      track
-                    )} ${selectedClipId === clip.id ? "ring-2 ring-white" : ""} ${
-                      selection.clipIds.has(clip.id) ? "ring-2 ring-violet-400" : ""
-                    } ${clip.locked ? "cursor-not-allowed opacity-60" : ""}`}
-                    style={{
-                      left: clip.start * pxPerSecond,
-                      width: Math.max(8, clip.duration * pxPerSecond),
-                    }}
-                  >
-                    {/* Left trim handle */}
-                    <div
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        onClipPointerDown(e, clip, "trim-left");
-                      }}
-                      className="absolute left-0 top-0 h-full w-3 cursor-ew-resize bg-black/40 hover:bg-white/40 transition-colors z-20 flex items-center justify-center border-r border-white/20 hover:border-violet-400"
-                    />
-                    
-                    {((clip.type === "video" && !(clip as any).muted) || clip.type === "audio") && project.assets.find(a => a.id === (clip as any).assetId) && (
-                      <ClipWaveform clip={clip} asset={project.assets.find(a => a.id === (clip as any).assetId)!} trackType={clip.type} />
-                    )}
-                    {/* Clip label */}
-                    <span className="truncate relative z-10 drop-shadow-md">{clipLabel(clip)}</span>
-                    
-                    {/* Group indicator */}
-                    {clip.group && (
-                      <span className="ml-1 text-[8px] opacity-60">⚡</span>
-                    )}
-                    
-                    {/* Right trim handle */}
-                    <div
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        onClipPointerDown(e, clip, "trim-right");
-                      }}
-                      className="absolute right-0 top-0 h-full w-3 cursor-ew-resize bg-black/40 hover:bg-white/40 transition-colors z-20 flex items-center justify-center border-l border-white/20 hover:border-violet-400"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {/* Playhead */}
-          <PlayheadIndicator pxPerSecond={pxPerSecond} />
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          className="fixed z-50 min-w-[160px] rounded-lg border border-white/10 bg-[#1a1a24] py-1 shadow-2xl"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          {contextMenu.clipId ? (
-            <>
-              <button
-                onClick={() => {
-                  duplicateClip(contextMenu.clipId!);
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-1.5 text-left text-[11px] text-slate-300 hover:bg-white/5"
-              >
-                ⧉ Дублировать
-              </button>
-              {project.tracks.find(t => t.clips.some(c => c.id === contextMenu.clipId))?.type === "video" && (
-                <button
-                  onClick={() => {
-                    detachAudio(contextMenu.clipId!);
-                    setContextMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-[11px] text-slate-300 hover:bg-white/5"
-                >
-                  🎵 Отделить аудио
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  splitClipAt(contextMenu.clipId!, useProjectStore.getState().playhead);
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-1.5 text-left text-[11px] text-slate-300 hover:bg-white/5"
-              >
-                ✂️ Разрезать
-              </button>
-              <div className="my-1 h-px bg-white/10" />
-              <button
-                onClick={() => {
-                  removeClip(contextMenu.clipId!);
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-1.5 text-left text-[11px] text-red-300 hover:bg-red-500/10"
-              >
-                🗑 Удалить
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => {
-                updateProject((p) => ({
-                  ...p,
-                  markers: [...(p.markers || []), { id: `marker_${Date.now()}`, time: useProjectStore.getState().playhead, label: "Маркер" }],
-                }));
-                setContextMenu(null);
-              }}
-              className="w-full px-3 py-1.5 text-left text-[11px] text-slate-300 hover:bg-white/5"
-            >
-              📍 Добавить маркер
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Help overlay */}
-      <div className="border-t border-white/10 bg-[#0d0d16] px-3 py-1.5 text-[10px] text-slate-500">
-        <span className="mr-4">Space - воспроизведение</span>
-        <span className="mr-4">S - разрезать</span>
-        <span className="mr-4">Cmd+D - дублировать</span>
-        <span className="mr-4">N - привязка</span>
-        <span className="mr-4">M - магнит</span>
-        <span className="mr-4">Shift+Click - мульти-выбор</span>
+      {/* Bottom info bar */}
+      <div className="h-6 bg-[#0d0d16] border-t border-white/10 flex items-center px-3 gap-3 text-[10px] text-slate-400 font-mono shrink-0">
+        <span>Масштаб: {pxPerSecond}px/сек</span>
+        <span>•</span>
+        <span>Длительность: {duration.toFixed(2)}с</span>
+        <span>•</span>
+        <span>Клипов: {tracks.reduce((s, t) => s + t.clips.length, 0)}</span>
+        {hoverTime !== null && <span>• Курсор: {hoverTime.toFixed(2)}с</span>}
       </div>
     </div>
   );

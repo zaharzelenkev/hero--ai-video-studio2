@@ -291,6 +291,19 @@ const CINEMATIC_PROGS: Progression[] = [
 
 const BPM: Record<Exclude<Style, 'none'>, number> = { lofi: 82, electronic: 124, cinematic: 94 };
 
+/** Публичная BPM-таблица: ритм-сетка монтажа строится аналитически,
+ *  ещё до того, как трек будет отрендерен (квантование склеек, флеши, дропы). */
+export const STYLE_BPM = BPM;
+
+/** Единая точка выбора жанра процедурного саундтрека по шаблону —
+ *  и генерация, и ритм-сетка обязаны использовать ОДНУ маппинг-функцию,
+ *  иначе монтаж пойдёт не в тот темп. */
+export function proceduralStyleForTemplate(templateId: string): Exclude<Style, 'none'> {
+  if (templateId === "travel" || templateId === "cinematic" || templateId === "luxury" || templateId === "documentary") return "cinematic";
+  if (templateId === "podcast" || templateId === "hormozi" || templateId === "minimal") return "lofi";
+  return "electronic";
+}
+
 // ================== main generator ==================
 
 function generateStyleMusic(

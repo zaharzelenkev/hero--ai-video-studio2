@@ -195,6 +195,20 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   const targetClipLen = PACE_CLIP_SECONDS[style.pace];
 
+  // Ритм-сетка для ПРОЦЕДУРНОЙ музыки: когда пользовательского трека нет, саундтрек
+  // синтезируется нашим генератором — его BPM и фаза известны заранее. Строим сетку
+  // аналитически: склейки, флеши и дропы встают в ритм даже без файла трека.
+  if (style.beatSync && beats.length === 0 && !musicAsset
+      && typeof window !== "undefined" && window.OfflineAudioContext) {
+    try {
+      const { proceduralStyleForTemplate, STYLE_BPM } = await import("./musicGenerator");
+      const mStyle = proceduralStyleForTemplate(activeTemplate.id);
+      const beatDur = 60 / (STYLE_BPM[mStyle] ?? 120);
+      const estDur = Math.max(30, aiDecision?.targetDuration || 30) + 20;
+      for (let t = 0; t <= estDur; t += beatDur) beats.push(t);
+    } catch { /* сетка не критична — монтаж продолжится без неё */ }
+  }
+
   // --- СТАРТ МУЗЫКИ С ДРОПА ---
   // Профи начинают трек с энергетического крюка (дроп/припев), а не с произвольной
   // нулевой секунды — иначе первые 10-20 секунд музыки часто бывают "пустым" интро.
@@ -1139,13 +1153,11 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   if (!finalMusicAsset && typeof window !== "undefined" && window.OfflineAudioContext && project.duration > 0) {
      onProgress?.("Генерация фоновой музыки...");
      try {
-        const { generateProceduralMusic } = await import("./musicGenerator");
+        const { generateProceduralMusic, proceduralStyleForTemplate } = await import("./musicGenerator");
         const { saveBlob } = await import("./db");
-        
-        // Pick style based on template/genre
-        let mStyle: "lofi" | "cinematic" | "electronic" = "electronic";
-        if (style.templateId === "travel" || style.templateId === "cinematic" || style.templateId === "luxury" || style.templateId === "documentary") mStyle = "cinematic";
-        if (style.templateId === "podcast" || style.templateId === "hormozi" || style.templateId === "minimal") mStyle = "lofi";
+
+        // Стиль — из ЕДИНОЙ маппинг-функции: совпадает с ритм-сеткой, построенной раньше
+        const mStyle = proceduralStyleForTemplate(activeTemplate.id);
 
         // детерминированный сид — одна и та же медиатека даёт тот же саундтрек
         const mSeed = project.assets.reduce(

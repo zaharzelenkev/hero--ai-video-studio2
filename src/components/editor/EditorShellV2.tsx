@@ -109,7 +109,7 @@ export default function EditorShellV2() {
         <div className="mb-3 text-5xl">🎬</div>
         <h2 className="text-xl font-bold mb-1">Проект не загружен</h2>
         <p className="text-sm text-slate-400 mb-4">Создайте или выберите проект для начала работы.</p>
-        <Link href="/" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 hover:brightness-110 transition">🏠 На главную</Link>
+        <Link href="/" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 to-cyan-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 hover:brightness-110 transition">🏠 На главную</Link>
       </div>
     </div>
   );
@@ -132,7 +132,7 @@ export default function EditorShellV2() {
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-white/10 bg-gradient-to-r from-[#0d0d16] to-[#0a0a12] px-3 py-2.5 shadow-lg shrink-0 z-50">
         <Link href="/" className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-bold transition-colors hover:bg-white/5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-base shadow-lg shadow-violet-500/30">🎬</div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 text-base shadow-lg shadow-blue-500/20">🎬</div>
           <span className="hidden sm:inline bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">MONTIQ</span>
         </Link>
 
@@ -151,7 +151,7 @@ export default function EditorShellV2() {
               onClick={() => setActivePage(p.id)}
               className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-semibold transition-all duration-200 whitespace-nowrap ${
                 activePage === p.id
-                  ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-900/40"
+                  ? "bg-gradient-to-r from-blue-700 to-cyan-600 text-white shadow-lg shadow-violet-900/40"
                   : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
               }`}
               title={p.desc}
@@ -197,7 +197,7 @@ export default function EditorShellV2() {
               key={p.id}
               onClick={() => { setActivePage(p.id); setMobileNavOpen(false); }}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-3 text-[10px] font-semibold transition-all ${
-                activePage === p.id ? "bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-lg" : "bg-white/5 text-slate-300 hover:bg-white/10"
+                activePage === p.id ? "bg-gradient-to-br from-blue-700 to-cyan-600 text-white shadow-lg" : "bg-white/5 text-slate-300 hover:bg-white/10"
               }`}
             >
               <span className="text-xl">{p.icon}</span>
@@ -219,7 +219,7 @@ export default function EditorShellV2() {
         {/* Side Panel (desktop) */}
         <aside className="hidden lg:flex w-[380px] shrink-0 overflow-y-auto border-l border-white/10 bg-[#0d0d16] shadow-2xl flex-col">
           <div className="sticky top-0 z-10 bg-[#0d0d16]/90 backdrop-blur border-b border-white/10 px-3 py-2 flex items-center gap-2">
-            <span className="text-xs font-bold text-violet-400">{PAGES.find(p => p.id === activePage)?.label}</span>
+            <span className="text-xs font-bold text-amber-200">{PAGES.find(p => p.id === activePage)?.label}</span>
             <span className="text-[10px] text-slate-500">{PAGES.find(p => p.id === activePage)?.desc}</span>
           </div>
           <div className="p-3">
@@ -236,10 +236,10 @@ export default function EditorShellV2() {
       {/* Mobile bottom panel trigger + bottom sheet */}
       <div className="lg:hidden shrink-0 border-t border-white/10 bg-[#0d0d16]/95 backdrop-blur">
         <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-xs font-bold text-violet-300">{PAGES.find(p=>p.id===activePage)?.label}</span>
+          <span className="text-xs font-bold text-amber-300">{PAGES.find(p=>p.id===activePage)?.label}</span>
           <button
             onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
-            className="rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-xs font-bold text-white shadow-lg"
+            className="rounded-lg bg-gradient-to-r from-blue-700 to-cyan-600 px-4 py-1.5 text-xs font-bold text-white shadow-lg"
             aria-label="Открыть панель"
           >
             {mobilePanelOpen ? "Свернуть ▲" : "Панель ▼"}

@@ -55,7 +55,7 @@ export default function Transport() {
         onClick={() => setPlaying(!isPlaying)}
         aria-label={isPlaying ? "Пауза" : "Воспроизведение"}
         title={isPlaying ? "Пауза" : "Воспроизведение"}
-        className={`flex h-9 w-14 items-center justify-center rounded-xl text-sm font-bold shadow-lg transition-all ${isPlaying ? "bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-rose-500/30" : "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-violet-500/30 hover:brightness-110"}`}
+        className={`flex h-9 w-14 items-center justify-center rounded-xl text-sm font-bold shadow-lg transition-all ${isPlaying ? "bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-rose-500/30" : "bg-gradient-to-r from-blue-700 to-cyan-600 text-white shadow-blue-500/20 hover:brightness-110"}`}
       >
         {isPlaying ? "⏸" : "▶"}
       </button>
@@ -85,7 +85,7 @@ export default function Transport() {
         <button
           onClick={() => setDraggable(d => !d)}
           aria-label="Перетаскивание"
-          className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold border transition ${draggable ? "bg-violet-500/20 border-violet-400/40 text-violet-300" : "bg-white/5 border-white/10 text-slate-400 hover:text-slate-200"}`}
+          className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold border transition ${draggable ? "bg-violet-500/20 border-violet-400/40 text-amber-300" : "bg-white/5 border-white/10 text-slate-400 hover:text-slate-200"}`}
           title="Точное перетаскивание на таймлайне"
         >
           ✋ {draggable ? "Drag" : "Drag"}

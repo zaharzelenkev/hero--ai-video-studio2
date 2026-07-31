@@ -71,8 +71,34 @@ export default function TimelineV2() {
               <div key={i} className="absolute top-0 bottom-0 border-l border-white/10 text-[9px] text-slate-500 pl-1 font-mono leading-6" style={{ left: t * pxPerSecond }}>{t}s</div>
             );
           })}
-          {/* Playhead line */}
-          <div className="absolute top-0 bottom-0 w-0.5 bg-gradient-to-b from-violet-400 via-fuchsia-400 to-rose-400 shadow-lg shadow-violet-500/50 z-20 pointer-events-none" style={{ left: playhead * pxPerSecond + 80 }} />
+          {/* Big draggable playhead */}
+          <div
+            className="absolute top-0 bottom-0 z-30 cursor-col-resize group"
+            style={{ left: `calc(${playhead * pxPerSecond + 80}px - 8px)`, width: 16 }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const rect = (e.currentTarget.parentElement as HTMLElement)?.getBoundingClientRect();
+              const startX = e.clientX;
+              const startTime = playhead;
+              const onMove = (ev: MouseEvent) => {
+                if (!rect) return;
+                const delta = ev.clientX - startX;
+                const newTime = Math.max(0, Math.min(duration, startTime + delta / pxPerSecond));
+                useProjectStore.getState().setPlayhead(newTime);
+              };
+              const onUp = () => {
+                window.removeEventListener("mousemove", onMove);
+                window.removeEventListener("mouseup", onUp);
+              };
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
+            }}
+          >
+            {/* Thick bar */}
+            <div className="absolute top-0 bottom-0 w-1.5 bg-gradient-to-b from-amber-400 via-blue-400 to-cyan-300 shadow-lg shadow-blue-500/60 rounded-full mx-auto" />
+            {/* Big handle at top */}
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-blue-500 border-2 border-white shadow-xl flex items-center justify-center text-[10px] font-bold text-white">◈</div>
+          </div>
         </div>
       </div>
 
@@ -105,7 +131,7 @@ export default function TimelineV2() {
                         setDragInfo({ trackId: track.id, clipId: clip.id, startX: e.clientX, originalStart: clip.start });
                       }}
                       onDoubleClick={() => splitClipAt(clip.id, playhead)}
-                      className={`absolute h-12 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-violet-400 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : "bg-gradient-to-br from-violet-800/60 to-fuchsia-800/60 border-violet-400/30 text-slate-100"}`}
+                      className={`absolute h-12 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-blue-300 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : "bg-gradient-to-br from-violet-800/60 to-fuchsia-800/60 border-blue-400/30 text-slate-100"}`}
                       style={{ left: left + 80, width, top: 4 }}
                       title={`${clip.name}\nСтарт: ${clip.start.toFixed(2)}\nДлительность: ${clip.duration.toFixed(2)}\nДвойной клик - разделить`}
                       aria-label={`Клип ${clip.name}, начало ${clip.start.toFixed(1)}`}

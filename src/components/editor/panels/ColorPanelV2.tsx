@@ -22,13 +22,13 @@ export default function ColorPanelV2() {
 
   const Slider = ({ label, value, min, max, step, onChange, pct }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; pct?: boolean }) => (
     <div className="mb-2">
-      <div className="flex justify-between text-[10px] font-medium text-slate-300 mb-0.5"><span>{label}</span><span className="text-violet-300">{pct ? `${Math.round(value * 100)}%` : value.toFixed(2)}</span></div>
+      <div className="flex justify-between text-[10px] font-medium text-slate-300 mb-0.5"><span>{label}</span><span className="text-amber-300">{pct ? `${Math.round(value * 100)}%` : value.toFixed(2)}</span></div>
       <input
         type="range"
         min={min} max={max} step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full h-1.5 rounded-full bg-gradient-to-r from-violet-800 to-fuchsia-800 appearance-none cursor-pointer accent-violet-400"
+        className="w-full h-1.5 rounded-full bg-gradient-to-r from-slate-700 to-slate-600 appearance-none cursor-pointer accent-violet-400"
         aria-label={label}
       />
     </div>
@@ -36,14 +36,14 @@ export default function ColorPanelV2() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-gradient-to-r from-violet-900/40 to-fuchsia-900/40 border border-white/10 px-3 py-2">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">LUT Пресеты</h3>
+      <div className="rounded-xl bg-gradient-to-r from-slate-900/60 to-slate-800/60 border border-white/10 px-3 py-2">
+        <h3 className="text-xs font-bold text-amber-300 mb-2">LUT Пресеты</h3>
         <div className="flex flex-wrap gap-1.5">
           {Luts.map((l) => (
             <button
               key={l}
               onClick={() => setColor((c) => ({ ...c, lut: l }))}
-              className={`rounded-lg px-2.5 py-1 text-[10px] font-bold border transition ${color.lut === l ? "bg-violet-600 text-white border-violet-400 shadow-lg shadow-violet-500/30" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}
+              className={`rounded-lg px-2.5 py-1 text-[10px] font-bold border transition ${color.lut === l ? "bg-blue-600 text-white border-violet-400 shadow-lg shadow-blue-500/20" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}
               aria-label={`Применить LUT ${l}`}
             >
               {l}
@@ -53,7 +53,7 @@ export default function ColorPanelV2() {
       </div>
 
       <div className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Базовая коррекция</h3>
+        <h3 className="text-xs font-bold text-amber-300 mb-2">Базовая коррекция</h3>
         <Slider label="Яркость" value={color.brightness?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v) => setColor(c => ({ ...c, brightness: { value: v, keyframes: [] } }))} pct />
         <Slider label="Контраст" value={color.contrast?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v) => setColor(c => ({ ...c, contrast: { value: v, keyframes: [] } }))} pct />
         <Slider label="Насыщенность" value={color.saturation?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v) => setColor(c => ({ ...c, saturation: { value: v, keyframes: [] } }))} pct />
@@ -62,7 +62,7 @@ export default function ColorPanelV2() {
       </div>
 
       <div className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Color Wheels (Lift / Gamma / Gain)</h3>
+        <h3 className="text-xs font-bold text-amber-300 mb-2">Color Wheels (Lift / Gamma / Gain)</h3>
         <div className="grid grid-cols-3 gap-2 mb-2">
           {[
             { k: "lift" as const, label: "Lift (Тени)", desc: "Тени" },
@@ -80,7 +80,7 @@ export default function ColorPanelV2() {
       </div>
 
       <div className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Curves (RGB Channels)</h3>
+        <h3 className="text-xs font-bold text-amber-300 mb-2">Curves (RGB Channels)</h3>
         <div className="flex gap-2 mb-2">
           {["master","red","green","blue"].map((ch) => (
             <button key={ch} onClick={() => setColor(c => { const cur = c.curves || { master: { points: [{x:0,y:0},{x:1,y:1}] }, red:{points:[{x:0,y:0},{x:1,y:1}]}, green:{points:[{x:0,y:0},{x:1,y:1}]}, blue:{points:[{x:0,y:0},{x:1,y:1}]} }; const pts = cur[ch as "master"|"red"|"green"|"blue"].points; pts.push({x:0.5,y:0.5}); return { ...c, curves: cur }; })} className="text-[10px] bg-white/5 border border-white/10 rounded-lg px-2 py-0.5 text-slate-300">{ch} +pt</button>
@@ -90,7 +90,7 @@ export default function ColorPanelV2() {
       </div>
 
       <div className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">HSL (Оттенок / Насыщенность / Яркость)</h3>
+        <h3 className="text-xs font-bold text-amber-300 mb-2">HSL (Оттенок / Насыщенность / Яркость)</h3>
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-gradient-to-b from-[#111] to-[#0a0a12] rounded-lg p-2 border border-white/5">
             <div className="text-[10px] text-slate-300 font-bold mb-1">Оттенок (Hue)</div>
@@ -110,7 +110,7 @@ function WheelInput({ label, value, min, max, step, onChange }: { label: string;
   return (
     <div className="flex items-center gap-1 mb-0.5">
       <span className="text-[9px] text-slate-500 w-3">{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} className="flex-1 h-1 rounded-full bg-gradient-to-r from-violet-800 to-fuchsia-800 accent-violet-400" aria-label={`${label} wheel`} />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} className="flex-1 h-1 rounded-full bg-gradient-to-r from-slate-700 to-slate-600 accent-violet-400" aria-label={`${label} wheel`} />
     </div>
   );
 }

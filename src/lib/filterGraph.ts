@@ -38,6 +38,17 @@ function escDrawtext(text: string): string {
     .replace(/\n/g, "\\n");
 }
 
+// Глифы, которых нет в DejaVu (единственный доступный шрифт экспорта):
+// эмодзи-блоки, флаговые индикаторы, ZWJ/вариационные селекторы, приватная область.
+// Они печатаются квадратами-«тофу» (□) — лучше чистый текст, чем квадрат в кадре.
+// LLM-титры любят эмодзи («🚀 Секрет»), поэтому чистим на этапе компиляции.
+function sanitizeGlyphs(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u200D\uFE00-\uFE0F\uE000-\uF8FF]/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +\n/g, "\n");
+}
+
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
@@ -500,7 +511,9 @@ export function compileProjectToFfmpeg(
          fontsizeExpr = `(${clip.fontSize}*${scaleExpr})`;
       }
 
-      const text = escDrawtext(clip.text);
+      const cleaned = sanitizeGlyphs(clip.text);
+      if (!cleaned.trim()) continue; // эмодзи-only титр после чистки пуст — пропускаем
+      const text = escDrawtext(cleaned);
       const next = id("txt_");
       const xPos = `(w-text_w)/2+(${xExpr})*w/2`;
       const yPos = `(h-text_h)/2+(${yExpr})*h/2`;

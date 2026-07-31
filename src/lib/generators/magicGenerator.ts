@@ -294,8 +294,13 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
     // 3. Text
     const words = scene.voiceover.split(" ");
     let textStart = cursor;
-    const timePerWord = sceneDuration / words.length;
-    
+    // Распределение времени по весу, а не равномерно: длинные слова говорятся дольше,
+    // после знака препинания TTS делает паузу. Иначе субтитры «плывут» внутри сцены
+    // (накопительный сдвиг до ~20% хронометража к концу фразы).
+    const weightOf = (ws: string[]) =>
+      ws.reduce((a, w) => a + Math.max(1, w.length) + (/[.!?,:;…]$/.test(w) ? 2.4 : 0), 0);
+    const totalWeight = Math.max(1, weightOf(words));
+
     let wordsPerGroup = 1;
     if (activeTemplate.pace === "slow") wordsPerGroup = 5;
     else if (activeTemplate.pace === "medium") wordsPerGroup = 3;
@@ -312,7 +317,7 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
 
     for (let gIndex = 0; gIndex < groups.length; gIndex++) {
       const phrase = groups[gIndex];
-      const phraseDur = (timePerWord * phrase.split(" ").length);
+      const phraseDur = Math.max(0.15, (weightOf(phrase.split(" ")) / totalWeight) * sceneDuration);
       
       const tClip = createTextClip({
         trackId: textTrack.id,

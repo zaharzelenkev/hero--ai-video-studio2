@@ -14,6 +14,7 @@ import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
 import ProductionPanelV2 from "./panels/ProductionPanelV2";
+import PreProductionPanelV2 from "./panels/PreProductionPanelV2";
 
 const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "production", label: "Продакшн", icon: "🧭", desc: "План, настройки" },
@@ -23,6 +24,7 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "sound", label: "Звук", icon: "🎵", desc: "Микш, шумоподавление" },
   { id: "text", label: "Текст", icon: "📝", desc: "Анимация, keyframes" },
   { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
+  { id: "preproduction", label: "Препродакшн", icon: "🎯", desc: "AI: идея, сценарий, раскадровка" },
 ];
 
 export default function EditorShellV2() {
@@ -123,6 +125,7 @@ export default function EditorShellV2() {
       case "sound": return <SoundPanelV2 />;
       case "text": return <TextPanelV2 />;
       case "export": return <ExportPanelV2 />;
+      case "preproduction": return <PreProductionPanelV2 />;
       default: return <MontagePanelV2 />;
     }
   };

@@ -5,7 +5,7 @@ import type { Clip, Project, Track } from "@/lib/types";
 import { saveProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 
-export type EditorPage = "production" | "montage" | "color" | "effects" | "sound" | "text" | "export";
+export type EditorPage = "production" | "montage" | "color" | "effects" | "sound" | "text" | "export" | "preproduction";
 
 interface ProjectState {
   project: Project | null;

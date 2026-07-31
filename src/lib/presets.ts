@@ -59,6 +59,12 @@ export function lutToFfmpeg(lut: LutPreset): string[] {
       return ["eq=saturation=1.4:contrast=1.1"];
     case "dramatic":
       return ["curves=preset=strong_contrast", "eq=saturation=0.8"];
+    case "moody":
+      return ["curves=preset=darker", "eq=saturation=0.85:brightness=-0.03", "colorbalance=bs=0.06:bm=0.04:bh=0.08"];
+    case "film-noir":
+      return ["hue=s=0", "curves=preset=strong_contrast", "eq=brightness=-0.02:gamma=1.05"];
+    case "neutral":
+      return ["eq=contrast=1.03:saturation=1.02"];
     default:
       return [];
   }

@@ -233,9 +233,16 @@ function buildVideoClipChain(
     }
   }
 
-  const opacityExpr = paramToFfmpegExpr(clip.opacity, "t");
   const finalLabel = id(`c${tag}_`);
-  lines.push(`[${current}]format=yuva420p,colorchannelmixer=aa='${opacityExpr}'[${finalLabel}]`);
+  if (clip.opacity.keyframes.length === 0) {
+    // Статичная прозрачность: colorchannelmixer НЕ умеет time-выражения (только константы).
+    lines.push(`[${current}]format=yuva420p,colorchannelmixer=aa='${clip.opacity.value}'[${finalLabel}]`);
+  } else {
+    // Анимированная прозрачность (fade-входы B-roll и т.п.): geq — единственный фильтр,
+    // который честно вычисляет альфу покадрово по времени (T в секундах).
+    const opacityExpr = paramToFfmpegExpr(clip.opacity, "T");
+    lines.push(`[${current}]format=yuva420p,geq=lum='lum(X,Y)':a='clip(alpha(X,Y)*(${opacityExpr})\\,0\\,255)'[${finalLabel}]`);
+  }
 
   return { label: finalLabel, idx };
 }
@@ -257,14 +264,29 @@ function buildAudioChain(
   normalize: boolean,
   duration: number,
   lines: string[],
+  speed = 1,
 ): string {
   const tag = clipId.replace(/[^a-zA-Z0-9]/g, "");
   let current = id(`a${tag}_`);
   lines.push(`[${sourceRef}]atrim=start=${inPoint}:end=${outPoint},asetpts=PTS-STARTPTS[${current}]`);
 
+  // Keep audio in sync with speed-ramped video (slow-mo / time-lapse).
+  // atempo accepts 0.5..100 per filter instance, so chain filters for extremes.
+  if (speed && speed !== 1) {
+    const n = id(`a${tag}_`);
+    const chain: string[] = [];
+    let remaining = speed;
+    while (remaining > 2.0) { chain.push("atempo=2.0"); remaining /= 2.0; }
+    while (remaining < 0.5) { chain.push("atempo=0.5"); remaining /= 0.5; }
+    chain.push(`atempo=${remaining}`);
+    lines.push(`[${current}]${chain.join(",")}[${n}]`);
+    current = n;
+  }
+
   const volExpr = paramToFfmpegExpr(volume, "t");
   const next1 = id(`a${tag}_`);
-  lines.push(`[${current}]volume='${volExpr}'[${next1}]`);
+  // eval=frame: иначе keyframe-выражение (авто-дакинг под речь) вычисляется один раз.
+  lines.push(`[${current}]volume='${volExpr}':eval=frame[${next1}]`);
   current = next1;
 
   if (fadeIn > 0) {
@@ -370,6 +392,7 @@ export function compileProjectToFfmpeg(
           (clip as any).normalize || false,
           clip.duration,
           lines,
+          clip.speed || 1,
         );
         audioLabels.push(audioLabel);
       }
@@ -396,7 +419,7 @@ export function compileProjectToFfmpeg(
           const next = id("xfade_");
           // xfade requires inputs to have exactly the same framerate and timebase. We format them to ensure safety.
           lines.push(
-            `[${acc}]format=yuv420p,fps=30,settb=1/30[${acc}_tb];[${seg.label}]format=yuv420p,fps=30,settb=1/30[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
+            `[${acc}]format=yuv420p,fps=${fps},settb=1/${fps}[${acc}_tb];[${seg.label}]format=yuv420p,fps=${fps},settb=1/${fps}[${seg.label}_tb];[${acc}_tb][${seg.label}_tb]xfade=transition=${xfadeName}:duration=${dur}:offset=${offset}[${next}]`,
           );
           acc = next;
           accDur = accDur - dur + seg.duration;
@@ -452,6 +475,7 @@ export function compileProjectToFfmpeg(
           (clip as any).normalize || false,
           clip.duration,
           lines,
+          clip.speed || 1,
         );
         audioLabels.push(audioLabel);
       }
@@ -462,6 +486,7 @@ export function compileProjectToFfmpeg(
   let usedFont = false;
   for (const track of textTracks) {
     for (const clip of track.clips as TextClip[]) {
+      if (!clip.text || !clip.text.trim()) continue; // пустой drawtext роняет рендер
       usedFont = true;
       const start = clip.start;
       const end = clip.start + clip.duration;
@@ -501,6 +526,19 @@ export function compileProjectToFfmpeg(
     }
   }
 
+  // Кинематографичный вход/уход в чёрный (задаётся автомонтажом на уровне проекта).
+  // Применяется к готовому композиту ПОСЛЕ титров, чтобы титры уходили вместе с кадром.
+  const openFade = project.openingFadeIn ?? 0;
+  const endFade = project.endingFadeOut ?? 0;
+  if (openFade > 0 || endFade > 0) {
+    const fades: string[] = [];
+    if (openFade > 0) fades.push(`fade=t=in:st=0:d=${openFade}`);
+    if (endFade > 0) fades.push(`fade=t=out:st=${Math.max(0, totalDuration - endFade)}:d=${endFade}`);
+    const faded = id("fade_");
+    lines.push(`[${composite}]${fades.join(",")}[${faded}]`);
+    composite = faded;
+  }
+
   const finalVideo = id("vout_");
   lines.push(`[${composite}]format=yuv420p[${finalVideo}]`);
 
@@ -509,7 +547,8 @@ export function compileProjectToFfmpeg(
     for (const clip of track.clips as AudioClip[]) {
       if (clip.muted) continue;
       const idx = inputs.length;
-      inputs.push({ pre: [], path: fileNameFor(clip) });
+      // Short music beds are looped to cover the whole timeline seamlessly.
+      inputs.push({ pre: clip.loop ? ["-stream_loop", "-1"] : [], path: fileNameFor(clip) });
       const audioLabel = buildAudioChain(
         `${idx}:a`,
         clip.id,
@@ -527,6 +566,7 @@ export function compileProjectToFfmpeg(
           clip.normalize || false,
           clip.duration,
         lines,
+          clip.speed || 1,
       );
       audioLabels.push(audioLabel);
     }

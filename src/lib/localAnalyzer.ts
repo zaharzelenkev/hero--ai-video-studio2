@@ -20,10 +20,89 @@ export interface VideoSegmentMetadata {
   hasFaces: boolean;
   faceX?: number;
   faceY?: number;
+  /** Относительная площадь самого крупного лица (0..1) — характер кадра: общий/средний/крупный план. */
+  faceSize?: number;
+  /** Средняя яркость кадра (0..255) — для авто-экспозиции при склейке разных камер. */
+  brightness?: number;
+  /** Размах яркости (0..255) — мера контраста кадра. */
+  contrast?: number;
+  /** Средняя насыщенность (0..255). */
+  saturation?: number;
   qualityScore: number; // 1-10
   isSceneChange: boolean;
   hasAction: boolean;
   aestheticScore: number;
+}
+
+// ---------------------------------------------------------------------------
+// Face detection engine
+//
+// window.FaceDetector — экспериментальный API, отсутствует в Firefox/Safari и по
+// умолчанию выключен в Chrome, поэтому полагаться на него нельзя: face-aware
+// монтаж (хуки с лицами, умный рефрейминг) молча умирал бы у большинства
+// пользователей. Основной движок — MediaPipe BlazeFace (short-range), который
+// лениво подгружается с нашего же домена из /public/mediapipe (open-source,
+// работает везде, ~230Кб модель + WASM).
+// ---------------------------------------------------------------------------
+
+type MpDetector = { send: (input: { image: HTMLCanvasElement }) => Promise<void>; onResults: (cb: (r: any) => void) => void; setOptions?: (o: any) => void; close?: () => void };
+
+let mpDetectorPromise: Promise<MpDetector | null> | null = null;
+
+function loadMediaPipeFaceDetector(): Promise<MpDetector | null> {
+  if (mpDetectorPromise) return mpDetectorPromise;
+  mpDetectorPromise = (async () => {
+    if (!(window as any).FaceDetection) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "/mediapipe/face_detection/face_detection.js";
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("MediaPipe script failed to load"));
+        document.head.appendChild(s);
+      });
+    }
+    const Ctor = (window as any).FaceDetection;
+    if (!Ctor) throw new Error("FaceDetection global is missing");
+    const detector: MpDetector = new Ctor({
+      locateFile: (file: string) => `/mediapipe/face_detection/${file}`,
+    });
+    detector.setOptions?.({ model: "short", minDetectionConfidence: 0.5 });
+    return detector;
+  })().catch((e) => {
+    console.warn("[localAnalyzer] MediaPipe недоступен, лица детектируем нативно/не детектируем:", e);
+    mpDetectorPromise = null; // retry next time
+    return null;
+  });
+  return mpDetectorPromise;
+}
+
+interface MpFace { x: number; y: number; size: number }
+
+function detectFacesWithMediaPipe(detector: MpDetector, source: HTMLCanvasElement): Promise<MpFace | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v: MpFace | null) => { if (!settled) { settled = true; resolve(v); } };
+    const timeout = setTimeout(() => finish(null), 2000);
+    try {
+      detector.onResults((res: any) => {
+        clearTimeout(timeout);
+        const dets = res?.detections || [];
+        if (!dets.length) return finish(null);
+        const largest = dets.reduce((p: any, c: any) =>
+          (c.boundingBox.width * c.boundingBox.height > p.boundingBox.width * p.boundingBox.height) ? c : p);
+        finish({
+          x: largest.boundingBox.xCenter,
+          y: largest.boundingBox.yCenter,
+          size: largest.boundingBox.width * largest.boundingBox.height,
+        });
+      });
+      detector.send({ image: source }).catch(() => { clearTimeout(timeout); finish(null); });
+    } catch {
+      clearTimeout(timeout);
+      finish(null);
+    }
+  });
 }
 
 // Lightweight Laplacian Variance for blur detection
@@ -75,10 +154,17 @@ export async function analyzeVideoLocally(
     canvas.height = H;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-    let faceDetector: any = null;
+    // Отдельный кадр повышенного разрешения для детектора лиц:
+    // на 64x64 маленькие лица неразличимы для нейросети.
+    const faceCanvas = document.createElement("canvas");
+    faceCanvas.width = 192;
+    faceCanvas.height = 192;
+    const faceCtx = faceCanvas.getContext("2d");
+
+    let nativeFaceDetector: any = null;
     if (typeof window !== "undefined" && window.FaceDetector) {
       try {
-        faceDetector = new window.FaceDetector();
+        nativeFaceDetector = new window.FaceDetector();
       } catch { /* ignore */ }
     }
 
@@ -95,6 +181,12 @@ export async function analyzeVideoLocally(
       if (!duration || duration === Infinity) {
         URL.revokeObjectURL(url);
         return resolve([]);
+      }
+
+      // Лениво поднимаем MediaPipe (WASM ~6Мб) только когда реально анализируем видео.
+      const mpDetector = await loadMediaPipeFaceDetector();
+      if (mpDetector) {
+        console.info("[localAnalyzer] Детекция лиц: MediaPipe BlazeFace");
       }
 
       const fpsTarget = 2; // analyze 2 frames per second
@@ -144,30 +236,46 @@ export async function analyzeVideoLocally(
         const avgSaturation = totalSaturation / pixelCount;
         const contrast = maxLuma - minLuma;
         
+        // Тёмный = провально экспонирован (плоский мрак). Высококонтрастная ночная
+        // сцена (неон, огни) — это КИНО, она не должна караться: фильтруем ниже по contrast.
         const isDark = avgBrightness < 30 || maxLuma < 100;
-        
-        // Calculate Blur
-        const laplacianVar = calculateLaplacianVariance(data, W, H);
-        const isBlurry = laplacianVar < 100 && contrast < 150; // threshold for 64x64
 
-        // Detect Faces (if supported by browser natively)
+        // Calculate Blur: низкая лапласиан-варианс при малом контрасте.
+        // Мягкий порог: профи-боке (малая глубина резкости) даёт умеренную variance
+        // и не должно вылетать из монтажа за «блюр».
+        const laplacianVar = calculateLaplacianVariance(data, W, H);
+        const isBlurry = laplacianVar < 60 && contrast < 110;
+
+        // Detect Faces: сначала нативный API (если вдруг включён), затем MediaPipe.
         let hasFaces = false;
         let faceX: number | undefined;
         let faceY: number | undefined;
-        
-        if (faceDetector) {
+        let faceSize: number | undefined;
+
+        if (nativeFaceDetector) {
           try {
-             const faces = await faceDetector.detect(canvas);
+             const faces = await nativeFaceDetector.detect(canvas);
              if (faces.length > 0) {
                hasFaces = true;
-               // Get the largest face
-               const largest = faces.reduce((p: any, c: any) => 
+               const largest = faces.reduce((p: any, c: any) =>
                  (c.boundingBox.width * c.boundingBox.height > p.boundingBox.width * p.boundingBox.height) ? c : p
                );
                faceX = (largest.boundingBox.x + largest.boundingBox.width / 2) / W;
                faceY = (largest.boundingBox.y + largest.boundingBox.height / 2) / H;
+               faceSize = (largest.boundingBox.width * largest.boundingBox.height) / (W * H);
              }
           } catch { /* fallback */ }
+        }
+
+        if (!hasFaces && mpDetector && faceCtx) {
+          faceCtx.drawImage(video, 0, 0, faceCanvas.width, faceCanvas.height);
+          const mpFace = await detectFacesWithMediaPipe(mpDetector, faceCanvas);
+          if (mpFace) {
+            hasFaces = true;
+            faceX = Math.min(1, Math.max(0, mpFace.x));
+            faceY = Math.min(1, Math.max(0, mpFace.y));
+            faceSize = mpFace.size;
+          }
         }
 
         
@@ -223,6 +331,10 @@ export async function analyzeVideoLocally(
           hasFaces,
           faceX,
           faceY,
+          faceSize,
+          brightness: Math.round(avgBrightness),
+          contrast: Math.round(contrast),
+          saturation: Math.round(avgSaturation),
           qualityScore: qScore,
           isSceneChange,
           hasAction: actionScore > 0,
@@ -288,11 +400,16 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       // Average out the quality score
       current.qualityScore = Math.round((current.qualityScore + next.qualityScore) / 2);
       (current as any).aestheticScore = Math.round(((current as any).aestheticScore + (next as any).aestheticScore) / 2);
+      // Усредняем статистику света/цвета для авто-экспозиции
+      if (next.brightness !== undefined) (current as any).brightness = Math.round((((current as any).brightness ?? next.brightness) + next.brightness) / 2);
+      if (next.contrast !== undefined) (current as any).contrast = Math.round((((current as any).contrast ?? next.contrast) + next.contrast) / 2);
+      if (next.saturation !== undefined) (current as any).saturation = Math.round((((current as any).saturation ?? next.saturation) + next.saturation) / 2);
       // If any frame had faces or motion, keep the higher priority tags
       if (next.hasFaces) {
         current.hasFaces = true;
         if (next.faceX !== undefined) (current as any).faceX = next.faceX;
         if (next.faceY !== undefined) (current as any).faceY = next.faceY;
+        if (next.faceSize !== undefined) (current as any).faceSize = Math.max(next.faceSize, (current as any).faceSize || 0);
       }
       if (next.hasAction) current.hasAction = true;
       if (next.motionLevel === "high" && current.motionLevel !== "shake") current.motionLevel = "high";

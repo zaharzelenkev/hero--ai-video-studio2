@@ -767,7 +767,9 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
   private static applyProfessionalTechniques(script: DirectorScript, genre: string): DirectorScript {
     for (const scene of script.scenes) {
       if (scene.phase === "climax") {
-         scene.mainClip.zoom = true;
+         // zoom=false от визуального билдера — ЗАЩИТНЫЙ (крупный план лица/экшен),
+         // не «разнообразие»: принудительный зум кульминации срежет лицо.
+         if (scene.mainClip.zoom !== false) scene.mainClip.zoom = true;
          if (genre === "travel") {
             // Slow-mo на кульминации: растягиваем ЦЕНТРАЛЬНУЮ часть исходного фрагмента
             // на тот же таймлайн-интервал (таймлайн НЕ удлиняется — склейки и титры не съезжают).
@@ -799,7 +801,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
                      sourceStart: climaxScene.mainClip.sourceStart + (climaxScene.duration / 2) - (teaserDur / 2),
                      sourceEnd: climaxScene.mainClip.sourceStart + (climaxScene.duration / 2) + (teaserDur / 2), 
                      speed: 1, 
-                     zoom: true 
+                     // та же защита, что и в кульминации: не зумим крупные лица
+                     zoom: climaxScene.mainClip.zoom !== false 
                  },
                  bRolls: [],
                  captions: [{

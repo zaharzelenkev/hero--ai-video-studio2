@@ -308,8 +308,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         duration = (outPoint - inPoint) / speed;
       }
 
-      if (!isBroll && beats.length && duration > 1.0) {
+      if (beats.length && duration > 1.0) {
         // Квантование конца клипа к БЛИЖАЙШЕМУ биту (в обе стороны) — ритм ощущается "сшитым".
+        // Для B-roll тоже: уход с перебивки ровно на долю выглядит отрепетированным.
         const rawEnd = timelineStart + duration;
         let closestEnd = rawEnd;
         let bestDist = Infinity;
@@ -413,6 +414,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       if (keepNatSound) {
          clip.muted = false;
          clip.volume = { value: 0.22, keyframes: [] };
+         // атмосферный слой входит/уходит мягко — хлопок комнатного тона на врезе уходит
+         clip.fadeIn = 0.15;
+         clip.fadeOut = 0.2;
       } else {
          clip.muted = !!aiDecision?.audioEnhancements?.muteOriginalAudio || isBroll;
       }

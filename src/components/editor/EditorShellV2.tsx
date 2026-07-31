@@ -15,6 +15,7 @@ import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
 import ProductionPanelV2 from "./panels/ProductionPanelV2";
 import PreProductionPanelV2 from "./panels/PreProductionPanelV2";
+import KeyframeEditor from "./KeyframeEditor";
 
 const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "production", label: "Продакшн", icon: "🧭", desc: "План, настройки" },
@@ -227,6 +228,12 @@ export default function EditorShellV2() {
           </div>
           <div className="p-3">
             <PanelContent />
+            {selectedClipId && (
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <h4 className="text-xs font-bold text-violet-300 mb-1">Keyframes</h4>
+                <KeyframeEditor />
+              </div>
+            )}
           </div>
         </aside>
       </div>

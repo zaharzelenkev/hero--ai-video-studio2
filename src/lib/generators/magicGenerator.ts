@@ -306,14 +306,20 @@ async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMed
   // Add music — хронометраж по РЕАЛЬНЫМ длительностям сцен (после измерения TTS),
   // иначе длинные сценарии уезжали в тишину после 30 секунды.
   try {
-    const { generateProceduralMusic } = await import("../musicGenerator");
+    const { generateProceduralMusic, proceduralStyleForTemplate } = await import("../musicGenerator");
+    // Реальная длительность сцены на таймлайне = озвучка + 0.5с «воздуха»
+    // (то же правило, что и при размещении клипов ниже). Раньше сетка BGM
+    // считалась только по озвучке — музыка кончалась на ~0.5с × N раньше видео.
     const sceneDurs: number[] = scriptData.scenes.map((s: any, idx: number) =>
-      sceneMedia[idx]?.duration || Math.max(2, (s.voiceover?.length || 24) / 12));
+      (sceneMedia[idx]?.duration || Math.max(2, (s.voiceover?.length || 24) / 12)) + 0.5);
     // перекрытия xfade (0.4с на сцену) укорачивают суммарный хронометраж
     const fullDur = Math.max(3, sceneDurs.reduce((a: number, b: number) => a + b, 0) - Math.max(0, scriptData.scenes.length - 1) * 0.4);
     // сид от контента сценария — прогрессия и тембр зависят от истории, но детерминированы
     const mSeed = (String(scriptData.title || "").length + scriptData.scenes.length * 17 + Math.round(fullDur * 13)) | 0;
-    const mBlob = await generateProceduralMusic("electronic", fullDur + 0.5, mSeed);
+    // Жанр саундтрека следует шаблону: свадьба/кино — оркестровая тема,
+    // подкаст/обучение — lofi, остальное — электроника. Раньше всегда
+    // играла electronic, и Cinematic-ролик звучал как реклама энергетика.
+    const mBlob = await generateProceduralMusic(proceduralStyleForTemplate(activeTemplate.id), fullDur + 0.5, mSeed);
     if (!mBlob) throw new Error("procedural music unavailable");
     const mId = "bgm_" + Date.now();
     const { saveBlob } = await import("../db");
@@ -478,5 +484,46 @@ async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMed
   }
 
   project.duration = cursor;
+
+  // --- SOUND DESIGN: whoosh на переходах, impact на старте ---
+  // Тот же приём, что в основном autoEdit: смена сцены без звукового
+  // акцента ощущается «плоской», удар+вжух склеивают монтаж в единое целое.
+  if (typeof window !== "undefined" && window.OfflineAudioContext) {
+    try {
+      const { generateSfx } = await import("../sfx");
+      const { saveBlob } = await import("../db");
+      const { createTrack } = await import("../factories");
+      const sfxTrack = createTrack("audio", "Звуковые эффекты");
+      project.tracks.push(sfxTrack);
+
+      const mkSfx = async (type: import("../sfx").SfxType, name: string, dur: number) => {
+        const blob = await generateSfx(type);
+        const id = "sfx_" + type + "_" + Date.now();
+        const file = new File([blob], name, { type: "audio/wav" });
+        await saveBlob(id, file);
+        _filesByAssetId.set(id, file);
+        const asset = { id, name, kind: "audio" as const, mime: "audio/wav", blobKey: id, duration: dur, createdAt: Date.now() };
+        project.assets.push(asset as any);
+        return asset;
+      };
+
+      const whoosh = await mkSfx("whoosh", "SFX: Whoosh", 0.5);
+      const impact = await mkSfx("impact", "SFX: Impact", 1.0);
+
+      // Impact на самом первом кадре — мгновенная энергия хука
+      const first = createAudioClip({ trackId: sfxTrack.id, asset: impact as any, start: 0, duration: impact.duration });
+      first.volume = { value: 0.5, keyframes: [] };
+      sfxTrack.clips.push(first);
+
+      for (const c of videoTrack.clips as import("../types").VideoClip[]) {
+        if (c.start > 0.5 && c.transitionIn && c.transitionIn.type !== "cut") {
+          const s = createAudioClip({ trackId: sfxTrack.id, asset: whoosh as any, start: Math.max(0, c.start - 0.15), duration: whoosh.duration });
+          s.volume = { value: 0.45, keyframes: [] };
+          sfxTrack.clips.push(s);
+        }
+      }
+    } catch { /* саунд-дизайн опционален — монтаж не ломаем */ }
+  }
+
   return project;
 }

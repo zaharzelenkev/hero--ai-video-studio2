@@ -1182,7 +1182,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
               // Не озвучиваем КАЖДОЕ слово субтитров — иначе получаем пулемётную очередь попов.
               // Звук даём только акцентным словам и крупным титрам (Hormozi/Beast так и звучат).
               const isSubtitleWord = clip.duration < 0.9;
-              const isEmphasized = clip.color === "#00FF00" || clip.color === "#FFE81A";
+              const isEmphasized = ["#00FF00", "#FFE81A", "#39FF14", "#FF4D00"].includes(clip.color);
               if (isSubtitleWord && !isEmphasized) continue;
               let chosenAsset = popAsset;
               if (clip.animationIn === "typewriter") chosenAsset = dingAsset;

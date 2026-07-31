@@ -514,12 +514,15 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                      ];
                  }
              } else {
-                 // Fallback cut
-                 clip.opacity.value = 0;
+                 // Fallback: всегда мягкое всплытие fullscreen B-roll (0.18с вход, 0.24с
+                 // уход) — хард-врез полноэкранной перебивки диссонирует с xfade основного
+                 // ряда и режет глаз между двумя «мягкими» склейками.
+                 clip.opacity.value = 1;
                  clip.opacity.keyframes = [
-                     { id: "k1", time: 0, value: 1, easing: "linear" },
-                     { id: "k2", time: duration - 0.1, value: 1, easing: "linear" },
-                     { id: "k3", time: duration, value: 0, easing: "linear" }
+                     { id: "k1", time: 0, value: 0, easing: "linear" },
+                     { id: "k2", time: 0.18, value: 1, easing: "linear" },
+                     { id: "k3", time: Math.max(0.2, duration - 0.24), value: 1, easing: "linear" },
+                     { id: "k4", time: duration, value: 0, easing: "linear" }
                  ];
              }
          }

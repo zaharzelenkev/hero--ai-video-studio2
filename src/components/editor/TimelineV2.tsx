@@ -131,7 +131,7 @@ export default function TimelineV2() {
                         setDragInfo({ trackId: track.id, clipId: clip.id, startX: e.clientX, originalStart: clip.start });
                       }}
                       onDoubleClick={() => splitClipAt(clip.id, playhead)}
-                      className={`absolute h-12 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-blue-300 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : "bg-gradient-to-br from-violet-800/60 to-fuchsia-800/60 border-blue-400/30 text-slate-100"}`}
+                      className={`absolute h-12 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-violet-400 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : track.type === "audio" ? "bg-gradient-to-br from-amber-900/60 to-yellow-800/60 border-amber-400/30 text-slate-100" : track.type === "text" || track.type === "subtitle" ? "bg-gradient-to-br from-emerald-900/60 to-teal-800/60 border-emerald-400/30 text-slate-100" : "bg-gradient-to-br from-blue-900/60 to-sky-800/60 border-blue-400/30 text-slate-100"}`}
                       style={{ left: left + 80, width, top: 4 }}
                       title={`${clip.name}\nСтарт: ${clip.start.toFixed(2)}\nДлительность: ${clip.duration.toFixed(2)}\nДвойной клик - разделить`}
                       aria-label={`Клип ${clip.name}, начало ${clip.start.toFixed(1)}`}

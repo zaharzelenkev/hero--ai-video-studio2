@@ -118,7 +118,7 @@ export default function PreviewCanvas() {
           // If crop active, draw crop rectangle overlay
           if ((cropL + cropR + cropT + cropB) > 0.01) {
             ctx.save();
-            ctx.strokeStyle = "rgba(255,200,50,0.8)";
+            ctx.strokeStyle = "rgba(255,100,200,0.7)";
             ctx.lineWidth = 2;
             ctx.strokeRect(-drawW / 2 + cropL * drawW, -drawH / 2 + cropT * drawH, drawW * (1 - cropL - cropR), drawH * (1 - cropT - cropB));
             ctx.restore();
@@ -126,7 +126,7 @@ export default function PreviewCanvas() {
         } else {
           // Fallback gradient
           ctx.save();
-          ctx.fillStyle = `linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)`;
+          ctx.fillStyle = `linear-gradient(135deg, #3b0764 0%, #881337 100%)`;
           ctx.fillRect(-w / 2, -h / 2, w, h);
           ctx.fillStyle = "rgba(255,255,255,0.1)";
           ctx.font = "bold 24px sans-serif";
@@ -198,7 +198,7 @@ export default function PreviewCanvas() {
     <div ref={containerRef} className="relative w-full h-full bg-gradient-to-br from-[#08060c] to-[#120925] overflow-hidden shadow-inner rounded-xl m-1 border border-white/5 flex items-center justify-center">
       <canvas ref={canvasRef} className="shadow-2xl rounded-xl border border-white/10 max-w-full max-h-full object-contain" style={{ width: "100%", height: "100%", maxHeight: "70vh" }} aria-label="Предпросмотр проекта" />
       {/* Playback overlay */}
-      <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur rounded-lg px-2 py-1 text-[10px] font-mono text-amber-300 border border-white/10" aria-live="polite" aria-atomic="true">
+      <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur rounded-lg px-2 py-1 text-[10px] font-mono text-violet-300 border border-white/10" aria-live="polite" aria-atomic="true">
         {project?.resolution ? `${resolution.width}×${resolution.height}` : "HD"} @ {project?.fps || 30}fps
       </div>
     </div>

@@ -21,7 +21,7 @@ export default function TextPanelV2() {
   return (
     <div className="space-y-3">
       <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-amber-300 mb-2">Текст</h3>
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Текст</h3>
         <textarea
           value={t.text || ""}
           onChange={(e) => setText(c => ({ ...c, text: e.target.value }))}
@@ -31,7 +31,7 @@ export default function TextPanelV2() {
         />
         <div className="flex flex-wrap gap-1 mt-2">
           {fonts.map(f => (
-            <button key={f} onClick={() => setText(c => ({ ...c, fontFamily: f }))} className={`rounded-md px-2 py-0.5 text-[10px] font-bold border transition ${t.fontFamily === f ? "bg-blue-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{f}</button>
+            <button key={f} onClick={() => setText(c => ({ ...c, fontFamily: f }))} className={`rounded-md px-2 py-0.5 text-[10px] font-bold border transition ${t.fontFamily === f ? "bg-violet-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{f}</button>
           ))}
         </div>
         <div className="flex gap-2 mt-2">
@@ -41,23 +41,23 @@ export default function TextPanelV2() {
       </section>
 
       <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-amber-300 mb-2">Анимация текста</h3>
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Анимация текста</h3>
         <label className="text-[10px] text-slate-400">Вход (Animation In)</label>
         <div className="flex flex-wrap gap-1 mt-1 mb-2">
           {animations.map(a => (
-            <button key={a} onClick={() => setText(c => ({ ...c, animationIn: a as any }))} className={`rounded-lg px-2 py-0.5 text-[10px] font-bold border transition ${t.animationIn === a ? "bg-blue-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{a}</button>
+            <button key={a} onClick={() => setText(c => ({ ...c, animationIn: a as any }))} className={`rounded-lg px-2 py-0.5 text-[10px] font-bold border transition ${t.animationIn === a ? "bg-violet-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{a}</button>
           ))}
         </div>
         <label className="text-[10px] text-slate-400">Выход (Animation Out)</label>
         <div className="flex flex-wrap gap-1 mt-1">
           {animations.map(a => (
-            <button key={a} onClick={() => setText(c => ({ ...c, animationOut: a as any }))} className={`rounded-lg px-2 py-0.5 text-[10px] font-bold border transition ${t.animationOut === a ? "bg-cyan-600 text-white border-fuchsia-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{a}</button>
+            <button key={a} onClick={() => setText(c => ({ ...c, animationOut: a as any }))} className={`rounded-lg px-2 py-0.5 text-[10px] font-bold border transition ${t.animationOut === a ? "bg-fuchsia-600 text-white border-fuchsia-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{a}</button>
           ))}
         </div>
       </section>
 
       <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-amber-300 mb-2">Трансформ текста</h3>
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Трансформ текста</h3>
         <div className="flex flex-wrap gap-2 mb-2">
           <div><label className="text-[10px] text-slate-400 block">X</label><input type="range" min={-1} max={1} step={0.01} value={t.x?.value ?? 0} onChange={(e) => setText(c => ({ ...c, x: { value: parseFloat(e.target.value), keyframes: [] } }))} className="w-28" aria-label="Text X" /></div>
           <div><label className="text-[10px] text-slate-400 block">Y</label><input type="range" min={-1} max={1} step={0.01} value={t.y?.value ?? 0} onChange={(e) => setText(c => ({ ...c, y: { value: parseFloat(e.target.value), keyframes: [] } }))} className="w-28" aria-label="Text Y" /></div>

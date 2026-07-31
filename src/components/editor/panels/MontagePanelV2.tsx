@@ -30,9 +30,9 @@ export default function MontagePanelV2() {
   return (
     <div className="space-y-3">
       <section className="rounded-xl bg-gradient-to-r from-violet-900/30 to-fuchsia-900/30 border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-amber-300 mb-2">Монтаж</h3>
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Монтаж</h3>
         <div className="flex gap-2 mb-2">
-          <button onClick={handleAddVideoTrack} className="rounded-lg bg-gradient-to-r from-blue-700 to-cyan-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg">+ Видео трек</button>
+          <button onClick={handleAddVideoTrack} className="rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg">+ Видео трек</button>
           <button onClick={handleAddAudioTrack} className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg">+ Аудио трек</button>
         </div>
         <div className="flex gap-2">
@@ -49,7 +49,7 @@ export default function MontagePanelV2() {
       </section>
 
       <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-amber-300 mb-2">Треки</h3>
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Треки</h3>
         <div className="space-y-2">
           {project.tracks.map((track: Track) => (
             <div key={track.id} className={`rounded-lg border p-2 ${track.hidden ? "opacity-50" : "border-white/10 bg-[#0a0a12]"} ${track.muted ? "border-amber-500/30" : ""}`}>
@@ -63,7 +63,7 @@ export default function MontagePanelV2() {
               </div>
               <div className="flex flex-wrap gap-1">
                 {track.clips.map((c: Clip) => (
-                  <button key={c.id} onClick={() => { selectClip(c.id); setPlayhead(c.start); }} className={`text-[10px] rounded-md px-2 py-0.5 border transition ${selectedClipId === c.id ? "bg-blue-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{c.name}</button>
+                  <button key={c.id} onClick={() => { selectClip(c.id); setPlayhead(c.start); }} className={`text-[10px] rounded-md px-2 py-0.5 border transition ${selectedClipId === c.id ? "bg-violet-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{c.name}</button>
                 ))}
               </div>
             </div>
@@ -72,7 +72,7 @@ export default function MontagePanelV2() {
       </section>
 
       <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-amber-300 mb-2">Информация о клипе</h3>
+        <h3 className="text-xs font-bold text-violet-300 mb-2">Информация о клипе</h3>
         {selectedClip ? (
           <div className="text-xs text-slate-300 space-y-1">
             <div><span className="text-slate-500">Имя:</span> {selectedClip.name}</div>

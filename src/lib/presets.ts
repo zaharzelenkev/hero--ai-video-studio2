@@ -30,6 +30,15 @@ export const LUT_PRESETS: Record<LutPreset, Partial<ColorGrade> & { css: string 
 };
 
 /** FFmpeg filter fragment applied for a LUT preset (chained after manual eq/hue). */
+/** Чистка глифов, отсутствующих в DejaVu (шрифт экспорта): эмодзи/флаги/ZWJ/PUA.
+ *  Применяйте при СОЗДАНИИ текста — тогда превью (DOM) и экспорт (drawtext) совпадут. */
+export function sanitizeGlyphs(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u200D\uFE00-\uFE0F\uE000-\uF8FF]/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +\n/g, "\n");
+}
+
 export function lutToFfmpeg(lut: LutPreset): string[] {
   switch (lut) {
     case "bw":

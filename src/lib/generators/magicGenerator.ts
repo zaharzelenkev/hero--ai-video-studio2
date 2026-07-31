@@ -3,6 +3,7 @@ import { AI_CONFIG } from "@/config/ai";
 import type { Project, MediaAsset } from "../types";
 import { uid } from "../id";
 import { saveBlob } from "../db";
+import { sanitizeGlyphs } from "../presets";
 
 export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void, filesByAssetId?: Map<string, File>): Promise<Project> {
   onProgress?.("📝 Пишем сценарий...");
@@ -317,7 +318,7 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
         trackId: textTrack.id,
         start: textStart,
         duration: phraseDur,
-        text: phrase
+        text: sanitizeGlyphs(phrase)
       });
       
       tClip.y.value = activeTemplate.text.yPosition;

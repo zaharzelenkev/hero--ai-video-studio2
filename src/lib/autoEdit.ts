@@ -8,6 +8,7 @@ import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer"
 import { AI_CONFIG } from "@/config/ai";
 import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
 import { TEMPLATES, getTemplateForContentType } from "./templates";
+import { sanitizeGlyphs } from "./presets";
 
 export interface AutoEditInput {
   onProgress?: (msg: string) => void;
@@ -778,7 +779,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   const avgCharW = 0.55; // средняя ширина знака в долях кегля
   const wrapForFont = (text: string, fontSize: number) => {
     const maxChars = Math.max(8, Math.floor((project.resolution.width * 0.88) / (fontSize * avgCharW)));
-    return wrapText(text, maxChars);
+    // sanitizeGlyphs — превью (DOM) и экспорт (drawtext/DejaVu) показывают ОДИН текст
+    return wrapText(sanitizeGlyphs(text), maxChars);
   };
 
   if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {

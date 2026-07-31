@@ -1,6 +1,6 @@
 import type { AudioClip, ExportSettings, Project, TextClip, VideoClip } from "./types";
 import { paramToFfmpegExpr } from "./keyframes";
-import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, transitionToXfade } from "./presets";
+import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, sanitizeGlyphs, transitionToXfade } from "./presets";
 
 let uidCounter = 0;
 function id(prefix: string) {
@@ -36,17 +36,6 @@ function escDrawtext(text: string): string {
     .replace(/'/g, "\u2019")
     .replace(/%/g, "\\%")
     .replace(/\n/g, "\\n");
-}
-
-// Глифы, которых нет в DejaVu (единственный доступный шрифт экспорта):
-// эмодзи-блоки, флаговые индикаторы, ZWJ/вариационные селекторы, приватная область.
-// Они печатаются квадратами-«тофу» (□) — лучше чистый текст, чем квадрат в кадре.
-// LLM-титры любят эмодзи («🚀 Секрет»), поэтому чистим на этапе компиляции.
-function sanitizeGlyphs(text: string): string {
-  return text
-    .replace(/[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u200D\uFE00-\uFE0F\uE000-\uF8FF]/gu, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/ +\n/g, "\n");
 }
 
 function clamp(v: number, min: number, max: number) {

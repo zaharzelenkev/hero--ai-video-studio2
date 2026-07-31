@@ -600,7 +600,10 @@ export function buildOutputArgs(exportSettings: ExportSettings, outputName: stri
       ? ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(exportSettings.crf), "-c:a", "libopus"]
       : exportSettings.format === "gif"
         ? []
-        : ["-c:v", "libx264", "-preset", "veryfast", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"];
+        // high profile = B-frames+CABAC (бесплатные ~8% битрейта), preset fast —
+        // баланс времени кодирования в wasm и плотности битрейта на динамичном монтаже,
+        // +faststart — превью стартует мгновенно при реаплоаде (moov в начале файла).
+        : ["-c:v", "libx264", "-preset", "fast", "-profile:v", "high", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k"];
   return [...codecArgs, "-r", String(exportSettings.fps), outputName];
 }
 

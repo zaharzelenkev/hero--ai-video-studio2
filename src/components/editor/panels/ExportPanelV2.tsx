@@ -91,7 +91,7 @@ export default function ExportPanelV2() {
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => {
-              setSettings((s) => ({ ...s, width: 1920, height: 1080, fps: 30, format: "mp4", crf: 23 }));
+              setSettings((s) => ({ ...s, width: 1920, height: 1080, fps: 30, format: "mp4", crf: 20 }));
             }}
             className="rounded-md border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-medium text-slate-300 hover:bg-white/10"
           >
@@ -99,7 +99,7 @@ export default function ExportPanelV2() {
           </button>
           <button
             onClick={() => {
-              setSettings((s) => ({ ...s, width: 1080, height: 1920, fps: 30, format: "mp4", crf: 23 }));
+              setSettings((s) => ({ ...s, width: 1080, height: 1920, fps: 30, format: "mp4", crf: 20 }));
             }}
             className="rounded-md border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-medium text-slate-300 hover:bg-white/10"
           >
@@ -107,7 +107,7 @@ export default function ExportPanelV2() {
           </button>
           <button
             onClick={() => {
-              setSettings((s) => ({ ...s, width: 1080, height: 1080, fps: 30, format: "mp4", crf: 23 }));
+              setSettings((s) => ({ ...s, width: 1080, height: 1080, fps: 30, format: "mp4", crf: 20 }));
             }}
             className="rounded-md border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-medium text-slate-300 hover:bg-white/10"
           >

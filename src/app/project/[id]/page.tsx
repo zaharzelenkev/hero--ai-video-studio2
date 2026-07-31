@@ -84,7 +84,7 @@ export default function ProjectPage() {
           <div className="space-y-3">
             <div className="rounded-2xl bg-gradient-to-b from-violet-900/40 to-fuchsia-900/40 border border-white/10 p-4 shadow-2xl">
               <h3 className="text-sm font-bold text-violet-200 mb-2">Быстрый старт</h3>
-              <a href={`/editor/${id}`} className="block w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-center py-3 text-sm font-bold text-white shadow-lg hover:brightness-110 transition mb-2">Открыть редактор →</a>
+              <a href={`/editor/${id}`} className="block w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-center py-3 text-sm font-bold text-white shadow-lg hover:brightness-110 transition mb-2">AI Director →</a>
               <a href={`/`} className="block w-full rounded-xl bg-white/5 border border-white/10 text-center py-2 text-xs font-bold text-slate-300 hover:bg-white/10 transition">На главную</a>
             </div>
 

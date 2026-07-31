@@ -791,7 +791,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         for (const clip of track.clips as import("./types").VideoClip[]) {
            const segs = segmentsByAssetId.get(clip.assetId);
            if (segs) {
-              const clipWords = segs.filter(s => s.start >= clip.inPoint && s.start < clip.outPoint);
+              // На сильно ускоренных клипах речь превращается в шум, а субтитры — в нечитаемое
+              // мерцание: ускоренный фрагмент — это приём, а не диалог. Субтитры по нему не строим.
+              const clipSpeed = (clip as import("./types").VideoClip).speed || 1;
+              const clipWords = clipSpeed > 1.6 ? [] : segs.filter(s => s.start >= clip.inPoint && s.start < clip.outPoint);
               if (clipWords.length === 0) continue;
               
               let wordsPerGroup = 1;
@@ -829,17 +832,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
               }
 
               let accumulatedLine = "";
+              // Учёт скорости клипа: на ускоренной речи (speed-ramp) времянка слов
+              // сжимается в sp раз — без этого субтитры «уезжают» от звука.
+              const sp = Math.max(0.05, (clip as import("./types").VideoClip).speed || 1);
+              const toTl = (srcT: number) => clip.start + (srcT - clip.inPoint) / sp;
+              const outTl = toTl(clip.outPoint);
+
               for (let gi = 0; gi < groups.length; gi++) {
                  const g = groups[gi];
-                 const timelineStart = clip.start + (g.start - clip.inPoint);
-                 const durInAsset = g.end - g.start;
-                 let durOnTimeline = Math.min(durInAsset + (wordsPerGroup > 1 ? 0.3 : 0.05), clip.outPoint - g.start);
+                 const timelineStart = toTl(g.start);
+                 const durInTl = toTl(g.end) - toTl(g.start);
+                 const remainingTl = outTl - timelineStart;
+                 let durOnTimeline = Math.min(durInTl + (wordsPerGroup > 1 ? 0.3 : 0.05), remainingTl);
 
                  // караоке: слово висит до начала СЛЕДУЮЩЕГО — нет мерцания
                  // в паузах между словами (пауза = дыра в субтитрах)
                  if (karaokeMode) {
-                    const nextStart = gi + 1 < groups.length ? groups[gi + 1].start : clip.outPoint;
-                    durOnTimeline = Math.min(Math.max(nextStart - g.start, durInAsset + 0.04), clip.outPoint - g.start);
+                    const nextTlStart = gi + 1 < groups.length ? toTl(groups[gi + 1].start) : outTl;
+                    durOnTimeline = Math.min(Math.max(nextTlStart - timelineStart, durInTl + 0.04), remainingTl);
                  } else {
                     accumulatedLine += (accumulatedLine ? " " : "") + g.text;
                  }

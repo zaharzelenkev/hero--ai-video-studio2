@@ -283,6 +283,10 @@ export interface VideoClip extends BaseClip {
   
   volume: AnimParam;
   muted: boolean;
+  /** Аудио-фейды нативного звука клипа (сек). Автоматически проставляются
+   *  под длительность видеоперехода — иначе на xfade звук режется жёстко. */
+  fadeIn?: number;
+  fadeOut?: number;
   
   // Color & Effects
   color: ColorGrade;

@@ -638,6 +638,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
     cursor = actualCursor; // Now cursor accurately represents the end of the visual track!
 
+    // АУДИО-КРОССФЕЙД ПОД ВИДЕОПЕРЕХОДЫ: на xfade картинки двух планов сливаются,
+    // а нативный звук резался жёстко (только 20мс анти-клик) — стык слышен.
+    // Симметричные фейды на длительность перехода: звук сливается вместе с картинкой.
+    {
+        const ordered = (videoTrack.clips as import("./types").VideoClip[])
+            .slice().sort((a, b) => a.start - b.start);
+        for (let i = 0; i < ordered.length - 1; i++) {
+            const cur = ordered[i];
+            const nxt = ordered[i + 1];
+            const t = nxt.transitionIn;
+            const td = t && t.type !== "cut" ? Math.min(t.duration || 0, 0.6) : 0;
+            if (td <= 0.05) continue;
+            const fade = td * 0.9;
+            if (!cur.muted) cur.fadeOut = Math.max(cur.fadeOut || 0, fade);
+            if (!nxt.muted) nxt.fadeIn = Math.max(nxt.fadeIn || 0, fade);
+        }
+    }
+
     // КАРТА ВРЕМЕНИ: плановое время (из компиляции решения) -> реальное время ролика.
     // B-Roll и AI-титры ниже размещались по плановым временам и накапливали отставание
     // на сумму переходов (к концу ролика — секунды рассинхрона!). Переводим через карту.

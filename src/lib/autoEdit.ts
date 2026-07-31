@@ -911,7 +911,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                       trackId: textTrack.id,
                       start: timelineStart,
                       duration: durOnTimeline,
-                      text: wrapForFont(karaokeMode ? g.text : accumulatedLine, activeTemplate.text.fontSize || 72),
+                      // Караоке — КАПСОМ: единичное слово крупнее читается с телефона
+                      // (фирменный стиль Hormozi/TikTok); накопленные строки остаются как есть.
+                      text: wrapForFont(karaokeMode ? g.text.toUpperCase() : accumulatedLine, activeTemplate.text.fontSize || 72),
                     });
 
                     if (!karaokeMode && g.hasPunctuation) {

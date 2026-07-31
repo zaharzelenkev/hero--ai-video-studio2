@@ -131,6 +131,64 @@ export interface AudioEnergySegment {
   energyLevel: "low" | "medium" | "high" | "drop";
 }
 
+/**
+ * Классификация энергии по ПЕРЦЕНТИЛЯМ (вынесено для тестируемости в Node).
+ *
+ * Старая схема нормализовала окна к максимуму файла: на сжатой поп-музыке
+ * RMS почти плоский → «high/drop» срабатывал и на интро (ложные дропы,
+ * inPoint трека ставился на вступление), а одинокий выброс (хлопок, кашель)
+ * становился эталоном «дропа». Профи-логика: структура трека читается
+ * относительно его СОБСТВЕННОГО распределения:
+ *   drop   — верхние ~15% энергии и заметно выше медианы и локального фона;
+ *   high   — выше медианы;
+ *   low    — нижние ~35% и заметно ниже медианы;
+ *   medium — всё остальное.
+ * Дополнительно дроп подтверждается локальным контрастом с окрестностью
+ * (±7 окон): лес одинаково громких окон — это «фон высокой громкости»,
+ * а не событие; событие = пик над фоном.
+ */
+export function classifyEnergyWindows(
+  energies: number[],
+  windowSec: number,
+  duration: number,
+): AudioEnergySegment[] {
+  if (energies.length === 0) return [];
+  const sorted = [...energies].sort((a, b) => a - b);
+  const pct = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))];
+  const p15 = pct(0.15);
+  const p50 = Math.max(pct(0.5), 1e-4);
+  const p85 = pct(0.85);
+
+  const segments: AudioEnergySegment[] = [];
+  for (let i = 0; i < energies.length; i++) {
+    const e = energies[i];
+    // Локальный фон окрестности без самого окна
+    let locSum = 0, locN = 0;
+    for (let j = Math.max(0, i - 7); j <= Math.min(energies.length - 1, i + 7); j++) {
+      if (j === i) continue;
+      locSum += energies[j];
+      locN++;
+    }
+    const locMean = locN > 0 ? locSum / locN : e;
+
+    let level: AudioEnergySegment["energyLevel"];
+    if (e >= p85 && e > p50 * 1.18 && e > locMean * 1.1) level = "drop";
+    else if (e > p50 * 1.05) level = "high";
+    else if (e <= p15 || e < p50 * 0.55) level = "low";
+    else level = "medium";
+
+    const startTime = i * windowSec;
+    const endTime = Math.min(startTime + windowSec, duration);
+
+    if (segments.length > 0 && segments[segments.length - 1].energyLevel === level) {
+      segments[segments.length - 1].endTime = endTime;
+    } else {
+      segments.push({ startTime, endTime, energyLevel: level });
+    }
+  }
+  return segments;
+}
+
 /** Analyzes an audio file and returns a timeline of energy levels (drops, buildups) */
 export async function analyzeAudioEnergy(file: Blob): Promise<AudioEnergySegment[]> {
   if (file.size > 100 * 1024 * 1024) return []; // Skip heavy files
@@ -142,49 +200,29 @@ export async function analyzeAudioEnergy(file: Blob): Promise<AudioEnergySegment
     const buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
     const data = buffer.getChannelData(0);
     const sampleRate = buffer.sampleRate;
-    
+
     const windowSec = 2; // analyze 2-second chunks
     const windowSamples = sampleRate * windowSec;
     const duration = buffer.duration;
-    
+
+    // Моно-сумма: кик/бас нередко панированы — по одному каналу структура теряется.
+    const chans: Float32Array[] = [];
+    for (let c = 0; c < buffer.numberOfChannels; c++) chans.push(buffer.getChannelData(c));
     const energies: number[] = [];
-    
     for (let i = 0; i < data.length; i += windowSamples) {
       const end = Math.min(i + windowSamples, data.length);
       let sumSq = 0;
-      // take a fast sample every 10th frame to save CPU
       let count = 0;
       for (let j = i; j < end; j += 10) {
-        sumSq += data[j] * data[j];
+        let s = 0;
+        for (let c = 0; c < chans.length; c++) s += chans[c][j];
+        sumSq += s * s;
         count++;
       }
       energies.push(Math.sqrt(sumSq / count));
     }
-    
-    if (energies.length === 0) return [];
-    
-    const maxE = Math.max(...energies, 0.001);
-    const segments: AudioEnergySegment[] = [];
-    
-    for (let i = 0; i < energies.length; i++) {
-      const normalized = energies[i] / maxE;
-      let level: AudioEnergySegment["energyLevel"] = "medium";
-      if (normalized < 0.2) level = "low";
-      else if (normalized > 0.8) level = "drop";
-      else if (normalized > 0.5) level = "high";
-      
-      const startTime = i * windowSec;
-      const endTime = Math.min(startTime + windowSec, duration);
-      
-      // compact consecutive same-level segments
-      if (segments.length > 0 && segments[segments.length - 1].energyLevel === level) {
-         segments[segments.length - 1].endTime = endTime;
-      } else {
-         segments.push({ startTime, endTime, energyLevel: level });
-      }
-    }
-    
-    return segments;
+
+    return classifyEnergyWindows(energies, windowSec, duration);
   } catch {
     return [];
   } finally {

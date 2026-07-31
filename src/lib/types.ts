@@ -248,6 +248,13 @@ export interface VideoClip extends BaseClip {
   type: "video" | "image";
   assetId: string;
   fitMode?: "cover" | "contain";
+  /**
+   * Blur-pad: портретный источник на ландшафтном канвасе вместо cover-кропа
+   * (который обезглавливает кадр) показывается целиком по центру, а фон
+   * заполняется размытой копией того же кадра — отраслевой стандарт для
+   * смешанных ориентаций (телефонное видео в 16:9).
+   */
+  blurPad?: boolean;
   cameraMotion?: CameraMotion;
   /** In/out trim point inside the source asset, in seconds. */
   inPoint: number;

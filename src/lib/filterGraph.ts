@@ -88,8 +88,27 @@ function buildVideoClipChain(
   }
 
   const actualFitMode = clip.fitMode || fitMode;
-  if (actualFitMode === "cover") {
-    
+  if (actualFitMode === "cover" && clip.blurPad) {
+    // BLUR-PAD: размытая подложка из того же кадра заполняет канвас,
+    // чёткий кадр целиком по центру. Портретный исходник не обезглавливается,
+    // чёрных полос нет — так монтируют смешанные ориентации профи-редакторы.
+    // boxblur в два прохода близок к гауссу, но в разы быстрее gblur в wasm.
+    const spA = id(`c${tag}_spA_`);
+    const spB = id(`c${tag}_spB_`);
+    lines.push(`[${current}]split=2[${spA}][${spB}]`);
+    const bgId = id(`c${tag}_bg_`);
+    lines.push(
+      `[${spA}]scale='iw*max(${canvasW}/iw\\,${canvasH}/ih)':'ih*max(${canvasW}/iw\\,${canvasH}/ih)',crop=${canvasW}:${canvasH},boxblur=12:5,eq=brightness=-0.05:saturation=0.85,setsar=1[${bgId}]`,
+    );
+    const fgId = id(`c${tag}_fg_`);
+    lines.push(
+      `[${spB}]scale=${canvasW}:${canvasH}:force_original_aspect_ratio=decrease,setsar=1[${fgId}]`,
+    );
+    const bpOut = id(`c${tag}_bp_`);
+    lines.push(`[${bgId}][${fgId}]overlay=(W-w)/2:(H-h)/2[${bpOut}]`);
+    current = bpOut;
+  } else if (actualFitMode === "cover") {
+
     let cropX = "(in_w-out_w)/2";
     let cropY = "(in_h-out_h)/2";
     

@@ -135,7 +135,9 @@ export function createTrack(type: Track["type"], name: string): Track {
 }
 
 export function defaultExportSettings(): ExportSettings {
-  return { width: 1280, height: 720, fps: 30, format: "mp4", crf: 23 };
+  // CRF 20: визуально «чистый» 1080p для соцсетей (выживет при их рекомпрессии);
+  // 23 — стоковый дефолт x264, на быстром монтаже даёт заметные артефакты.
+  return { width: 1280, height: 720, fps: 30, format: "mp4", crf: 20 };
 }
 
 export function createEmptyProject(title: string): Project {

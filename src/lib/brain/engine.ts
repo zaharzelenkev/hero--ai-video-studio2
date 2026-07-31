@@ -228,9 +228,11 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
                 id: `scene_${Date.now()}_${s.phraseId}`,
                 phase: s.phase === "setup" || s.phase === "development" ? "buildup" : s.phase === "payoff" ? "outro" : s.phase,
                 intent: s.intent || "Jump Cut",
-                duration: p.end - p.start,
+                duration: p.end - p.start + 0.14,
                 emotion: s.phase === "climax" || s.phase === "hook" ? "energetic" : "neutral",
-                mainClip: { assetId: mainAsset.id, sourceStart: p.start, sourceEnd: p.end, speed: 1, zoom: isZoomed },
+                // «Воздух» вокруг фразы: 50мс до и 90мс после — иначе Whisper-таймкоды
+                // обгладывают первый/последний звук слова, речь звучит обрубленной.
+                mainClip: { assetId: mainAsset.id, sourceStart: Math.max(0, p.start - 0.05), sourceEnd: p.end + 0.09, speed: 1, zoom: isZoomed },
                 bRolls: [], captions: s.customText ? [{text: s.customText, offsetInScene: 0.2, duration: Math.max(1, p.end - p.start - 0.2), animation: "elastic"}] : []
             };
 
@@ -293,11 +295,22 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
             scenes.push(scene);
         }
 
+        // LLM часто переоценивает хронометраж — принудительно подрезаем по целевой длительности,
+        // иначе ролик расползается и темп проседает.
+        let accDur = 0;
+        const trimmedScenes: DirectorScene[] = [];
+        for (const s of scenes) {
+            if (trimmedScenes.length > 0 && accDur + s.duration > strategy.targetDuration) break;
+            trimmedScenes.push(s);
+            accDur += s.duration;
+        }
+        if (trimmedScenes.length > 0) trimmedScenes[trimmedScenes.length - 1].phase = "outro";
+
         return {
             concept: parsed.concept || "Pro LLM Edit",
             genre: strategy.genre,
             targetDuration: strategy.targetDuration,
-            scenes,
+            scenes: trimmedScenes,
             audioStrategy: {
                 musicStyle: (strategy.instructions.match(/MUSIC_STYLE:(\w+)/) || [])[1] || "lofi",
                 duckingEnabled: true,
@@ -361,16 +374,45 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
     }
     phrases.push(curr);
 
-    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья), но защита пауз
+    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья), но защита пауз.
+    // Правило по словам, а не по всей фразе: цепочки «ну эээ типа» — самый частый
+    // мусор говорящих голов, их вырезание и есть фирменный «плотный» автомонтаж.
+    const FILLERS = new Set([
+        "ну", "э", "ээ", "эээ", "м", "мм", "ммм", "аа", "эээ", "эх",
+        "типа", "какбы", "вот", "короче", "значит", "угу", "ага",
+    ]);
     const validPhrases = phrases.filter(p => {
         if (p.isPause) return true;
-        const t = p.text.toLowerCase().replace(/[^а-яa-z]/g, "");
-        if (/^(ну|э|ээ|м|мм|типа|какбы|вот|короче|значит)$/i.test(t)) return false;
+        const toks = p.text.toLowerCase().split(/\s+/)
+            .map((w: string) => w.replace(/[^а-яa-zё]/g, ""))
+            .filter(Boolean);
+        if (toks.length === 0) return false;
+        // вся фраза — чистые паразиты («ну эээ», «типа как бы»)
+        if (toks.every((w: string) => FILLERS.has(w))) return false;
+        // короткая по времени стоп-фраза почти без смысловых слов («ну короче да»)
+        const contentToks = toks.filter((w: string) => !FILLERS.has(w));
+        if (toks.length <= 3 && contentToks.length <= 1 && (p.end - p.start) < 1.0) return false;
         if (p.end - p.start < 0.2) return false;
         return true;
     });
 
     if (validPhrases.length === 0) validPhrases.push(phrases[0]);
+
+    // Склейка ультракоротких фраз (<0.45с): рубленая обрывочная речь даёт
+    // стробоскоп планов и субтитров. Обрывок вливаем в следующую фразу —
+    // смысл там, как правило, и продолжается.
+    const merged: typeof validPhrases = [];
+    for (const p of validPhrases) {
+        const last = merged[merged.length - 1];
+        if (last && !last.isPause && !p.isPause && (last.end - last.start) < 0.45) {
+            last.end = p.end;
+            last.text += " " + p.text;
+        } else {
+            merged.push({ ...p });
+        }
+    }
+    validPhrases.length = 0;
+    validPhrases.push(...merged);
 
     // 4. Поиск Хука (Cold Open) с помощью LLM (или фоллбэка)
     let hookIndex = -1;
@@ -413,8 +455,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
     // Добавляем Хук (он будет перемещен в самое начало)
     scenes.push({
-        id: `hook_${Date.now()}`, phase: "hook", intent: "Cold Open", duration: hookPhrase.end - hookPhrase.start, emotion: "energetic",
-        mainClip: { assetId: mainAsset.id, sourceStart: hookPhrase.start, sourceEnd: hookPhrase.end, speed: 1, zoom: true },
+        id: `hook_${Date.now()}`, phase: "hook", intent: "Cold Open", duration: hookPhrase.end - hookPhrase.start + 0.14, emotion: "energetic",
+        mainClip: { assetId: mainAsset.id, sourceStart: Math.max(0, hookPhrase.start - 0.05), sourceEnd: hookPhrase.end + 0.09, speed: 1, zoom: true },
         bRolls: [], captions: []
     });
 
@@ -425,13 +467,18 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
     for (let i = 0; i < validPhrases.length; i++) {
         const p = validPhrases[i];
-        
+
+        // Cold-open: если хук взят из самого начала истории, НЕ повторяем его сразу второй раз —
+        // зритель слышит дубль и теряет доверие. (Хук из середины намеренно повторяется как payoff.)
+        if (i === hookIndex && hookIndex <= 1) continue;
+
         // Динамическое чередование зума для имитации работы двух камер (Punch Zoom)
         isZoomed = !isZoomed;
         
         const scene: DirectorScene = {
-            id: `body_${p.start}_${Date.now()}`, phase: "buildup", intent: "Dialogue Cut", duration: p.end - p.start, emotion: "neutral",
-            mainClip: { assetId: mainAsset.id, sourceStart: p.start, sourceEnd: p.end, speed: 1, zoom: isZoomed },
+            id: `body_${p.start}_${Date.now()}`, phase: "buildup", intent: "Dialogue Cut", duration: p.end - p.start + (p.isPause ? 0 : 0.14), emotion: "neutral",
+            // Паузы не подрубаем (это и есть воздух), фразы — с 50/90мс полями.
+            mainClip: { assetId: mainAsset.id, sourceStart: p.isPause ? p.start : Math.max(0, p.start - 0.05), sourceEnd: p.isPause ? p.end : p.end + 0.09, speed: 1, zoom: isZoomed },
             bRolls: [], captions: []
         };
 
@@ -557,13 +604,18 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       hasFaces: boolean;
       hasAction: boolean;
       isEpic: boolean;
+      /** Площадь крупнейшего лица (0..1) — если крупно, движение камеры срежет лицо. */
+      faceSize?: number;
     }
     
     const beats: VisualBeat[] = [];
     for (const asset of visualAssets) {
       if (asset.segments) {
         for (const seg of asset.segments) {
-           if (seg.isDark || seg.isBlurry || seg.motionLevel === "shake" || seg.qualityScore < 4) continue;
+           // «Тёмная» сцена с высоким контрастом (неон, ночные огни) — стилистическое кино,
+           // выкидываем только плоский мрак. «Блюр» уже откалиброван против боке.
+           const cinematicDark = seg.isDark && (seg.contrast ?? 0) >= 150;
+           if ((seg.isDark && !cinematicDark) || seg.isBlurry || seg.motionLevel === "shake" || seg.qualityScore < 4) continue;
            const dur = seg.endTime - seg.startTime;
            if (dur < 0.5) continue;
            
@@ -602,6 +654,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
              score,
              hasFaces: seg.hasFaces,
              hasAction: seg.hasAction || false,
+             faceSize: seg.faceSize,
              isEpic: isAbsoluteClimax || (seg.motionLevel === "high" && seg.aestheticScore > 7)
            });
         }
@@ -627,25 +680,38 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     
     let pool = beats.filter(b => b !== hookBeat);
 
+    // Правило пика: самый эпичный кадр резервируется под кульминацию (~70-85% таймлайна),
+    // иначе fair-usage тратит лучший момент на середину и финал проседает.
+    let climaxReserve: VisualBeat | null = null;
+    const epicIdx = pool.findIndex(b => b.isEpic);
+    if (epicIdx >= 0) climaxReserve = pool.splice(epicIdx, 1)[0];
+    let reserveUsed = false;
+
     // Track usage per asset to ensure absolute fairness across all files
     const usageCount = new Map<string, number>();
     for (const a of visualAssets) usageCount.set(a.id, 0);
     usageCount.set(hookBeat.assetId, 1);
-    
+
     let lastAssetId = hookBeat.assetId;
-    
-    while (currentTime < target && pool.length > 0) {
+    let waveIdx = 0;
+
+    while (currentTime < target && (pool.length > 0 || (climaxReserve && !reserveUsed))) {
       const progress = currentTime / target;
       const phase = progress < 0.7 ? "buildup" : progress < 0.9 ? "climax" : "outro";
-      
+
+      let beat: VisualBeat;
+      if (climaxReserve && !reserveUsed && (progress >= 0.7 || pool.length === 0)) {
+        beat = climaxReserve;
+        reserveUsed = true;
+      } else {
       // We want an asset that has been used the LEAST number of times, and is NOT the last asset used
       let bestBeatIndex = -1;
       let lowestUsage = Infinity;
-      
+
       for (let i = 0; i < pool.length; i++) {
          const b = pool[i];
          if (b.assetId === lastAssetId && pool.length > 1) continue; // Don't repeat consecutively if possible
-         
+
          const usage = usageCount.get(b.assetId) || 0;
          if (usage < lowestUsage) {
              if (phase === "climax" && !b.isEpic && !b.hasAction && pool.some(p => p.isEpic || p.hasAction)) continue;
@@ -653,17 +719,28 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
              bestBeatIndex = i;
          }
       }
-      
+
       // Fallback
       if (bestBeatIndex === -1) bestBeatIndex = 0;
-      
-      const beat = pool[bestBeatIndex];
+
+      beat = pool[bestBeatIndex];
       pool.splice(bestBeatIndex, 1);
+      }
       
       lastAssetId = beat.assetId;
       usageCount.set(beat.assetId, (usageCount.get(beat.assetId) || 0) + 1);
       
-      let dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 5;
+      // Ритмические волны для динамичных жанров: установочные кадры прерываются
+      // серией коротких акцентов — пульс (4-4-1-1-1-4) вместо ровного конвейера.
+      let dur: number;
+      if (phase === "buildup" && (strategy.genre === "tiktok" || strategy.genre === "ad")) {
+         const RHYTHM_WAVE = [3.6, 3.0, 1.1, 0.9, 1.2, 2.6];
+         dur = RHYTHM_WAVE[waveIdx++ % RHYTHM_WAVE.length];
+      } else {
+         // Аутро 3.2с: 5 секунд статики в конце убивает удержание — зритель свайпает
+         // до финального аккорда; платформа считает это проседанием ретеншна.
+         dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 3.2;
+      }
       dur = Math.min(dur, beat.duration, target - currentTime);
       if (dur < 0.5) break;
       
@@ -677,7 +754,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
       script.scenes.push({
         id: `scene_${Date.now()}_${currentTime}`, phase, intent: "Flow", duration: dur / speed, emotion: phase === "climax" ? "dramatic" : "calm",
-        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: speed, zoom: !beat.hasAction },
+        // Зум запрещён для крупных планов лиц (срезает подбородок/лоб) и экшена (склейка режется в движении).
+        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: speed, zoom: !beat.hasAction && !(beat.faceSize !== undefined && beat.faceSize >= 0.08) },
         bRolls: [], captions: []
       });
       currentTime += dur;
@@ -691,10 +769,18 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
   private static applyProfessionalTechniques(script: DirectorScript, genre: string): DirectorScript {
     for (const scene of script.scenes) {
       if (scene.phase === "climax") {
-         scene.mainClip.zoom = true;
+         // zoom=false от визуального билдера — ЗАЩИТНЫЙ (крупный план лица/экшен),
+         // не «разнообразие»: принудительный зум кульминации срежет лицо.
+         if (scene.mainClip.zoom !== false) scene.mainClip.zoom = true;
          if (genre === "travel") {
+            // Slow-mo на кульминации: растягиваем ЦЕНТРАЛЬНУЮ часть исходного фрагмента
+            // на тот же таймлайн-интервал (таймлайн НЕ удлиняется — склейки и титры не съезжают).
+            const srcSpan = scene.mainClip.sourceEnd - scene.mainClip.sourceStart;
+            const mid = scene.mainClip.sourceStart + srcSpan / 2;
+            const neededSpan = scene.duration * 0.5; // исходные секунды = timeline * speed
+            scene.mainClip.sourceStart = Math.max(0, mid - neededSpan / 2);
+            scene.mainClip.sourceEnd = scene.mainClip.sourceStart + neededSpan;
             scene.mainClip.speed = 0.5;
-            scene.duration *= 2; 
          }
       }
     }
@@ -717,7 +803,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
                      sourceStart: climaxScene.mainClip.sourceStart + (climaxScene.duration / 2) - (teaserDur / 2),
                      sourceEnd: climaxScene.mainClip.sourceStart + (climaxScene.duration / 2) + (teaserDur / 2), 
                      speed: 1, 
-                     zoom: true 
+                     // та же защита, что и в кульминации: не зумим крупные лица
+                     zoom: climaxScene.mainClip.zoom !== false 
                  },
                  bRolls: [],
                  captions: [{

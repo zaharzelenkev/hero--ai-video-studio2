@@ -30,6 +30,15 @@ export const LUT_PRESETS: Record<LutPreset, Partial<ColorGrade> & { css: string 
 };
 
 /** FFmpeg filter fragment applied for a LUT preset (chained after manual eq/hue). */
+/** Чистка глифов, отсутствующих в DejaVu (шрифт экспорта): эмодзи/флаги/ZWJ/PUA.
+ *  Применяйте при СОЗДАНИИ текста — тогда превью (DOM) и экспорт (drawtext) совпадут. */
+export function sanitizeGlyphs(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u200D\uFE00-\uFE0F\uE000-\uF8FF]/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +\n/g, "\n");
+}
+
 export function lutToFfmpeg(lut: LutPreset): string[] {
   switch (lut) {
     case "bw":
@@ -59,6 +68,12 @@ export function lutToFfmpeg(lut: LutPreset): string[] {
       return ["eq=saturation=1.4:contrast=1.1"];
     case "dramatic":
       return ["curves=preset=strong_contrast", "eq=saturation=0.8"];
+    case "moody":
+      return ["curves=preset=darker", "eq=saturation=0.85:brightness=-0.03", "colorbalance=bs=0.06:bm=0.04:bh=0.08"];
+    case "film-noir":
+      return ["hue=s=0", "curves=preset=strong_contrast", "eq=brightness=-0.02:gamma=1.05"];
+    case "neutral":
+      return ["eq=contrast=1.03:saturation=1.02"];
     default:
       return [];
   }

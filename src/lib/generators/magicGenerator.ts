@@ -3,6 +3,7 @@ import { AI_CONFIG } from "@/config/ai";
 import type { Project, MediaAsset } from "../types";
 import { uid } from "../id";
 import { saveBlob } from "../db";
+import { sanitizeGlyphs } from "../presets";
 
 export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void, filesByAssetId?: Map<string, File>): Promise<Project> {
   onProgress?.("📝 Пишем сценарий...");
@@ -89,9 +90,16 @@ export async function generateMagicVideo(prompt: string, style: import("../types
         const file = new File([audioBlob], `Voiceover ${i+1}`, { type: "audio/mpeg" });
         await saveBlob(audioKey, file);
         _filesByAssetId.set(audioKey, file);
-        
-        audioDuration = Math.max(2, scene.voiceover.length / 12);
-        
+
+        // РЕАЛЬНАЯ длительность озвучки: оценка «chars/12» обрезала голос посреди слова
+        // или оставляла визуал висеть в тишине после фразы.
+        try {
+          const { readAudioMeta } = await import("../media");
+          audioDuration = Math.max(2, (await readAudioMeta(file)).duration);
+        } catch {
+          audioDuration = Math.max(2, scene.voiceover.length / 12);
+        }
+
         aAsset = {
           id: audioKey,
           name: `Voice ${i+1}`,
@@ -198,45 +206,57 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
   const audioTrack = project.tracks.find((t:any) => t.type === "audio")!;
   const textTrack = project.tracks.find((t:any) => t.type === "text")!;
 
-  // Add music
+  // Add music — хронометраж по РЕАЛЬНЫМ длительностям сцен (после измерения TTS),
+  // иначе длинные сценарии уезжали в тишину после 30 секунды.
   try {
      const { generateProceduralMusic } = await import("../musicGenerator");
-     const mBlob = await generateProceduralMusic("electronic", 30);
+     const sceneDurs: number[] = scriptData.scenes.map((s: any, idx: number) =>
+        assets[idx]?.duration || Math.max(2, (s.voiceover?.length || 24) / 12));
+     // перекрытия xfade (0.4с на сцену) укорачивают суммарный хронометраж
+     const fullDur = Math.max(3, sceneDurs.reduce((a: number, b: number) => a + b, 0) - Math.max(0, scriptData.scenes.length - 1) * 0.4);
+     // сид от контента сценария — прогрессия и тембр зависят от истории, но детерминированы
+     const mSeed = (String(scriptData.title || "").length + scriptData.scenes.length * 17 + Math.round(fullDur * 13)) | 0;
+     const mBlob = await generateProceduralMusic("electronic", fullDur + 0.5, mSeed);
+     if (!mBlob) throw new Error("procedural music unavailable");
      const mId = "bgm_" + Date.now();
      const { saveBlob } = await import("../db");
      const bgmFile = new File([mBlob], "bgm.wav", {type:"audio/wav"});
      await saveBlob(mId, bgmFile);
      _filesByAssetId.set(mId, bgmFile);
-     const mAsset = { id: mId, name: "BGM", kind: "audio", mime: "audio/wav", blobKey: mId, duration: 30, createdAt: Date.now() };
+     const mAsset = { id: mId, name: "BGM", kind: "audio", mime: "audio/wav", blobKey: mId, duration: fullDur + 0.5, createdAt: Date.now() };
      project.assets.push(mAsset as any);
-     
-     const mClip = createAudioClip({ trackId: audioTrack.id, asset: mAsset as any, start: 0, duration: 30 });
-     
-     // Build ducking keyframes
+
+     const mClip = createAudioClip({ trackId: audioTrack.id, asset: mAsset as any, start: 0, duration: fullDur });
+     mClip.fadeOut = 1.5;
+
+     // Build ducking keyframes (та же формула курсора, что и в цикле сцен ниже)
      const kfs: any[] = [];
      let totalDur = 0;
-     for (const scene of scriptData.scenes) {
-         // Assuming text speed roughly matches 12 chars/sec
-         const sDur = Math.max(2, scene.voiceover.length / 12);
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.4, easing: "linear" }); // lowered master volume of generator music
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur, value: 0.05, easing: "linear" }); // dip deeper to 0.05 for clarity
+     for (let si = 0; si < scriptData.scenes.length; si++) {
+         const sDur = sceneDurs[si];
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.4, easing: "linear" });
+         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur, value: 0.05, easing: "linear" });
          kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur, value: 0.05, easing: "linear" });
          kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur + 0.5, value: 0.4, easing: "linear" });
-         totalDur += sDur + 0.5;
+         totalDur += sDur - (si < scriptData.scenes.length - 1 ? 0.4 : 0);
      }
 
      mClip.volume = { value: 0.4, keyframes: kfs };
      audioTrack.clips.push(mClip);
   } catch (e) {}
 
+  // Кинематографичные края
+  project.openingFadeIn = 0.3;
+  project.endingFadeOut = 0.5;
+
   let cursor = 0;
   for (let i = 0; i < scriptData.scenes.length; i++) {
     const scene = scriptData.scenes[i];
-    
+
     // Find matching image asset
     const imgAsset = assets[i];
     if (!imgAsset) continue;
-    
+
     const sceneDuration = imgAsset.duration || 3;
 
     // 1. Video Clip with Ken Burns & Transitions
@@ -246,8 +266,17 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
       start: cursor,
       duration: sceneDuration
     });
-    vClip.cameraMotion = ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"][Math.floor(Math.random()*6)] as any;
+    // Детерминированное движение камеры: та же сцена — тот же монтаж (превью = экспорт).
+    const motionPool = i === 0
+      ? ["zoom-out", "pan-left"]
+      : ["zoom-in", "pan-left", "pan-right", "zoom-in", "pan-up", "pan-down"];
+    vClip.cameraMotion = motionPool[(i * 5 + 2) % motionPool.length] as any;
     vClip.transitionIn = i === 0 ? { type: "cut", duration: 0 } : { type: activeTemplate.transition, duration: 0.4 };
+    // Объединяющий грейд шаблона: сцены из разных генераторов/источников
+    // иначе выглядят как нарезка из разных фильмов.
+    if (activeTemplate.colorGrade && activeTemplate.colorGrade !== "none") {
+      vClip.color.lut = activeTemplate.colorGrade;
+    }
     videoTrack.clips.push(vClip);
 
     // 2. Audio voiceover 
@@ -265,8 +294,13 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
     // 3. Text
     const words = scene.voiceover.split(" ");
     let textStart = cursor;
-    const timePerWord = sceneDuration / words.length;
-    
+    // Распределение времени по весу, а не равномерно: длинные слова говорятся дольше,
+    // после знака препинания TTS делает паузу. Иначе субтитры «плывут» внутри сцены
+    // (накопительный сдвиг до ~20% хронометража к концу фразы).
+    const weightOf = (ws: string[]) =>
+      ws.reduce((a, w) => a + Math.max(1, w.length) + (/[.!?,:;…]$/.test(w) ? 2.4 : 0), 0);
+    const totalWeight = Math.max(1, weightOf(words));
+
     let wordsPerGroup = 1;
     if (activeTemplate.pace === "slow") wordsPerGroup = 5;
     else if (activeTemplate.pace === "medium") wordsPerGroup = 3;
@@ -283,13 +317,13 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
 
     for (let gIndex = 0; gIndex < groups.length; gIndex++) {
       const phrase = groups[gIndex];
-      const phraseDur = (timePerWord * phrase.split(" ").length);
+      const phraseDur = Math.max(0.15, (weightOf(phrase.split(" ")) / totalWeight) * sceneDuration);
       
       const tClip = createTextClip({
         trackId: textTrack.id,
         start: textStart,
         duration: phraseDur,
-        text: phrase
+        text: sanitizeGlyphs(phrase)
       });
       
       tClip.y.value = activeTemplate.text.yPosition;
@@ -313,7 +347,9 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
       textStart += phraseDur;
     }
 
-    cursor += sceneDuration;
+    // Следующая сцена перекрывается переходом (0.4с), иначе субтитры уплывали бы
+    // относительно рендеренной цепочки — та же математика, что и у основного autoEdit.
+    cursor += sceneDuration - (i < scriptData.scenes.length - 1 ? 0.4 : 0);
   }
 
   project.duration = cursor;

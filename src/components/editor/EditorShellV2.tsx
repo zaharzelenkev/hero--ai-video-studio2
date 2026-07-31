@@ -14,19 +14,18 @@ import EffectsPanelV2 from "./panels/EffectsPanelV2";
 import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
-import ProductionPanelV2 from "./panels/ProductionPanelV2";
-import PreProductionPanelV2 from "./panels/PreProductionPanelV2";
+import AIDirector from "./AIDirector";
 import KeyframeEditor from "./KeyframeEditor";
 
 const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
-  { id: "production", label: "Продакшн", icon: "🧭", desc: "План, настройки" },
   { id: "montage", label: "Монтаж", icon: "✂️", desc: "Треки, клипы" },
   { id: "color", label: "Цвет", icon: "🎨", desc: "LUT, curves, wheels" },
   { id: "effects", label: "Эффекты", icon: "✨", desc: "Маски, хромакей, blur" },
   { id: "sound", label: "Звук", icon: "🎵", desc: "Микш, шумоподавление" },
   { id: "text", label: "Текст", icon: "📝", desc: "Анимация, keyframes" },
+  { id: "animation", label: "Анимация", icon: "🎬", desc: "Motion, keyframes" },
+  { id: "ai", label: "AI Director", icon: "🤖", desc: "Чат с режиссёром" },
   { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
-  { id: "preproduction", label: "Препродакшн", icon: "🎯", desc: "AI: идея, сценарий, раскадровка" },
 ];
 
 export default function EditorShellV2() {
@@ -127,14 +126,14 @@ export default function EditorShellV2() {
 
   const PanelContent = () => {
     switch (activePage) {
-      case "production": return <ProductionPanelV2 />;
       case "montage": return <MontagePanelV2 />;
       case "color": return <ColorPanelV2 />;
       case "effects": return <EffectsPanelV2 />;
       case "sound": return <SoundPanelV2 />;
       case "text": return <TextPanelV2 />;
+      case "animation": return <EffectsPanelV2 />;
+      case "ai": return <AIDirector />;
       case "export": return <ExportPanelV2 />;
-      case "preproduction": return <PreProductionPanelV2 />;
       default: return <MontagePanelV2 />;
     }
   };

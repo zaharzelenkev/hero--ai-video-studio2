@@ -33,12 +33,23 @@ function wrapText(text: string, max: number): string {
   const words = text.split(" ");
   let lines = [];
   let cur = "";
-  for (const w of words) {
-    if ((cur + w).length > max) {
-      if (cur) lines.push(cur.trim());
-      cur = w + " ";
-    } else {
-      cur += w + " ";
+  for (const raw of words) {
+    // Токены длиннее строки (URL, длинные хэштеги) рвём принудительно —
+    // иначе drawtext рисует их за краем кадра и текст «уплывает».
+    const parts: string[] = [];
+    let rest = raw;
+    while (rest.length > max) { parts.push(rest.slice(0, max)); rest = rest.slice(max); }
+    parts.push(rest);
+    for (let pi = 0; pi < parts.length; pi++) {
+      const p = parts[pi];
+      const isLast = pi === parts.length - 1;
+      if ((cur + p).length > max && cur) { lines.push(cur.trim()); cur = ""; }
+      if (isLast) {
+        cur += p + " ";
+      } else {
+        lines.push((cur + p).trim());
+        cur = "";
+      }
     }
   }
   if (cur) lines.push(cur.trim());

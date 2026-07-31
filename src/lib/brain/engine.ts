@@ -398,6 +398,22 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
 
     if (validPhrases.length === 0) validPhrases.push(phrases[0]);
 
+    // Склейка ультракоротких фраз (<0.45с): рубленая обрывочная речь даёт
+    // стробоскоп планов и субтитров. Обрывок вливаем в следующую фразу —
+    // смысл там, как правило, и продолжается.
+    const merged: typeof validPhrases = [];
+    for (const p of validPhrases) {
+        const last = merged[merged.length - 1];
+        if (last && !last.isPause && !p.isPause && (last.end - last.start) < 0.45) {
+            last.end = p.end;
+            last.text += " " + p.text;
+        } else {
+            merged.push({ ...p });
+        }
+    }
+    validPhrases.length = 0;
+    validPhrases.push(...merged);
+
     // 4. Поиск Хука (Cold Open) с помощью LLM (или фоллбэка)
     let hookIndex = -1;
     if (AI_CONFIG.groqApiKey) {

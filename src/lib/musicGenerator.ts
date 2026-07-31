@@ -299,8 +299,10 @@ export const STYLE_BPM = BPM;
  *  и генерация, и ритм-сетка обязаны использовать ОДНУ маппинг-функцию,
  *  иначе монтаж пойдёт не в тот темп. */
 export function proceduralStyleForTemplate(templateId: string): Exclude<Style, 'none'> {
-  if (templateId === "travel" || templateId === "cinematic" || templateId === "luxury" || templateId === "documentary") return "cinematic";
-  if (templateId === "podcast" || templateId === "hormozi" || templateId === "minimal") return "lofi";
+  if (templateId === "travel" || templateId === "cinematic" || templateId === "luxury" || templateId === "documentary"
+      || templateId === "wedding" || templateId === "realestate") return "cinematic";
+  if (templateId === "podcast" || templateId === "hormozi" || templateId === "minimal"
+      || templateId === "interview" || templateId === "education" || templateId === "food") return "lofi";
   return "electronic";
 }
 

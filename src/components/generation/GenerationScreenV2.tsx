@@ -25,10 +25,15 @@ export default function GenerationScreenV2() {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
+  const [videoGenEnabled, setVideoGenEnabled] = useState<boolean | null>(null);
   
     
   useEffect(() => {
     listProjects().then(setRecentProjects).catch(() => {});
+    fetch("/api/video-gen?health=1")
+      .then((r) => (r.ok ? r.json() : { videoEnabled: false }))
+      .then((j) => setVideoGenEnabled(Boolean(j.videoEnabled)))
+      .catch(() => setVideoGenEnabled(false));
   }, []);
 
   const canGenerate = (items.length > 0 || prompt.trim().length > 5) && stage !== "generating" && stage !== "reading";
@@ -215,6 +220,23 @@ export default function GenerationScreenV2() {
               <p className="mt-3 text-center text-[10px] text-slate-500">
                 Все данные обрабатываются локально на вашем устройстве
               </p>
+
+              {items.length === 0 && videoGenEnabled !== null && (
+                <p className="mt-2 text-center text-[10px] leading-relaxed text-slate-500">
+                  {videoGenEnabled ? (
+                    <span className="text-emerald-400/80">🎥 AI-видео активно: сцены генерируются как настоящие видеоклипы с движением</span>
+                  ) : (
+                    <>
+                      🖼 Генерация с нуля сейчас использует AI-изображения + движение камеры.{" "}
+                      Чтобы сцены были настоящими AI-видеоклипами, добавьте бесплатный ключ{" "}
+                      <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer" className="text-violet-400 underline hover:text-violet-300">
+                        Pollinations
+                      </a>{" "}
+                      в переменную <code className="text-slate-400">POLLINATIONS_API_KEY</code>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           </div>
         </div>

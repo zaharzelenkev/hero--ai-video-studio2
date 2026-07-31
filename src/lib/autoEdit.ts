@@ -9,6 +9,7 @@ import { AI_CONFIG } from "@/config/ai";
 import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
 import { TEMPLATES, getTemplateForContentType } from "./templates";
 import { sanitizeGlyphs } from "./presets";
+import { pooled } from "./pooled";
 
 export interface AutoEditInput {
   onProgress?: (msg: string) => void;
@@ -102,36 +103,44 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // пики музыки = дропы. Без этого кульминационная логика работала вслепую.
   const audioEnergyMap = new Map<string, import("./media").AudioEnergySegment[]>();
   if (style.intelligentCuts || style.beatSync) {
-    onProgress?.("Слушаем энергию аудиодорожек...");
-    for (const a of assets) {
-      if (a.kind === "image") continue;
+    const audioAssets = assets.filter((a) => a.kind !== "image" && filesByAssetId.get(a.id));
+    onProgress?.(`Слушаем энергию аудиодорожек... 0/${audioAssets.length}`);
+    let doneCount = 0;
+    await pooled(audioAssets, 3, async (a) => {
       const file = filesByAssetId.get(a.id);
-      if (!file) continue;
+      if (!file) return;
       try {
         const { analyzeAudioEnergy } = await import("./media");
         const energies = await analyzeAudioEnergy(file);
         if (energies.length) audioEnergyMap.set(a.id, energies);
-      } catch (e) { console.warn(e); }
-    }
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        doneCount++;
+        onProgress?.(`Слушаем энергию аудиодорожек... ${doneCount}/${audioAssets.length}`);
+      }
+    });
   }
 
   // 0. Local Fast Vision Analysis
   const localSegments = new Map<string, VideoSegmentMetadata[]>();
   if (style.intelligentCuts) {
-    for (const asset of visualAssets) {
-      if (asset.kind === "video") {
-        onProgress?.(`Анализ динамики: ${asset.name}...`);
-        const file = filesByAssetId.get(asset.id);
-        if (file) {
-          try {
-             const segs = await analyzeVideoLocally(file);
-             localSegments.set(asset.id, segs);
-          } catch(e) {
-             console.warn("Local analysis failed for", asset.name, e);
-          }
-        }
+    const videoAssets = visualAssets.filter((asset) => asset.kind === "video" && filesByAssetId.get(asset.id));
+    onProgress?.(`Анализ динамики... 0/${videoAssets.length}`);
+    let doneCount = 0;
+    await pooled(videoAssets, 2, async (asset) => {
+      const file = filesByAssetId.get(asset.id);
+      if (!file) return;
+      try {
+        const segs = await analyzeVideoLocally(file);
+        localSegments.set(asset.id, segs);
+      } catch (e) {
+        console.warn("Local analysis failed for", asset.name, e);
+      } finally {
+        doneCount++;
+        onProgress?.(`Анализ динамики... ${doneCount}/${videoAssets.length}: ${asset.name}`);
       }
-    }
+    });
   }
 
   // 1. Transcribe audio from videos
@@ -140,29 +149,32 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // Store raw segments for auto-subtitling
   const segmentsByAssetId = new Map<string, import("./transcribe").TranscriptWord[] | import("./transcribe").TranscriptSegment[]>();
   if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
-    for (const asset of visualAssets) {
-      if (asset.kind === "video") {
-        onProgress?.(`Распознавание речи: ${asset.name}...`);
-        try {
-          const file = filesByAssetId.get(asset.id);
-          if (file && file.size < 100 * 1024 * 1024) { // skip giant files
-            const audioBlob = await extractAudioForTranscription(file, asset);
-            const transcriptResult = await transcribeAudio(audioBlob);
-            const segments = transcriptResult.words.length > 0 ? transcriptResult.words : transcriptResult.segments;
-            if (segments && segments.length > 0) {
-              const fullText = segments.map(s => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s] ${(s as any).text || (s as any).word}`).join("\n");
-              segmentsByAssetId.set(asset.id, segments);
-              transcripts.set(asset.id, fullText);
-              
-              // If autoSubtitles is true, we might want to store segments somewhere or let the AI decision return them.
-              // Actually, AI Edit Decision can return textOverlays with exact timings!
-            }
+    const transcribeAssets = visualAssets.filter((asset) => asset.kind === "video" && filesByAssetId.get(asset.id));
+    onProgress?.(`Распознавание речи... 0/${transcribeAssets.length}`);
+    let doneCount = 0;
+    await pooled(transcribeAssets, 2, async (asset) => {
+      try {
+        const file = filesByAssetId.get(asset.id);
+        if (file && file.size < 100 * 1024 * 1024) { // skip giant files
+          const audioBlob = await extractAudioForTranscription(file, asset);
+          const transcriptResult = await transcribeAudio(audioBlob);
+          const segments = transcriptResult.words.length > 0 ? transcriptResult.words : transcriptResult.segments;
+          if (segments && segments.length > 0) {
+            const fullText = segments.map(s => `[${s.start.toFixed(1)}s - ${s.end.toFixed(1)}s] ${(s as any).text || (s as any).word}`).join("\n");
+            segmentsByAssetId.set(asset.id, segments);
+            transcripts.set(asset.id, fullText);
+
+            // If autoSubtitles is true, we might want to store segments somewhere or let the AI decision return them.
+            // Actually, AI Edit Decision can return textOverlays with exact timings!
           }
-        } catch (err) {
-          console.warn("Transcription failed for", asset.name, err);
         }
+      } catch (err) {
+        console.warn("Transcription failed for", asset.name, err);
+      } finally {
+        doneCount++;
+        onProgress?.(`Распознавание речи... ${doneCount}/${transcribeAssets.length}: ${asset.name}`);
       }
-    }
+    });
   }
 
   onProgress?.("Интеллектуальный анализ...");

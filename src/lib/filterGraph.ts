@@ -596,16 +596,20 @@ export function compileProjectToFfmpeg(
   };
 }
 
-export function buildOutputArgs(exportSettings: ExportSettings, outputName: string): string[] {
+export function buildOutputArgs(exportSettings: ExportSettings, outputName: string, totalDuration?: number): string[] {
+  // Коротким роликам (≤45с, типично шортсы/рилсы) можно позволить более
+  // медленный/качественный x264 preset "fast" — кодирование всё равно быстрое.
+  // Для длинных видео берём "veryfast", чтобы не взорвать время рендера в wasm.
+  const x264Preset = totalDuration != null && totalDuration <= 45 ? "fast" : "veryfast";
   const codecArgs =
     exportSettings.format === "webm"
       ? ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(exportSettings.crf), "-c:a", "libopus"]
       : exportSettings.format === "gif"
         ? []
-        // high profile = B-frames+CABAC (бесплатные ~8% битрейта), preset fast —
-        // баланс времени кодирования в wasm и плотности битрейта на динамичном монтаже,
+        // high profile = B-frames+CABAC (бесплатные ~8% битрейта), preset выбирается по
+        // длительности ролика — баланс времени кодирования в wasm и плотности битрейта,
         // +faststart — превью стартует мгновенно при реаплоаде (moov в начале файла).
-        : ["-c:v", "libx264", "-preset", "fast", "-profile:v", "high", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k"];
+        : ["-c:v", "libx264", "-preset", x264Preset, "-profile:v", "high", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k"];
   return [...codecArgs, "-r", String(exportSettings.fps), outputName];
 }
 

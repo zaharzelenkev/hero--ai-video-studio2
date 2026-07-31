@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useProjectStore, type EditorPage } from "@/store/projectStore";
 import { clearMediaCache } from "./mediaCache";
+import { createEmptyProject } from "@/lib/emptyProject";
 import PreviewCanvas from "./PreviewCanvas";
 import Transport from "./Transport";
 import TimelineV2 from "./TimelineV2";
@@ -113,6 +114,13 @@ export default function EditorShellV2() {
         <h2 className="text-xl font-bold mb-1">Проект не загружен</h2>
         <p className="text-sm text-slate-400 mb-4">Создайте или выберите проект для начала работы.</p>
         <Link href="/" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 hover:brightness-110 transition">🏠 На главную</Link>
+        <button
+          onClick={() => { const p = createEmptyProject("Новый проект"); useProjectStore.getState().loadProject(p); }}
+          className="mt-2 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 hover:brightness-110 transition"
+          aria-label="Создать проект"
+        >
+          ➕ Создать проект
+        </button>
       </div>
     </div>
   );

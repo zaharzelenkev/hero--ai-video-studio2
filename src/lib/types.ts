@@ -520,6 +520,14 @@ export interface Project {
   /** Creative brief and director's plan created before editing begins. */
   production?: import("./production").ProductionPlan;
 
+  /**
+   * Режиссёрский план AI Director: понимание всех материалов (содержание,
+   * эмоции, качество, композиция, движение камеры, ритм, музыка, сильные и
+   * слабые моменты), драматургическая арка и по-сценовые решения, принятые
+   * ДО монтажа. Монтажный движок исполнил именно этот план.
+   */
+  directorPlan?: import("./brain/directorPlan").DirectorPlan;
+
   /** Кинематографичный вход из чёрного (секунды). 0/undefined — без затемнения. */
   openingFadeIn?: number;
   /** Кинематографичный уход в чёрный (секунды). 0/undefined — без затемнения. */

@@ -1,5 +1,7 @@
 "use client";
 
+import type { DirectorPlan } from "../brain/directorPlan";
+
 export interface AIAnalysisRequest {
   userPrompt: string;
   /**
@@ -38,7 +40,7 @@ export interface AIEditDecision {
   targetDuration: number;
   pace: "slow" | "medium" | "fast" | "dynamic";
   colorGrade: string;
-  
+
   clips: Array<{
     assetId: string;
     startTime?: number;
@@ -54,11 +56,23 @@ export interface AIEditDecision {
     speed?: number;
     cameraAngle?: "wide" | "medium" | "close";
     presentation?: "fullscreen" | "pip";
+    /** Плановое время перебивки на таймлайне (компилируется режиссёром). */
+    timeInTimeline?: number;
+    /**
+     * Переход, выбранный РЕЖИССЁРОМ (до монтажа). Имеет приоритет над
+     * шаблонной логикой исполнителя; жёсткие защитные правила исполнителя
+     * (jump cut на одном источнике, первый кадр, короткие клипы) неизменны.
+     */
+    transitionHint?: {
+      type: import("../types").TransitionType;
+      duration: number;
+      reason?: string;
+    };
   }>;
-  
+
   musicSync: boolean;
   transitions: "cut" | "crossfade" | "slideup" | "slidedown" | "zoom" | "blur" | "wipe";
-  
+
   textOverlays?: Array<{
     text: string;
     time: number;
@@ -66,13 +80,13 @@ export interface AIEditDecision {
     style?: "title" | "subtitle" | "caption" | "callout" | "lower-third";
     animation?: string;
   }>;
-  
+
   bRollSuggestions?: Array<{
     time: number;
     duration: number;
     description: string;
   }>;
-  
+
   audioEnhancements?: {
     normalize: boolean;
     denoise: boolean;
@@ -81,7 +95,7 @@ export interface AIEditDecision {
     ducking: boolean;
     muteOriginalAudio?: boolean;
   };
-  
+
   colorCorrection?: {
     global?: {
       brightness?: number;
@@ -94,24 +108,53 @@ export interface AIEditDecision {
       adjustments: Record<string, number>;
     }>;
   };
-  
+
   suggestions: string[];
   analysisQuality: "ai" | "rule-based";
 }
 
-import { DirectorEngine } from "../brain/engine";
+export interface AnalysisWithPlan {
+  decision: AIEditDecision;
+  /** Первоклассный режиссёрский план (null — если директор недоступен и сработал фоллбэк). */
+  plan: DirectorPlan | null;
+}
 
-export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditDecision> {
+/**
+ * AI DIRECTOR — центральная точка принятия решений.
+ *
+ * Анализирует все материалы (содержание, эмоции, качество, композицию,
+ * движение камеры, ритм, музыку, смены сцен, сильные/слабые моменты),
+ * строит режиссёрский план ДО монтажа и возвращает его вместе с решением,
+ * которое исполняет монтажный движок.
+ */
+export async function analyzeAndPlanWithAI(request: AIAnalysisRequest): Promise<AnalysisWithPlan> {
   try {
-    const script = await DirectorEngine.formulateScript(request);
-    return DirectorEngine.compileToDecision(script);
+    const { AIDirector } = await import("../brain/aiDirector");
+    const plan = await AIDirector.direct(request);
+    const { planToDecision } = await import("../brain/planAdapter");
+    return { decision: planToDecision(plan), plan };
   } catch (error) {
-    console.error("AI analysis failed:", error);
+    console.error("AI Director failed:", error);
     // Fallback if engine fails completely
     return {
-      contentType: "generic", targetDuration: 15, pace: "medium", colorGrade: "none", clips: [], musicSync: true, transitions: "cut", suggestions: [], analysisQuality: "rule-based"
-    } as any;
+      decision: {
+        contentType: "generic",
+        targetDuration: 15,
+        pace: "medium",
+        colorGrade: "none",
+        clips: [],
+        musicSync: true,
+        transitions: "cut",
+        suggestions: [],
+        analysisQuality: "rule-based",
+      } as AIEditDecision,
+      plan: null,
+    };
   }
+}
+
+export async function analyzeWithAI(request: AIAnalysisRequest): Promise<AIEditDecision> {
+  return (await analyzeAndPlanWithAI(request)).decision;
 }
 
 export async function transcribeAudio(_audioBlob: Blob, _apiKey?: string): Promise<string> {

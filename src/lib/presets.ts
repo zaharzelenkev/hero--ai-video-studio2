@@ -122,6 +122,9 @@ export const TEXT_FONTS = [
   "Liberation Sans",
   "Liberation Serif",
   "Liberation Mono",
+  "Anton",
+  "Montserrat",
+  "Playfair Display",
 ];
 
 /** Maps a selectable font name to the .ttf file bundled under /public/fonts. */
@@ -131,6 +134,16 @@ export const FONT_FILES: Record<string, string> = {
   "Liberation Sans": "LiberationSans-Regular.ttf",
   "Liberation Serif": "LiberationSerif-Regular.ttf",
   "Liberation Mono": "LiberationMono-Regular.ttf",
+  Anton: "Anton-Regular.ttf",
+  Montserrat: "Montserrat-Bold.ttf",
+  "Playfair Display": "PlayfairDisplay-Bold.ttf",
+  // Aliases: map template font names without bundled TTFs to the closest
+  // available face instead of silently falling back to the ugly DejaVu font.
+  Inter: "Montserrat-Bold.ttf",
+  "SF Pro": "Montserrat-Bold.ttf",
+  "SF Pro Display": "Montserrat-Bold.ttf",
+  Bangers: "Anton-Regular.ttf",
+  "Space Mono": "LiberationMono-Regular.ttf",
 };
 
 export function fontFileFor(fontFamily: string): string {

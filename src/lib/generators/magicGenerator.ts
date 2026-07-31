@@ -4,6 +4,13 @@ import type { Project, MediaAsset } from "../types";
 import { uid } from "../id";
 import { saveBlob } from "../db";
 import { sanitizeGlyphs } from "../presets";
+import { pooled } from "../pooled";
+
+interface SceneMedia {
+  image: MediaAsset | null;
+  voice: MediaAsset | null;
+  duration: number;
+}
 
 export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void, filesByAssetId?: Map<string, File>): Promise<Project> {
   onProgress?.("📝 Пишем сценарий...");
@@ -71,124 +78,148 @@ export async function generateMagicVideo(prompt: string, style: import("../types
     };
   }
 
-  const assets: MediaAsset[] = [];
   const _filesByAssetId = filesByAssetId || new Map<string, File>();
+  const sceneCount: number = scriptData.scenes.length;
+  const titleLength = String(scriptData.title || "").length;
 
-  for (let i = 0; i < scriptData.scenes.length; i++) {
-    const scene = scriptData.scenes[i];
-    onProgress?.(`✨ Генерация медиа ${i+1}/${scriptData.scenes.length}...`);
-
-    // 1. Fetch TTS
-    let audioDuration = 3;
-    let aAsset: MediaAsset | null = null;
-    try {
-      const ttsUrl = `/api/tts?text=${encodeURIComponent(scene.voiceover)}`;
-      const ttsRes = await fetch(ttsUrl);
-      if (ttsRes.ok) {
-        const audioBlob = await ttsRes.blob();
-        const audioKey = uid("blob");
-        const file = new File([audioBlob], `Voiceover ${i+1}`, { type: "audio/mpeg" });
-        await saveBlob(audioKey, file);
-        _filesByAssetId.set(audioKey, file);
-
-        // РЕАЛЬНАЯ длительность озвучки: оценка «chars/12» обрезала голос посреди слова
-        // или оставляла визуал висеть в тишине после фразы.
-        try {
-          const { readAudioMeta } = await import("../media");
-          audioDuration = Math.max(2, (await readAudioMeta(file)).duration);
-        } catch {
-          audioDuration = Math.max(2, scene.voiceover.length / 12);
-        }
-
-        aAsset = {
-          id: audioKey,
-          name: `Voice ${i+1}`,
-          kind: "video", // TRICK: We mark voiceover as video with audio but no frames, so Director Engine processes it! Wait, no, we need an image.
-          mime: "audio/mpeg",
-          blobKey: audioKey,
-          duration: audioDuration,
-          createdAt: Date.now(),
-          hasAudio: true
-        };
-      }
-    } catch(e) { console.error("TTS failed", e); }
-
-    // 2. Fetch Image
-    try {
-      const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
-      const w = isLandscape ? 1920 : 1080;
-      const h = isLandscape ? 1080 : 1920;
-      
-      let imgUrl = "";
-
-      if (scene.imageType === "real") {
-         onProgress?.(`🔍 Поиск фото: ${scene.imagePrompt}...`);
-         try {
-            const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(scene.imagePrompt)}&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url&format=json&origin=*`;
-            const wikiRes = await fetch(wikiUrl);
-            if (wikiRes.ok) {
-               const wikiData = await wikiRes.json();
-               const pages = wikiData.query?.pages;
-               if (pages) {
-                  imgUrl = (Object.values(pages) as any)[0].imageinfo[0].url;
-               }
-            }
-         } catch(e) {
-            console.warn("Wiki search failed", e);
-         }
-      }
-
-      if (!imgUrl) {
-         onProgress?.(`🎨 Генерация AI-иллюстрации: ${scene.imagePrompt.slice(0,20)}...`);
-         imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(Math.random()*10000)}`;
-      }
-      
-      const imgRes = await fetch(imgUrl);
-      if (imgRes.ok) {
-        const imgBlob = await imgRes.blob();
-        const imgKey = uid("blob");
-        const file = new File([imgBlob], `Scene ${i+1}`, { type: "image/jpeg" });
-        await saveBlob(imgKey, file);
-        
-        const vAsset: MediaAsset = {
-            id: imgKey,
-            name: `Scene ${i+1}`,
-            kind: "image",
-            mime: "image/jpeg",
-            blobKey: imgKey,
-            duration: audioDuration + 0.5,
-            width: w, height: h,
-            createdAt: Date.now(),
-            hasAudio: true
-        };
-        assets.push(vAsset);
-        _filesByAssetId.set(imgKey, file);
-        
-        // Also save audio if generated, but maybe just use the image with transcript to trick the narrative engine into making a voiceover?
-        // Actually, we must include audio track somehow.
-        if (aAsset) {
-           aAsset.kind = "audio";
-           // We can't attach audio to image easily in our pipeline without muxing.
-           // Instead, the new DirectorEngine will handle visual script if no video with speech is found.
-           // Wait, we WANT the voiceover to play!
-           // AutoEdit doesn't automatically sequence multiple audio files yet. It uses one musicAsset.
-           // To fix this cleanly, we can just use the existing magic generator logic, but upgrade its transitions and text!
-        }
-      }
-    } catch(e) { console.error("Image gen failed", e); }
-  }
+  // Сцены независимы друг от друга (TTS + подбор картинки), поэтому генерируем их
+  // параллельно пулом из 3 воркеров вместо строго последовательного цикла — это
+  // существенно ускоряет "Магию" на сценариях из 5-6 сцен.
+  let doneScenes = 0;
+  onProgress?.(`✨ Генерация медиа 0/${sceneCount}...`);
+  const sceneMedia: (SceneMedia | null)[] = await pooled(scriptData.scenes, 3, async (scene: any, i: number) => {
+    const media = await buildSceneMedia(scene, i, style, titleLength, _filesByAssetId);
+    doneScenes++;
+    onProgress?.(`✨ Генерация медиа ${doneScenes}/${sceneCount}...`);
+    return media;
+  });
 
   // fallback to full generator logic but enhanced
-  return generateEnhancedMagicVideo(scriptData, assets, _filesByAssetId, onProgress, style);
+  return generateEnhancedMagicVideo(scriptData, sceneMedia, _filesByAssetId, onProgress, style);
+}
+
+/** Generates the TTS voiceover + a matching image for a single scene. Never throws:
+ *  individual failures degrade gracefully (missing voice and/or missing image),
+ *  but always keep the caller's scene index so slots don't shift. */
+async function buildSceneMedia(
+  scene: any,
+  i: number,
+  style: import("../types").GenerationStyle,
+  titleLength: number,
+  filesByAssetId: Map<string, File>
+): Promise<SceneMedia> {
+  // 1. Fetch TTS
+  let audioDuration = 3;
+  let voiceAsset: MediaAsset | null = null;
+  try {
+    const ttsUrl = `/api/tts?text=${encodeURIComponent(scene.voiceover)}`;
+    const ttsRes = await fetch(ttsUrl);
+    if (ttsRes.ok) {
+      const audioBlob = await ttsRes.blob();
+      const audioKey = uid("blob");
+      const file = new File([audioBlob], `Voiceover ${i + 1}`, { type: "audio/mpeg" });
+      await saveBlob(audioKey, file);
+      filesByAssetId.set(audioKey, file);
+
+      // РЕАЛЬНАЯ длительность озвучки: оценка «chars/12» обрезала голос посреди слова
+      // или оставляла визуал висеть в тишине после фразы.
+      try {
+        const { readAudioMeta } = await import("../media");
+        audioDuration = Math.max(2, (await readAudioMeta(file)).duration);
+      } catch {
+        audioDuration = Math.max(2, scene.voiceover.length / 12);
+      }
+
+      voiceAsset = {
+        id: audioKey,
+        name: `Voice ${i + 1}`,
+        kind: "audio",
+        mime: "audio/mpeg",
+        blobKey: audioKey,
+        duration: audioDuration,
+        createdAt: Date.now(),
+        hasAudio: true
+      };
+    }
+  } catch (e) {
+    console.error("TTS failed", e);
+  }
+
+  // 2. Fetch Image
+  let imageAsset: MediaAsset | null = null;
+  try {
+    const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
+    const w = isLandscape ? 1920 : 1080;
+    const h = isLandscape ? 1080 : 1920;
+
+    let imgUrl = "";
+
+    if (scene.imageType === "real") {
+      try {
+        const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(scene.imagePrompt)}&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url&format=json&origin=*`;
+        const wikiRes = await fetch(wikiUrl);
+        if (wikiRes.ok) {
+          const wikiData = await wikiRes.json();
+          const pages = wikiData.query?.pages;
+          if (pages) {
+            imgUrl = (Object.values(pages) as any)[0].imageinfo[0].url;
+          }
+        }
+      } catch (e) {
+        console.warn("Wiki search failed", e);
+      }
+    }
+
+    if (!imgUrl) {
+      // Детерминированный сид: тот же сценарий (та же сцена, тот же заголовок) —
+      // тот же кадр. Math.random() делал повторную генерацию непредсказуемой и
+      // ломал воспроизводимость превью/экспорта.
+      const seed = (i * 7919 + titleLength * 131) % 10000;
+      imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
+    }
+
+    const imgRes = await fetch(imgUrl);
+    if (imgRes.ok) {
+      const imgBlob = await imgRes.blob();
+      const imgKey = uid("blob");
+      const file = new File([imgBlob], `Scene ${i + 1}`, { type: "image/jpeg" });
+      await saveBlob(imgKey, file);
+      filesByAssetId.set(imgKey, file);
+
+      imageAsset = {
+        id: imgKey,
+        name: `Scene ${i + 1}`,
+        kind: "image",
+        mime: "image/jpeg",
+        blobKey: imgKey,
+        duration: audioDuration + 0.5,
+        width: w, height: h,
+        createdAt: Date.now(),
+        hasAudio: true
+      };
+    }
+  } catch (e) {
+    console.error("Image gen failed", e);
+  }
+
+  return { image: imageAsset, voice: voiceAsset, duration: audioDuration };
 }
 
 // Re-implementing the loop to make it extremely pro
-async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _filesByAssetId: Map<string, File>, _onProgress: any, style: any) {
+async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMedia | null)[], _filesByAssetId: Map<string, File>, _onProgress: any, style: any) {
   const { createAudioClip, createTextClip, createVideoClip, createEmptyProject } = await import("../factories");
   const { applyTextAnimation } = await import("../textAnimations");
-  
+
   const project = createEmptyProject(scriptData.title);
-  project.assets = [...assets];
+  // Собираем ассеты сцен по индексу, допуская "дырки" там, где TTS или картинка
+  // не сгенерировались — иначе (при простом push только успешных ассетов)
+  // индексы съезжают и озвучка/картинка одной сцены попадает на другую.
+  // TTS-ассет раньше вообще нигде не оказывался в project.assets → озвучка
+  // молча терялась при экспорте (клипы ссылались на assetId, которого не было
+  // в проекте). Теперь voice-ассеты собираются наравне с картинками.
+  const imageAssets = sceneMedia.map((m) => m?.image).filter(Boolean) as MediaAsset[];
+  const voiceAssets = sceneMedia.map((m) => m?.voice).filter(Boolean) as MediaAsset[];
+  project.assets = [...imageAssets, ...voiceAssets];
 
   const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
   const w = isLandscape ? 1920 : 1080;
@@ -201,49 +232,49 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
   const { TEMPLATES, getTemplateForContentType } = await import("../templates");
   let activeTemplate = TEMPLATES.find(t => t.id === style.templateId);
   if (!activeTemplate || activeTemplate.id === "auto") activeTemplate = getTemplateForContentType(style.contentType || "tiktok");
-  
-  const videoTrack = project.tracks.find((t:any) => t.type === "video")!;
-  const audioTrack = project.tracks.find((t:any) => t.type === "audio")!;
-  const textTrack = project.tracks.find((t:any) => t.type === "text")!;
+
+  const videoTrack = project.tracks.find((t: any) => t.type === "video")!;
+  const audioTrack = project.tracks.find((t: any) => t.type === "audio")!;
+  const textTrack = project.tracks.find((t: any) => t.type === "text")!;
 
   // Add music — хронометраж по РЕАЛЬНЫМ длительностям сцен (после измерения TTS),
   // иначе длинные сценарии уезжали в тишину после 30 секунды.
   try {
-     const { generateProceduralMusic } = await import("../musicGenerator");
-     const sceneDurs: number[] = scriptData.scenes.map((s: any, idx: number) =>
-        assets[idx]?.duration || Math.max(2, (s.voiceover?.length || 24) / 12));
-     // перекрытия xfade (0.4с на сцену) укорачивают суммарный хронометраж
-     const fullDur = Math.max(3, sceneDurs.reduce((a: number, b: number) => a + b, 0) - Math.max(0, scriptData.scenes.length - 1) * 0.4);
-     // сид от контента сценария — прогрессия и тембр зависят от истории, но детерминированы
-     const mSeed = (String(scriptData.title || "").length + scriptData.scenes.length * 17 + Math.round(fullDur * 13)) | 0;
-     const mBlob = await generateProceduralMusic("electronic", fullDur + 0.5, mSeed);
-     if (!mBlob) throw new Error("procedural music unavailable");
-     const mId = "bgm_" + Date.now();
-     const { saveBlob } = await import("../db");
-     const bgmFile = new File([mBlob], "bgm.wav", {type:"audio/wav"});
-     await saveBlob(mId, bgmFile);
-     _filesByAssetId.set(mId, bgmFile);
-     const mAsset = { id: mId, name: "BGM", kind: "audio", mime: "audio/wav", blobKey: mId, duration: fullDur + 0.5, createdAt: Date.now() };
-     project.assets.push(mAsset as any);
+    const { generateProceduralMusic } = await import("../musicGenerator");
+    const sceneDurs: number[] = scriptData.scenes.map((s: any, idx: number) =>
+      sceneMedia[idx]?.duration || Math.max(2, (s.voiceover?.length || 24) / 12));
+    // перекрытия xfade (0.4с на сцену) укорачивают суммарный хронометраж
+    const fullDur = Math.max(3, sceneDurs.reduce((a: number, b: number) => a + b, 0) - Math.max(0, scriptData.scenes.length - 1) * 0.4);
+    // сид от контента сценария — прогрессия и тембр зависят от истории, но детерминированы
+    const mSeed = (String(scriptData.title || "").length + scriptData.scenes.length * 17 + Math.round(fullDur * 13)) | 0;
+    const mBlob = await generateProceduralMusic("electronic", fullDur + 0.5, mSeed);
+    if (!mBlob) throw new Error("procedural music unavailable");
+    const mId = "bgm_" + Date.now();
+    const { saveBlob } = await import("../db");
+    const bgmFile = new File([mBlob], "bgm.wav", { type: "audio/wav" });
+    await saveBlob(mId, bgmFile);
+    _filesByAssetId.set(mId, bgmFile);
+    const mAsset = { id: mId, name: "BGM", kind: "audio", mime: "audio/wav", blobKey: mId, duration: fullDur + 0.5, createdAt: Date.now() };
+    project.assets.push(mAsset as any);
 
-     const mClip = createAudioClip({ trackId: audioTrack.id, asset: mAsset as any, start: 0, duration: fullDur });
-     mClip.fadeOut = 1.5;
+    const mClip = createAudioClip({ trackId: audioTrack.id, asset: mAsset as any, start: 0, duration: fullDur });
+    mClip.fadeOut = 1.5;
 
-     // Build ducking keyframes (та же формула курсора, что и в цикле сцен ниже)
-     const kfs: any[] = [];
-     let totalDur = 0;
-     for (let si = 0; si < scriptData.scenes.length; si++) {
-         const sDur = sceneDurs[si];
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.4, easing: "linear" });
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur, value: 0.05, easing: "linear" });
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur, value: 0.05, easing: "linear" });
-         kfs.push({ id: "k_"+Date.now()+Math.random(), time: totalDur + sDur + 0.5, value: 0.4, easing: "linear" });
-         totalDur += sDur - (si < scriptData.scenes.length - 1 ? 0.4 : 0);
-     }
+    // Build ducking keyframes (та же формула курсора, что и в цикле сцен ниже)
+    const kfs: any[] = [];
+    let totalDur = 0;
+    for (let si = 0; si < scriptData.scenes.length; si++) {
+      const sDur = sceneDurs[si];
+      kfs.push({ id: "k_" + Date.now() + Math.random(), time: Math.max(0, totalDur - 0.2), value: 0.4, easing: "linear" });
+      kfs.push({ id: "k_" + Date.now() + Math.random(), time: totalDur, value: 0.05, easing: "linear" });
+      kfs.push({ id: "k_" + Date.now() + Math.random(), time: totalDur + sDur, value: 0.05, easing: "linear" });
+      kfs.push({ id: "k_" + Date.now() + Math.random(), time: totalDur + sDur + 0.5, value: 0.4, easing: "linear" });
+      totalDur += sDur - (si < scriptData.scenes.length - 1 ? 0.4 : 0);
+    }
 
-     mClip.volume = { value: 0.4, keyframes: kfs };
-     audioTrack.clips.push(mClip);
-  } catch (e) {}
+    mClip.volume = { value: 0.4, keyframes: kfs };
+    audioTrack.clips.push(mClip);
+  } catch (e) { }
 
   // Кинематографичные края
   project.openingFadeIn = 0.3;
@@ -253,8 +284,9 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
   for (let i = 0; i < scriptData.scenes.length; i++) {
     const scene = scriptData.scenes[i];
 
-    // Find matching image asset
-    const imgAsset = assets[i];
+    // Find matching image asset for THIS scene index (may be a hole if the
+    // fetch failed) — do not assume a densely packed array.
+    const imgAsset = sceneMedia[i]?.image;
     if (!imgAsset) continue;
 
     const sceneDuration = imgAsset.duration || 3;
@@ -279,8 +311,9 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
     }
     videoTrack.clips.push(vClip);
 
-    // 2. Audio voiceover 
-    const aAsset = project.assets.find((a: any) => a.name === `Voice ${i+1}`);
+    // 2. Audio voiceover — берём ассет ЭТОЙ сцены по индексу, а не по имени
+    // в общем списке (там могут отсутствовать дырявые сцены).
+    const aAsset = sceneMedia[i]?.voice;
     if (aAsset) {
       const aClip = createAudioClip({
         trackId: audioTrack.id,
@@ -290,7 +323,7 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
       });
       audioTrack.clips.push(aClip);
     }
-    
+
     // 3. Text
     const words = scene.voiceover.split(" ");
     let textStart = cursor;
@@ -308,41 +341,41 @@ async function generateEnhancedMagicVideo(scriptData: any, assets: any[], _files
     const groups = [];
     let currentGroup = [];
     for (let i = 0; i < words.length; i++) {
-        currentGroup.push(words[i]);
-        if (currentGroup.length >= wordsPerGroup || i === words.length - 1) {
-            groups.push(currentGroup.join(" "));
-            currentGroup = [];
-        }
+      currentGroup.push(words[i]);
+      if (currentGroup.length >= wordsPerGroup || i === words.length - 1) {
+        groups.push(currentGroup.join(" "));
+        currentGroup = [];
+      }
     }
 
     for (let gIndex = 0; gIndex < groups.length; gIndex++) {
       const phrase = groups[gIndex];
       const phraseDur = Math.max(0.15, (weightOf(phrase.split(" ")) / totalWeight) * sceneDuration);
-      
+
       const tClip = createTextClip({
         trackId: textTrack.id,
         start: textStart,
         duration: phraseDur,
         text: sanitizeGlyphs(phrase)
       });
-      
+
       tClip.y.value = activeTemplate.text.yPosition;
       tClip.fontSize = activeTemplate.text.fontSize;
       tClip.fontFamily = activeTemplate.text.fontFamily;
-      
+
       let tColor = activeTemplate.text.color || "#FFFFFF";
       if (activeTemplate.id === "hormozi" || activeTemplate.id === "mrbeast") {
-          tColor = gIndex % 2 === 0 ? (activeTemplate.id === "mrbeast" ? "#00FF00" : "#FFE81A") : "#FFFFFF";
+        tColor = gIndex % 2 === 0 ? (activeTemplate.id === "mrbeast" ? "#00FF00" : "#FFE81A") : "#FFFFFF";
       }
       tClip.color = tColor;
-      
+
       tClip.backgroundColor = activeTemplate.text.backgroundColor || "transparent";
       tClip.strokeWidth = activeTemplate.text.strokeWidth || 3;
       tClip.strokeColor = activeTemplate.text.strokeColor || "#000000";
       tClip.animationIn = activeTemplate.text.animation || "pop";
-      
+
       applyTextAnimation(tClip, tClip.animationIn, tClip.y.value, phraseDur);
-      
+
       textTrack.clips.push(tClip);
       textStart += phraseDur;
     }

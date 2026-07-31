@@ -79,30 +79,52 @@ function loadMediaPipeFaceDetector(): Promise<MpDetector | null> {
 
 interface MpFace { x: number; y: number; size: number }
 
+// MediaPipe's FaceDetection instance is a single stateful object (WASM-backed)
+// that is NOT safe to call concurrently: overlapping send()/onResults() calls
+// on the same detector will race and corrupt results (or throw). Since
+// analyzeVideoLocally() can now run in parallel across multiple videos
+// (see autoEdit.ts pooled analysis), all detector calls are funneled through
+// this simple promise-chain mutex to guarantee mutual exclusion.
+let mpMutex: Promise<unknown> = Promise.resolve();
+
+function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const result = mpMutex.then(fn, fn);
+  // Swallow errors for the chain itself so one failed call doesn't
+  // permanently poison the mutex for subsequent callers.
+  mpMutex = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 function detectFacesWithMediaPipe(detector: MpDetector, source: HTMLCanvasElement): Promise<MpFace | null> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (v: MpFace | null) => { if (!settled) { settled = true; resolve(v); } };
-    const timeout = setTimeout(() => finish(null), 2000);
-    try {
-      detector.onResults((res: any) => {
-        clearTimeout(timeout);
-        const dets = res?.detections || [];
-        if (!dets.length) return finish(null);
-        const largest = dets.reduce((p: any, c: any) =>
-          (c.boundingBox.width * c.boundingBox.height > p.boundingBox.width * p.boundingBox.height) ? c : p);
-        finish({
-          x: largest.boundingBox.xCenter,
-          y: largest.boundingBox.yCenter,
-          size: largest.boundingBox.width * largest.boundingBox.height,
-        });
-      });
-      detector.send({ image: source }).catch(() => { clearTimeout(timeout); finish(null); });
-    } catch {
-      clearTimeout(timeout);
-      finish(null);
-    }
-  });
+  return runExclusive(
+    () =>
+      new Promise<MpFace | null>((resolve) => {
+        let settled = false;
+        const finish = (v: MpFace | null) => { if (!settled) { settled = true; resolve(v); } };
+        const timeout = setTimeout(() => finish(null), 2000);
+        try {
+          detector.onResults((res: any) => {
+            clearTimeout(timeout);
+            const dets = res?.detections || [];
+            if (!dets.length) return finish(null);
+            const largest = dets.reduce((p: any, c: any) =>
+              (c.boundingBox.width * c.boundingBox.height > p.boundingBox.width * p.boundingBox.height) ? c : p);
+            finish({
+              x: largest.boundingBox.xCenter,
+              y: largest.boundingBox.yCenter,
+              size: largest.boundingBox.width * largest.boundingBox.height,
+            });
+          });
+          detector.send({ image: source }).catch(() => { clearTimeout(timeout); finish(null); });
+        } catch {
+          clearTimeout(timeout);
+          finish(null);
+        }
+      })
+  );
 }
 
 // Lightweight Laplacian Variance for blur detection

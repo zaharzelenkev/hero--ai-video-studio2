@@ -150,7 +150,7 @@ export async function renderProject(
 
     const outName = `output.${project.exportSettings.format}`;
     args.push("-t", String(compiled.totalDuration.toFixed(3)));
-    args.push(...buildOutputArgs(project.exportSettings, outName));
+    args.push(...buildOutputArgs(project.exportSettings, outName, compiled.totalDuration));
 
     onLog?.(`Запуск: ffmpeg ${args.join(" ")}`);
         const code = await ffmpeg.exec(args);

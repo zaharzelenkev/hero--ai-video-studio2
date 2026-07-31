@@ -14,7 +14,8 @@
     "copy-ffmpeg": "node scripts/copy-ffmpeg-core.mjs",
     "vercel-build": "npm run build",
     "test:music": "tsx scripts/test-music-node.mts",
-    "test:audition": "tsx scripts/test-music-audition.mts"
+    "test:audition": "tsx scripts/test-music-audition.mts",
+    "test:production": "tsx scripts/test-production-plan.mts"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.6",

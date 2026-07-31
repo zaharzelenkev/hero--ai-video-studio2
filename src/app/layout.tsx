@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MONTIQ — AI-Powered Professional Video Editor",
+  title: "MONTIQ — AI Production Studio",
   description:
-    "Профессиональный видеоредактор нового поколения с интеллектуальным монтажом. Загрузите материалы — AI создаст готовый ролик. Доработайте в редакторе с продвинутыми инструментами: цветокоррекция, эффекты, звук, анимации.",
+    "AI Production Studio для полного цикла создания видео: от идеи, сценария и режиссуры до анализа материалов, монтажа, финального звука, графики и экспорта.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

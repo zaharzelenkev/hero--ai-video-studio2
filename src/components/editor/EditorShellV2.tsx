@@ -13,8 +13,10 @@ import EffectsPanelV2 from "./panels/EffectsPanelV2";
 import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
+import ProductionPanelV2 from "./panels/ProductionPanelV2";
 
 const PAGES: { id: EditorPage; label: string; icon: string }[] = [
+  { id: "production", label: "Продакшн", icon: "🧭" },
   { id: "montage", label: "Монтаж", icon: "✂️" },
   { id: "color", label: "Цвет", icon: "🎨" },
   { id: "effects", label: "Эффекты", icon: "✨" },
@@ -168,6 +170,7 @@ export default function EditorShellV2() {
 
         {/* Side Panel */}
         <aside className="w-[360px] shrink-0 overflow-y-auto border-l border-white/10 bg-[#0d0d16] shadow-2xl">
+          {activePage === "production" && <ProductionPanelV2 />}
           {activePage === "montage" && <MontagePanelV2 />}
           {activePage === "color" && <ColorPanelV2 />}
           {activePage === "effects" && <EffectsPanelV2 />}

@@ -1,4 +1,4 @@
-// Core data model for MONTIQ - Professional AI Video Editor
+// Core data model for MONTIQ - AI Production Studio
 // Everything here is plain JSON so it can be persisted in IndexedDB.
 
 export type Easing = "linear" | "easeIn" | "easeOut" | "easeInOut" | "cubicBezier";
@@ -516,6 +516,9 @@ export interface Project {
   markers: Marker[];
   style: GenerationStyle;
   exportSettings: ExportSettings;
+
+  /** Creative brief and director's plan created before editing begins. */
+  production?: import("./production").ProductionPlan;
 
   /** Кинематографичный вход из чёрного (секунды). 0/undefined — без затемнения. */
   openingFadeIn?: number;

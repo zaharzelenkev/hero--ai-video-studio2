@@ -12,6 +12,8 @@ import { renderProject } from "@/lib/render";
 import { saveBlob, saveProject, listProjects, deleteProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import type { MediaAsset, Project } from "@/lib/types";
+import { createProductionPlan } from "@/lib/production";
+import ProductionBlueprint from "./ProductionBlueprint";
 
 type Stage = "idle" | "reading" | "generating" | "error";
 
@@ -37,6 +39,11 @@ export default function GenerationScreenV2() {
   }, []);
 
   const canGenerate = (items.length > 0 || prompt.trim().length > 5) && stage !== "generating" && stage !== "reading";
+  const productionPlan = createProductionPlan({
+    idea: prompt,
+    templateId,
+    assets: items.map((item) => ({ kind: item.kind, duration: item.duration || 0 })),
+  });
 
   const onAdd = async (files: File[]) => {
     setStage("reading");
@@ -107,6 +114,9 @@ export default function GenerationScreenV2() {
         project = await generateMagicVideo(prompt, style, setProgressLabel, filesByAssetId);
       }
       
+      // Keep the creative brief with the timeline: production decisions survive
+      // the hand-off from planning to auto-edit, editorial and export.
+      project.production = productionPlan;
       await saveProject(project);
       setRecentProjects(await listProjects());
 
@@ -158,7 +168,7 @@ export default function GenerationScreenV2() {
           </div>
           
           <p className="mb-2 text-lg font-semibold text-slate-300 sm:text-xl">
-            AI-Powered Professional Video Editor
+            AI Production Studio
           </p>
           
           <p className="mx-auto max-w-2xl text-sm text-slate-400 sm:text-base">
@@ -178,6 +188,7 @@ export default function GenerationScreenV2() {
               <div className="mt-6">
                 <PromptForm prompt={prompt} onChange={setPrompt} templateId={templateId} onTemplateChange={setTemplateId} />
               </div>
+              <ProductionBlueprint plan={productionPlan} />
 
               {stage === "error" && (
                 <div className="mt-6 flex flex-col items-center justify-center rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-center backdrop-blur-sm animate-in fade-in zoom-in-95 duration-300">

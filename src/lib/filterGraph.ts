@@ -576,7 +576,11 @@ export function compileProjectToFfmpeg(
   if (audioLabels.length) {
     finalAudio = id("aout_");
     lines.push(
-      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[amix_out];[amix_out]alimiter=limit=0.9[${finalAudio}]`,
+      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[amix_out];` +
+        // Мастер-нормализация всего микса к платформенным -14 LUFS (YouTube/IG/TikTok):
+        // ролики гарантированно звучат одинаково громко независимо от исходников,
+        // платформа не будет пережимать громкость своим кривым AGC.
+        `[amix_out]loudnorm=I=-14:LRA=11:TP=-1.5[aln];[aln]alimiter=limit=0.9[${finalAudio}]`,
     );
   }
 

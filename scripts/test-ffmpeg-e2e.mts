@@ -182,7 +182,11 @@ check(`PiP-оверлей реально рисуется (разница кад
 // Метрики аудио для регрессионных сравнений качества (не блокируют тест)
 const astats = await ffmpeg("-i", "out.mp4", "-af", "astats=metadata=1,ametadata=print:key=lavfi.astats.Overall.RMS_level", "-f", "null", "-");
 const rmsLine = astats.logs.filter((l) => l.includes("RMS_level")).slice(0, 2);
-console.log(`  ℹ️  аудио выход: ${rmsLine.length ? rmsLine.join(" ; ") : "astats недоступен"}`);
+const rmsVal = rmsLine.length ? parseFloat(rmsLine[0].split("RMS_level=")[1]) : NaN;
+// Мастер-микс нормализован к -14 LUFS (loudnorm в filterGraph): RMS обязан
+// держаться в платформенном коридоре, иначе баланс голос/музыка сломан.
+check("мастер-громкость нормализована (-18..-12 dB RMS)", rmsVal > -18 && rmsVal < -12,
+  Number.isFinite(rmsVal) ? `RMS=${rmsVal.toFixed(2)} dB (было -22.7 до loudnorm)` : "astats недоступен");
 
 console.log(failures === 0 ? "\n✅ E2E РЕНДЕР ПРОШЁЛ" : `\n❌ Провалено: ${failures}`);
 worker.terminate();

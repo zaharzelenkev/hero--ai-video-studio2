@@ -117,6 +117,13 @@ check("totalDuration ≈ 12.3", Math.abs(compiled.totalDuration - 12.3) < 0.01, 
 // 7. Титр с экранированием двоеточия
 check("drawtext экранирует двоеточие", fc.includes("Тест\\: заголовок"));
 
+// 7.1 Мастер-цепочка аудио: платформенная нормализация -14 LUFS + backstop-лимитер,
+// причём loudnorm идёт ПЕРЕД alimiter (гейт цикла 'мастер-громкость').
+check("мастер: amix normalize=0", /amix=inputs=\d+:duration=longest:dropout_transition=0:normalize=0/.test(fc));
+check("мастер: loudnorm к -14 LUFS", fc.includes("loudnorm=I=-14"));
+check("мастер: alimiter после loudnorm",
+  fc.indexOf("alimiter=limit=0.9") > fc.indexOf("loudnorm=I=-14") && fc.includes("alimiter=limit=0.9"));
+
 // 8. Каждый [label] определён ровно один раз и используется хотя бы один раз
 const defined = new Set<string>();
 const used = new Set<string>();

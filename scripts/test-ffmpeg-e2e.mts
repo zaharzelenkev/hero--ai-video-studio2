@@ -12,6 +12,7 @@ import { Worker } from "node:worker_threads";
 import { createAudioClip, createEmptyProject, createTextClip, createVideoClip } from "../src/lib/factories";
 import type { MediaAsset } from "../src/lib/types";
 import { compileProjectToFfmpeg, buildOutputArgs } from "../src/lib/filterGraph";
+import { buildRampKeyframes } from "../src/lib/speedRamp";
 
 // ---------- Worker bridge over @ffmpeg/core (как в браузере, но в Node) ----------
 interface WorkerReply { id: number; ok: boolean; code?: number; data?: ArrayBuffer; exists?: boolean; error?: string; logs?: string[] }
@@ -90,7 +91,10 @@ const c3 = createVideoClip({ trackId: videoTrack.id, asset: vB, start: 6.2, dura
 c3.speed = 0.5;
 const c4 = createVideoClip({ trackId: videoTrack.id, asset: iC, start: 9.2, duration: 2.8, transitionIn: { type: "crossfade", duration: 0.4 } });
 c4.cameraMotion = "zoom-in";
-videoTrack.clips.push(c1, c2, c3, c4);
+// SPEED RAMP: slow-mo вход (0.62x) → 1.1x; окно 3.4с исходника играется ровно за 3.0с таймлайна
+const c5 = createVideoClip({ trackId: videoTrack.id, asset: vA, start: 11.3, duration: 3.0, inPoint: 1.0, outPoint: 4.4, transitionIn: { type: "crossfade", duration: 0.3 } });
+c5.speedRamp = buildRampKeyframes(3.0, 3.4, "climax")!;
+videoTrack.clips.push(c1, c2, c3, c4, c5);
 
 const b1 = createVideoClip({ trackId: overlayTrack.id, asset: vA, start: 1.2, duration: 2, inPoint: 6, outPoint: 8 });
 b1.muted = true;
@@ -115,7 +119,7 @@ const t1 = createTextClip({ trackId: textTrack.id, start: 0.5, duration: 3, text
 t1.fontFamily = "DejaVu Sans";
 textTrack.clips.push(t1);
 
-const a1 = createAudioClip({ trackId: audioTrack.id, asset: mD, start: 0, duration: 11.6, inPoint: 6, outPoint: 17.6 });
+const a1 = createAudioClip({ trackId: audioTrack.id, asset: mD, start: 0, duration: 14.3, inPoint: 6, outPoint: 20.3 });
 a1.loop = true;
 a1.fadeIn = 0.35;
 a1.fadeOut = 2;
@@ -127,7 +131,7 @@ a1.volume.keyframes = [
   { id: "d4", time: 5.0, value: 0.9, easing: "linear" },
 ];
 audioTrack.clips.push(a1);
-proj.duration = 11.6;
+proj.duration = 14.3;
 
 const compiled = compileProjectToFfmpeg(proj, proj.exportSettings, (clip) => {
   const a = proj.assets.find((x) => x.id === clip.assetId)!;
@@ -156,7 +160,7 @@ console.log("\n=== валидация out.mp4 ===");
 const durProbe = await ffmpeg("-i", "out.mp4", "-f", "null", "-");
 const durMatch = durProbe.logs.join("\n").match(/Duration: (\d+):(\d+):([\d.]+)/);
 const realDur = durMatch ? parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseFloat(durMatch[3]) : -1;
-check(`длительность ≈ 11.6с (факт: ${realDur.toFixed(2)}с)`, Math.abs(realDur - 11.6) < 0.35, String(realDur));
+check(`длительность ≈ 14.3с (факт: ${realDur.toFixed(2)}с)`, Math.abs(realDur - 14.3) < 0.35, String(realDur));
 
 // Кадр в середине ролика не должен быть чёрным (ловит ошибки тайминга/оверлеев)
 async function frameStdDev(t: number): Promise<{ mean: number; sd: number }> {
@@ -178,6 +182,13 @@ const pi = await frameStdDev(2); // внутри PiP-окна
 const piAfter = await frameStdDev(3.4); // после исчезновения PiP
 const diff = Math.abs(pi.mean - piAfter.mean) + Math.abs(pi.sd - piAfter.sd);
 check(`PiP-оверлей реально рисуется (разница кадров 2s vs 3.4s: ${diff.toFixed(1)})`, diff > 2);
+
+// Speed ramp: кадры внутри рампового клипа живые и РАЗНЫЕ (замедление→нормальный темп)
+const rampA = await frameStdDev(12.2); // slow-mo участок (0.62x)
+const rampB = await frameStdDev(13.9); // хвост клипа (1.1x)
+check(`speed ramp: кадры живые (sd@12.2s=${rampA.sd.toFixed(1)}, sd@13.9s=${rampB.sd.toFixed(1)})`, rampA.sd > 8 && rampB.sd > 8);
+check(`speed ramp: движение в кадре видно (разница ${Math.abs(rampA.mean - rampB.mean).toFixed(1)}+${Math.abs(rampA.sd - rampB.sd).toFixed(1)})`,
+  Math.abs(rampA.mean - rampB.mean) + Math.abs(rampA.sd - rampB.sd) > 2);
 
 // Метрики аудио для регрессионных сравнений качества (не блокируют тест)
 const astats = await ffmpeg("-i", "out.mp4", "-af", "astats=metadata=1,ametadata=print:key=lavfi.astats.Overall.RMS_level", "-f", "null", "-");

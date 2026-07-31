@@ -100,13 +100,21 @@ export function planToDecision(plan: DirectorPlan): AIEditDecision {
     });
 
     for (const b of scene.bRolls) {
+      // J-CUT для полноэкранных перебивок: перебивка заходит на долю секунды
+      // РАНЬШЕ стыка — картинка «опережает» монтажный план, глаз скользит по
+      // движению, а не спотыкается о границу. Для PiP оставляем L-cut (перебивка
+      // чуть позади речи — не перекрывает спикера в момент мысли).
+      const offset =
+        b.presentation === "fullscreen" && (b.offsetInScene ?? 0) >= 0
+          ? Math.max(-0.4, b.offsetInScene - 0.45)
+          : b.offsetInScene;
       clips.push({
         assetId: b.assetId,
         trackType: "b-roll",
         duration: b.sourceEnd - b.sourceStart,
         startTime: b.sourceStart,
         endTime: b.sourceEnd,
-        timeInTimeline: Math.max(0, currentTimelineTime + b.offsetInScene),
+        timeInTimeline: Math.max(0, currentTimelineTime + offset),
         presentation: b.presentation,
         reason: `B-Roll overlay · ${b.reason}`,
         importance: 0.5,

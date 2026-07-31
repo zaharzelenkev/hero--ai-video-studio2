@@ -1,7 +1,7 @@
 import type { GenerationStyle, MediaAsset, Project } from "./types";
 import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createTextClip, createVideoClip, createEmptyProject } from "./factories";
-import { detectBeats } from "./beatDetection";
+import { detectBeatsDetailed } from "./beatDetection";
 import { applyTextAnimation } from "./textAnimations";
 import { analyzeAndPlanWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
@@ -10,6 +10,7 @@ import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
 import { TEMPLATES, getTemplateForContentType } from "./templates";
 import { sanitizeGlyphs } from "./presets";
 import { pooled } from "./pooled";
+import { buildRampKeyframes } from "./speedRamp";
 
 export interface AutoEditInput {
   onProgress?: (msg: string) => void;
@@ -84,11 +85,16 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   // Music beat detection for sync
   let beats: number[] = [];
+  // Сильные доли (бары): вспышки и акценты ставятся на НАЧАЛО такта, а не на
+  // произвольную долю — ритм читается телом, а не только глазом.
+  let downbeats: number[] = [];
   if (style.beatSync && musicAsset) {
     const file = filesByAssetId.get(musicAsset.id);
     if (file) {
       try {
-        beats = await detectBeats(file);
+        const structure = await detectBeatsDetailed(file);
+        beats = structure.beats;
+        downbeats = structure.downbeats;
       } catch {
         beats = [];
       }
@@ -228,6 +234,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       const beatDur = 60 / (STYLE_BPM[mStyle] ?? 120);
       const estDur = Math.max(30, earlyStrategy.targetDuration) + 20;
       for (let t = 0; t <= estDur; t += beatDur) beats.push(t);
+      // Процедурный саундтрек синтезируется с акцентом на 1-ю долю такта —
+      // сильные доли известны аналитически (каждая 4-я доля).
+      for (let i = 0; i < beats.length; i += 4) downbeats.push(beats[i]);
     } catch { /* сетка не критична — монтаж продолжится без неё */ }
   }
 
@@ -242,10 +251,19 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     const spareRoom = (musicAsset.duration || 0) - estDuration;
     if (spareRoom > 4) {
       const energies = audioEnergyMap.get(musicAsset.id);
-      let target = energies
-        ?.filter(e => (e.energyLevel === "drop" || e.energyLevel === "high") && e.startTime <= spareRoom + 1)
-        .map(e => e.startTime)
-        .find(t => t > 0.5) ?? 0;
+      // Профи берут старт с САМОГО УСТОЙЧИВОГО дропа (самый длинный пик, а не
+      // первый попавшийся): короткий ложный всплеск (хлопок, кашель) не должен
+      // становиться точкой входа. Если дропов нет — первая выраженная «high».
+      const dropCands = (energies ?? []).filter(
+        (e) => e.energyLevel === "drop" && e.startTime > 0.5 && e.startTime <= spareRoom + 1,
+      );
+      const highCands = (energies ?? []).filter(
+        (e) => e.energyLevel === "high" && e.startTime > 0.5 && e.startTime <= spareRoom + 1,
+      );
+      const byLongest = (a: { endTime: number; startTime: number }, b: { endTime: number; startTime: number }) =>
+        (b.endTime - b.startTime) - (a.endTime - a.startTime);
+      let target = dropCands.length ? dropCands.sort(byLongest)[0].startTime
+        : highCands.length ? highCands.sort(byLongest)[0].startTime : 0;
       if (target > 0 && beats.length) {
         // начало музыкальной фразы: ближайший бит не позже пика энергии
         const aligned = [...beats].filter(b => b <= target + 0.3).pop();
@@ -334,6 +352,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   if (aiDecision && aiDecision.clips.length > 0) {
     const mainClips = aiDecision.clips.filter(c => c.trackType !== "b-roll");
     const bRollClips = aiDecision.clips.filter(c => c.trackType === "b-roll");
+
+    // --- SPEED RAMPS (только визуальные монтажи, где нет речи) ---
+    // Классика: план перед дропом УСКОРЯЕТСЯ (энергия разгоняется в удар),
+    // кульминационный план «оседает» из slow-mo в реальный темп. Ключи рампы
+    // сохраняют итоговую длительность клипа (см. placeClip) — стыки не плывут.
+    const rampTargets = new Map<string, "pre-climax" | "climax">();
+    if (directorPlan?.kind === "visual") {
+      for (let i = 0; i < mainClips.length; i++) {
+        const c = mainClips[i];
+        const tag = `${c.assetId}:${Math.round((c.startTime ?? 0) * 10) / 10}`;
+        const reason = (c.reason || "").toUpperCase();
+        if (reason.includes("[CLIMAX]")) {
+          rampTargets.set(tag, "climax");
+        } else if (mainClips[i + 1] && (mainClips[i + 1].reason || "").toUpperCase().includes("[CLIMAX]")) {
+          rampTargets.set(tag, "pre-climax");
+        }
+      }
+    }
     
     // Вспомогательная функция для размещения
     const placeClip = (aiClip: any, track: import("./types").Track, isBroll: boolean, timelineStart: number, maxTimelineDur?: number) => {
@@ -399,6 +435,15 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
             outPoint = newOut;
           }
         }
+      }
+
+      // Speed ramp (разгон в дроп / slow-mo вход кульминации). Длительность
+      // клипа НЕ меняется — ключи подбираются так, что окно исходника
+      // разыгрывается ровно за текущий duration (см. speedRamp.buildRampKeyframes).
+      let speedRamp: import("./types").SpeedRamp | undefined;
+      const rampKind = rampTargets.get(`${aiClip.assetId}:${Math.round((aiClip.startTime ?? 0) * 10) / 10}`);
+      if (rampKind && !isBroll && asset.kind === "video" && speed === 1 && duration >= 1.6) {
+        speedRamp = buildRampKeyframes(duration, outPoint - inPoint, rampKind) ?? undefined;
       }
 
       // Всё содержимое клипа (сегменты анализа) — единая точка правды ниже по функции.
@@ -683,6 +728,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       if (speed !== 1) {
          clip.speed = speed;
       }
+      if (speedRamp) {
+         clip.speedRamp = speedRamp;
+         clip.speed = 1; // рamp управляет временем сам; speed остаётся номинальным
+      }
 
       // Dynamic Ken Burns (only if not already heavily cropped by camera angle, or if it's an image).
       // На кадрах с лицами — ТОЛЬКО центрированные наезды: панорамирование срезает лицо.
@@ -899,9 +948,22 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     return wrapText(sanitizeGlyphs(text), maxChars);
   };
 
+  // Снап входа титра к биту: текст «выпрыгивает» вместе с ударом — движение
+  // глазом к титру совпадает с ритмом, а не болтается между долями.
+  const snapToBeat = (t: number, tolerance = 0.3): number => {
+    if (!beats.length) return t;
+    let best = t;
+    let bestD = Infinity;
+    for (const b of beats) {
+      const d = Math.abs(b - t);
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return bestD <= tolerance ? best : t;
+  };
+
   if (aiDecision?.textOverlays && aiDecision.textOverlays.length > 0) {
     for (const overlay of aiDecision.textOverlays) {
-      const oStart = Math.max(0, mapPlannedTime(overlay.time || 0));
+      const oStart = snapToBeat(Math.max(0, mapPlannedTime(overlay.time || 0)));
       // Титр за пределами видеоряда или на последних долях секунды — визуальный мусор, пропускаем.
       if (oStart >= cursor - 0.5) continue;
       const oDur = Math.max(0.4, Math.min(overlay.duration || 2, cursor - oStart));
@@ -1048,12 +1110,15 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   // Титульная карточка: у визуальных роликов без речи и титров первые секунды
   // без текста выглядят "голыми" — открываем фильм названием проекта.
+  // Хук-титр входит С БИТОМ и с «ударной» анимацией (stomp/elastic), чтобы
+  // первая секунда держала взгляд даже без движения в кадре.
   if (textTrack.clips.length === 0 && title.trim().length > 2 && cursor > 3.5) {
     const titleFontSize = Math.round((activeTemplate.text.fontSize || 60) * 1.15);
+    const tStart = snapToBeat(Math.min(0.6, cursor * 0.1), 0.25);
     const tClip = createTextClip({
       trackId: textTrack.id,
-      start: Math.min(0.6, cursor * 0.1),
-      duration: Math.min(3.2, cursor - 1.2),
+      start: tStart,
+      duration: Math.min(3.2, cursor - tStart - 0.6),
       text: wrapForFont(title.trim().toUpperCase(), titleFontSize),
     });
     tClip.y.value = safeTextY(activeTemplate.text.yPosition);
@@ -1063,9 +1128,41 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     tClip.backgroundColor = "transparent";
     tClip.strokeWidth = activeTemplate.text.strokeWidth ?? 2;
     tClip.strokeColor = activeTemplate.text.strokeColor || "#000000";
-    tClip.animationIn = "blur-in";
-    applyTextAnimation(tClip, "blur-in", tClip.y.value, tClip.duration);
+    const hookAnim: import("./types").TextAnimation =
+      activeTemplate.pace === "fast" || activeTemplate.pace === "dynamic" ? "stomp" : "elastic";
+    tClip.animationIn = hookAnim;
+    applyTextAnimation(tClip, hookAnim, tClip.y.value, tClip.duration);
     textTrack.clips.push(tClip);
+  }
+
+  // END CARD: у визуальных роликов (без речи и караоке) ролик должен
+  // ЗАКАНЧИВАТЬСЯ точкой, а не обрываться — финальный титр с названием
+  // проекта/призывом на последних секундах, синхронизированный с битом.
+  if (directorPlan?.kind === "visual" && cursor > 7) {
+    const lastTextEnd = textTrack.clips.reduce((m, c) => Math.max(m, c.start + c.duration), 0);
+    if (cursor - lastTextEnd > 3.2) {
+      const endText = title.trim().length > 2 ? title.trim().toUpperCase() : "СПАСИБО ЗА ПРОСМОТР";
+      const eStart = snapToBeat(Math.max(lastTextEnd + 0.8, cursor - 3.6), 0.25);
+      if (eStart < cursor - 0.8) {
+        const eDur = Math.min(2.6, cursor - eStart);
+        const eClip = createTextClip({
+          trackId: textTrack.id,
+          start: eStart,
+          duration: eDur,
+          text: wrapForFont(endText, Math.round((activeTemplate.text.fontSize || 60) * 0.9)),
+        });
+        eClip.y.value = safeTextY(0.72);
+        eClip.fontSize = Math.round((activeTemplate.text.fontSize || 60) * 0.9);
+        eClip.fontFamily = activeTemplate.text.fontFamily;
+        eClip.color = activeTemplate.text.color;
+        eClip.backgroundColor = "transparent";
+        eClip.strokeWidth = activeTemplate.text.strokeWidth ?? 2;
+        eClip.strokeColor = activeTemplate.text.strokeColor || "#000000";
+        eClip.animationIn = "slide-up";
+        applyTextAnimation(eClip, "slide-up", eClip.y.value, eClip.duration);
+        textTrack.clips.push(eClip);
+      }
+    }
   }
 
   // Кинематографичный вход/финал: мягкий уход в чёрный читается как завершённость,
@@ -1105,6 +1202,37 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
               );
           }
       }
+
+      // 1b. Пульс СИЛЬНЫХ ДОЛЕЙ на основном ряду: вспышка на каждом downbeat
+      // (начале такта) — ритм «бьётся» в самом материале, а не только в
+      // перебивках. На кульминации пульс ярче (удар в пике).
+      if (downbeats.length > 0) {
+         const randId = () => Math.random().toString(36).substring(7);
+         for (const mClip of videoTrack.clips as import("./types").VideoClip[]) {
+            if (mClip.duration < 1.8) continue;
+            const mStart = mClip.start;
+            const mEnd = mStart + mClip.duration;
+            const isClimaxClip = aiDecision.clips.some(
+               (c) => c.trackType !== "b-roll" && c.assetId === mClip.assetId
+                  && Math.abs((c.startTime ?? 0) - mClip.inPoint) < 0.5
+                  && (c.reason || "").toUpperCase().includes("[CLIMAX]"),
+            );
+            const pulseAmpl = isClimaxClip ? 0.16 : 0.09;
+            const rawDowns = downbeats.filter(b => b > mStart + 0.3 && b < mEnd - 0.3);
+            const contained: number[] = [];
+            for (const b of rawDowns) {
+               if (contained.length === 0 || b - contained[contained.length - 1] >= 1.6) contained.push(b);
+            }
+            for (const beat of contained) {
+               const lb = beat - mStart;
+               mClip.color.brightness.keyframes.push(
+                  { id: `dp_${randId()}`, time: Math.max(0, lb - 0.12), value: 0, easing: "linear" },
+                  { id: `dp_${randId()}`, time: lb, value: pulseAmpl, easing: "easeOut" },
+                  { id: `dp_${randId()}`, time: Math.min(mClip.duration, lb + 0.35), value: 0, easing: "easeIn" },
+               );
+            }
+         }
+      }
   }
 
   // 2. Semantic Punch Zooms (Резкие наезды камеры на акцентных словах)
@@ -1136,6 +1264,76 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
               }
           }
       }
+  }
+
+  // 3. Kinetic Typography: пульс масштаба акцентных слов на сильной доле —
+  // акцентное слово «выпрыгивает» из строки вместе с ударом такта
+  // (фирменный приём Hormozi/TikTok — слово-триггер бьёт в ритм).
+  if (downbeats.length > 0 && (style.pace === "fast" || style.pace === "dynamic")) {
+    const ktId = () => Math.random().toString(36).substring(7);
+    for (const tClip of textTrack.clips as import("./types").TextClip[]) {
+      const isHighlight = ["#00FF00", "#FFE81A", "#39FF14", "#FF4D00"].includes(tClip.color);
+      if (!isHighlight || tClip.duration < 0.7) continue;
+      // Не перебиваем анимацию входа (elastic/stomp уже владеют scale).
+      if (tClip.scale.keyframes.length > 0) continue;
+      const db = downbeats.find(
+        (b) => (b >= tClip.start && b <= tClip.start + Math.min(0.6, tClip.duration * 0.5)) || Math.abs(b - tClip.start) < 0.3,
+      );
+      if (db === undefined) continue;
+      const lb = Math.max(0, db - tClip.start);
+      tClip.scale.value = 1;
+      tClip.scale.keyframes.push(
+        { id: `kt_${ktId()}`, time: Math.max(0, lb - 0.06), value: 1, easing: "linear" },
+        { id: `kt_${ktId()}`, time: lb, value: 1.09, easing: "easeOut" },
+        { id: `kt_${ktId()}`, time: Math.min(tClip.duration, lb + 0.28), value: 1, easing: "easeIn" },
+      );
+    }
+  }
+
+  // --- ЦВЕТОВАЯ АТМОСФЕРА ПО ФАЗАМ (Color Story) ---
+  // Ролик «дышит» цветом вместе с драматургией: хук — сочный и контрастный,
+  // нарастание — холоднее (напряжение), кульминация — тёплая и плотная
+  // (эмоциональный пик), выдох — мягкая, чуть обесцвеченная (успокоение).
+  // Рампы по краям клипа: переход между атмосферами плавный, без скачка.
+  if (!style.bw && directorPlan?.kind === "visual") {
+    const PHASE_COLOR: Record<string, { sat: number; con: number; temp: number; bri: number }> = {
+      TEASER:  { sat: 0.08, con: 0.05, temp: 0.05, bri: 0 },
+      HOOK:    { sat: 0.05, con: 0.04, temp: 0.02, bri: 0 },
+      SETUP:   { sat: -0.02, con: -0.02, temp: -0.05, bri: 0 },
+      BUILDUP: { sat: 0.01, con: 0.03, temp: -0.07, bri: 0 },
+      CLIMAX:  { sat: 0.11, con: 0.09, temp: 0.13, bri: 0.01 },
+      OUTRO:   { sat: -0.07, con: -0.03, temp: -0.07, bri: 0.02 },
+    };
+    const colorStrength = style.pace === "fast" || style.pace === "dynamic" ? 1.1 : style.pace === "slow" ? 0.85 : 1;
+    const randId = () => Math.random().toString(36).substring(7);
+    const applyRamp = (p: import("./types").AnimParam, delta: number, dur: number) => {
+      if (Math.abs(delta) < 0.004) return;
+      const base = p.value;
+      const rampIn = Math.min(0.45, dur * 0.18);
+      const rampOut = Math.min(0.5, dur * 0.22);
+      p.keyframes.push(
+        { id: `cs_${randId()}`, time: 0, value: base, easing: "linear" },
+        { id: `cs_${randId()}`, time: rampIn, value: +(base + delta).toFixed(4), easing: "easeOut" },
+        { id: `cs_${randId()}`, time: Math.max(rampIn, dur - rampOut), value: +(base + delta).toFixed(4), easing: "linear" },
+        { id: `cs_${randId()}`, time: dur, value: base, easing: "easeIn" },
+      );
+    };
+    for (const mClip of videoTrack.clips as import("./types").VideoClip[]) {
+      if (mClip.duration < 1.2) continue;
+      const reason = aiDecision.clips.find(
+        (c) => c.trackType !== "b-roll" && c.assetId === mClip.assetId
+          && Math.abs((c.startTime ?? 0) - mClip.inPoint) < 0.5,
+      )?.reason ?? "";
+      const m = reason.match(/\[([A-Z]+)\]/);
+      const phase = m?.[1] ?? "";
+      const boost = PHASE_COLOR[phase];
+      if (!boost) continue;
+      const s = colorStrength;
+      applyRamp(mClip.color.saturation, boost.sat * s, mClip.duration);
+      applyRamp(mClip.color.contrast, boost.con * s, mClip.duration);
+      applyRamp(mClip.color.temperature, boost.temp * s, mClip.duration);
+      applyRamp(mClip.color.brightness, boost.bri * s, mClip.duration);
+    }
   }
 
   project.duration = cursor;

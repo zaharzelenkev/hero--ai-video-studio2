@@ -75,7 +75,96 @@ export function combinedOnsetFlux(data: Float32Array, sampleRate: number): { flu
   return { flux, hopSec: full.hopSec };
 }
 
+export interface BeatStructure {
+  /** Все биты (сетка + сильные внесеточные акценты) в секундах. */
+  beats: number[];
+  /** Сильные доли (начала тактов): бас-энергия на узле сетки максимальна. */
+  downbeats: number[];
+  bpm?: number;
+  beatDur?: number;
+}
+
+/**
+ * Детекция сильных долей (downbeats) по бас-энергии — классический приём
+ * открытых beat-трекеров (aubio, madmom): в танцевальной/поп-музыке удар
+ * бочки на сильной доле несёт максимум низкочастотной энергии. В каждом окне
+ * из 4 битов выбирается узел с максимальной бас-энергией; подтверждение —
+ * бас заметно выше медианы окна. Используется РАВНОМЕРНАЯ сетка (по оценке
+ * темпа), а не сетка с внесеточными акцентами — иначе окна «4 бита» сползают.
+ */
+export function detectDownbeats(
+  data: Float32Array,
+  sampleRate: number,
+  grid: number[],
+  periodSec?: number,
+  duration?: number,
+): number[] {
+  if (grid.length < 4) return [];
+  const low = lowpassOnePole(data, sampleRate, 150);
+  const env = energyEnvelope(low, sampleRate, 0.05);
+  const bassAt = (t: number): number => {
+    const i = Math.max(0, Math.min(env.energies.length - 1, Math.round(t / env.hopSec)));
+    return env.energies[i] ?? 0;
+  };
+
+  const period = periodSec && periodSec > 0 ? periodSec : medianGridStep(grid);
+  const totalDur = duration && duration > 0 ? duration : grid[grid.length - 1] + period;
+
+  // 1. Равномерная сетка от фазы сетки: 4 узла = ровно один такт.
+  const uniform = uniformBeatGrid(period, grid[0], totalDur);
+  if (uniform.length < 8) {
+    // Сетка слишком короткая — сильная доля = каждый 4-й узел.
+    const out: number[] = [];
+    for (let i = 0; i < grid.length; i += 4) out.push(grid[i]);
+    return out;
+  }
+
+  // 2. Сдвиг такта (0..3): максимум суммарной бас-энергии на узлах 4k+offset.
+  let bestOffset = 0;
+  let bestScore = -1;
+  for (let off = 0; off < 4; off++) {
+    let s = 0;
+    for (let k = off; k < uniform.length; k += 4) s += bassAt(uniform[k]);
+    if (s > bestScore) { bestScore = s; bestOffset = off; }
+  }
+
+  // 3. Для каждого такта — сильнейший басовый пик в окне вокруг якоря
+  //    (дрейф фазы сетки против реальных ударов компенсируется локальным
+  //    сканом; окно ~2 доли всегда содержит ровно один удар бочки).
+  const downbeats: number[] = [];
+  for (let k = bestOffset; k < uniform.length; k += 4) {
+    const anchor = uniform[k];
+    let peakT = anchor;
+    let peakV = -1;
+    for (let t = anchor - period * 0.8; t <= anchor + period * 1.2; t += env.hopSec) {
+      const v = bassAt(t);
+      if (v > peakV) { peakV = v; peakT = t; }
+    }
+    downbeats.push(Math.round(peakT * 1000) / 1000);
+  }
+  return downbeats.filter((t) => t >= 0 && t <= totalDur);
+}
+
+function medianGridStep(grid: number[]): number {
+  const deltas: number[] = [];
+  for (let i = 1; i < grid.length; i++) {
+    const d = grid[i] - grid[i - 1];
+    if (d > 0.2 && d < 1.5) deltas.push(d);
+  }
+  deltas.sort((a, b) => a - b);
+  return deltas[Math.floor(deltas.length / 2)] ?? 0.5;
+}
+
 export async function detectBeats(file: File, minIntervalSec = 0.25): Promise<number[]> {
+  return (await detectBeatsDetailed(file, minIntervalSec)).beats;
+}
+
+/**
+ * Полный разбор ритма трека: биты + сильные доли (бары) + BPM.
+ * Монтажному движку сильные доли нужны отдельно: склейки секций и вспышки
+ * ставятся на downbeat (удар такта), а не на произвольную долю.
+ */
+export async function detectBeatsDetailed(file: File, minIntervalSec = 0.25): Promise<BeatStructure> {
   const arrayBuffer = await file.arrayBuffer();
   const AudioCtx =
     window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -88,7 +177,6 @@ export async function detectBeats(file: File, minIntervalSec = 0.25): Promise<nu
   }
 
   const sampleRate = buffer.sampleRate;
-  // Моно-сумма каналов: басы и ударные часто смещены в один канал, иначе биты теряются.
   let data = buffer.getChannelData(0);
   if (buffer.numberOfChannels > 1) {
     const mixed = new Float32Array(data.length);
@@ -124,24 +212,36 @@ export async function detectBeats(file: File, minIntervalSec = 0.25): Promise<nu
 
   // --- Темп-сетка (Beat Grid) ---
   const grid = buildBeatGrid(flux, hopSec, buffer.duration, beats);
-  if (grid && grid.length > beats.length * 0.5) {
-    return grid;
+  const finalBeats = grid && grid.length > beats.length * 0.5 ? grid : beats;
+  const tempo = estimateTempo(flux, hopSec, buffer.duration);
+  const downbeats = detectDownbeats(data, sampleRate, finalBeats, tempo?.periodSec, buffer.duration);
+
+  let beatDur: number | undefined;
+  let bpm: number | undefined;
+  const deltas: number[] = [];
+  for (let i = 1; i < finalBeats.length; i++) {
+    const d = finalBeats[i] - finalBeats[i - 1];
+    if (d > 0.2 && d < 1.5) deltas.push(d);
   }
-  return beats;
+  if (deltas.length >= 3) {
+    deltas.sort((a, b) => a - b);
+    beatDur = deltas[Math.floor(deltas.length / 2)];
+    bpm = Math.round(60 / beatDur);
+  }
+
+  return { beats: finalBeats, downbeats, bpm, beatDur };
 }
 
 /**
  * Оценка темпа и фазы по energy-flux: автокорреляция (классика открытых
  * beat-трекеров — aubio/essentia) + фаза максимумом суммарного флюкса на
- * узлах сетки. Возвращает равномерную сетку + сильные внесеточные онсеты
- * (акценты между долями, типичные для дропов) или null, если темп не читается.
+ * узлах сетки. Возвращает равномерный период и фазу, либо null.
  */
-export function buildBeatGrid(
+export function estimateTempo(
   flux: number[],
   hopSec: number,
   duration: number,
-  onsets: number[],
-): number[] | null {
+): { periodSec: number; phase: number } | null {
   const minPeriodSec = 0.315; // ~190 BPM
   const maxPeriodSec = 1.0;   // 60 BPM
   const minLag = Math.round(minPeriodSec / hopSec);
@@ -155,25 +255,43 @@ export function buildBeatGrid(
   const centered = flux.map((v) => v - meanF);
 
   let bestLag = -1;
-  let bestScore = 0;
+  let bestCorr = 0;
+  const corrs = new Float64Array(maxLag + 1);
   for (let lag = minLag; lag <= maxLag; lag++) {
     let corr = 0;
     for (let i = 0; i + lag < centered.length; i++) corr += centered[i] * centered[i + lag];
     corr /= centered.length - lag;
-    // Метрика чётности сетки: пики должны повторяться и через 2 периода
+    corrs[lag] = corr;
+    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+  }
+
+  if (bestLag <= 0 || bestCorr <= 0) return null;
+
+  // ОКТАВНАЯ ПРОБЛЕМА: сильная повторяемость ТАКТА (акцент на каждую 4-ю долю)
+  // завышает автокорреляцию на 2-тактовых лагах — трекер «слышит» половинный
+  // темп. Классическое решение: выбрать САМЫЙ КОРОТКИЙ период, корреляция
+  // которого ≥ 85% от глобального максимума (удар бочки коррелирует лучше,
+  // чем пульс такта). corr2 остаётся как тайбрейкер, но не топит выбор.
+  let chosenLag = bestLag;
+  for (let lag = minLag; lag <= bestLag; lag++) {
+    if (corrs[lag] >= bestCorr * 0.85) { chosenLag = lag; break; }
+  }
+  // Тайбрейк среди кандидатов в пределах 90%: предпочитаем танцевальный диапазон.
+  let bestScore = -Infinity;
+  for (let lag = minLag; lag <= chosenLag; lag++) {
+    if (corrs[lag] < bestCorr * 0.85) continue;
     let corr2 = 0;
     if (lag * 2 < centered.length) {
       for (let i = 0; i + lag * 2 < centered.length; i++) corr2 += centered[i] * centered[i + lag * 2];
       corr2 /= centered.length - lag * 2;
     }
-    let score = corr + corr2 * 0.5;
+    let score = corr2 * 0.5;
     const bpm = 60 / (lag * hopSec);
-    if (bpm >= 100 && bpm <= 150) score *= 1.12; // лёгкий приоритет танцевальному диапазону
-    if (score > bestScore) { bestScore = score; bestLag = lag; }
+    if (bpm >= 100 && bpm <= 150) score += 0.2; // лёгкий приоритет танцевальному диапазону
+    if (score > bestScore) { bestScore = score; chosenLag = lag; }
   }
 
-  if (bestLag <= 0 || bestScore <= 0) return null;
-  const periodSec = bestLag * hopSec;
+  const periodSec = chosenLag * hopSec;
 
   // Фаза сетки: сдвиг 0..period, максимизирующий суммарный flux на узлах сетки
   let bestPhase = 0;
@@ -189,10 +307,35 @@ export function buildBeatGrid(
     if (score > bestPhaseScore) { bestPhaseScore = score; bestPhase = phase; }
   }
 
+  return { periodSec, phase: bestPhase };
+}
+
+/** Равномерная бит-сетка по оценке темпа (без внесеточных акцентов). */
+export function uniformBeatGrid(periodSec: number, phase: number, duration: number): number[] {
   const grid: number[] = [];
-  for (let t = bestPhase; t <= duration; t += periodSec) {
+  for (let t = phase; t <= duration; t += periodSec) {
     grid.push(Math.round(t * 1000) / 1000);
   }
+  return grid;
+}
+
+/**
+ * Оценка темпа и фазы по energy-flux: автокорреляция (классика открытых
+ * beat-трекеров — aubio/essentia) + фаза максимумом суммарного флюкса на
+ * узлах сетки. Возвращает равномерную сетку + сильные внесеточные онсеты
+ * (акценты между долями, типичные для дропов) или null, если темп не читается.
+ */
+export function buildBeatGrid(
+  flux: number[],
+  hopSec: number,
+  duration: number,
+  onsets: number[],
+): number[] | null {
+  const tempo = estimateTempo(flux, hopSec, duration);
+  if (!tempo) return null;
+  const { periodSec, phase } = tempo;
+
+  const grid = uniformBeatGrid(periodSec, phase, duration);
 
   // Добавляем сильные внесеточные онсеты (акценты между долями, типично для дропов)
   let avgFlux = 0;

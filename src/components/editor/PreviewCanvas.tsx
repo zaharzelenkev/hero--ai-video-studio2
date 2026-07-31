@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useProjectStore } from "@/store/projectStore";
 import { evalParam } from "@/lib/keyframes";
+import { speedRampInverse } from "@/lib/speedRamp";
 import { EFFECT_PRESETS, LUT_PRESETS } from "@/lib/presets";
 import type { TextClip, VideoClip } from "@/lib/types";
 import { getAssetUrl, getImageElement, getVideoElement } from "./mediaCache";
@@ -107,7 +108,12 @@ export default function PreviewCanvas() {
           let el: HTMLVideoElement | HTMLImageElement;
           if (clip.type === "video") {
             const v = getVideoElement(asset.id, url);
-            const targetTime = clip.inPoint + localTime * (clip.speed || 1);
+            // Speed ramp: превью обязано показывать ТО ЖЕ отображение времени,
+            // что и экспорт (speedRampInverse — обратная функция к setpts-математике).
+            const srcSec = clip.speedRamp && clip.speedRamp.keyframes.length >= 2
+              ? speedRampInverse(clip.speedRamp.keyframes, localTime)
+              : localTime * (clip.speed || 1);
+            const targetTime = clip.inPoint + srcSec;
             if (Math.abs(v.currentTime - targetTime) > 0.08) {
               try {
                 v.currentTime = targetTime;

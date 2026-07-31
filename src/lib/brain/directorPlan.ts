@@ -51,6 +51,9 @@ export interface PlannedSource {
   shotSize?: "wide" | "medium" | "close";
   /** Что делает камера в исходнике (для стыков и объяснений). */
   cameraMotion?: string;
+  /** Машинный тип движения камеры (pan-left/pan-right/dolly-in…) — для
+   *  кинематографических стыков (whip pan по направлению движения). */
+  cameraMotionKind?: string;
 }
 
 export interface PlannedScene {

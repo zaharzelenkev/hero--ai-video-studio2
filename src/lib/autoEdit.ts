@@ -189,6 +189,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   onProgress?.("Интеллектуальный анализ и планирование...");
   const analysisRequest: AIAnalysisRequest = {
     userPrompt: style.rawPrompt,
+    templateHint: style.templateId,
     assets: assets.map((a) => ({
       id: a.id,
       name: a.name,
@@ -1010,9 +1011,12 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                     textClip.fontFamily = activeTemplate.text.fontFamily || "DejaVu Sans Bold";
                     
                     let tColor = activeTemplate.text.color || "#FFFFFF";
-                    if (activeTemplate.id === "hormozi" || activeTemplate.id === "tiktok" || activeTemplate.id === "mrbeast" || activeTemplate.id === "podcast") {
-                        const highlight = activeTemplate.id === "mrbeast" ? "#00FF00" : "#FFE81A";
-                        tColor = g.isEmphasized ? highlight : "#FFFFFF";
+                    const highlightMap: Record<string, string> = {
+                      mrbeast: "#00FF00", gaming: "#39FF14", fitness: "#FF4D00",
+                      hormozi: "#FFE81A", tiktok: "#FFE81A", podcast: "#FFE81A", vlog: "#FFE81A",
+                    };
+                    if (highlightMap[activeTemplate.id]) {
+                        tColor = g.isEmphasized ? highlightMap[activeTemplate.id] : "#FFFFFF";
                     }
                     textClip.color = tColor;
                     
@@ -1096,7 +1100,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // 2. Semantic Punch Zooms (Резкие наезды камеры на акцентных словах)
   for (const tClip of textTrack.clips as import("./types").TextClip[]) {
       // Ищем выделенные цветом слова (акценты из Hormozi/MrBeast стилей)
-      const isHighlight = tClip.color === "#00FF00" || tClip.color === "#FFE81A";
+      const isHighlight = ["#00FF00", "#FFE81A", "#39FF14", "#FF4D00"].includes(tClip.color);
       
       if (isHighlight) {
           // Находим видеоклип, который играет в этот момент
@@ -1305,8 +1309,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     clip.loop = needsLoop;
     // Вход музыки: для динамичных жанров — почти мгновенно (удар в бит), для кино — плавное вхождение.
     clip.fadeIn = activeTemplate.pace === "slow" ? 1.2 : 0.35;
-    // Set appropriate volume
-    clip.volume = { value: style.templateId === "podcast" || style.templateId === "hormozi" ? 0.15 : 0.6, keyframes: [] };
+    // Set appropriate volume: в «речевых» жанрах музыка — фон под голосом,
+    // в визуальных — почти полноправный саундтрек.
+    const speechTemplates = ["podcast", "hormozi", "interview", "education", "vlog"];
+    clip.volume = { value: speechTemplates.includes(style.templateId || "") ? 0.15 : 0.6, keyframes: [] };
     clip.fadeOut = Math.min(2, project.duration / 4);
     audioTrack.clips.push(clip);
   }

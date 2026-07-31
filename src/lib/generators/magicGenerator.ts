@@ -7,9 +7,27 @@ import { sanitizeGlyphs } from "../presets";
 import { pooled } from "../pooled";
 
 interface SceneMedia {
+  /** Visual asset for the scene: a REAL generated video clip when the free
+   *  text-to-video backend is available, otherwise an AI image (Flux). */
   image: MediaAsset | null;
   voice: MediaAsset | null;
   duration: number;
+}
+
+/**
+ * One-time capability probe: is real text-to-video generation available?
+ * (Requires a free Pollinations key on the server — see /api/video-gen.)
+ * Cached for the whole session so 6 scenes don't fire 6 probes.
+ */
+let videoGenAvailable: Promise<boolean> | null = null;
+function isVideoGenAvailable(): Promise<boolean> {
+  if (!videoGenAvailable) {
+    videoGenAvailable = fetch("/api/video-gen?health=1")
+      .then((r) => (r.ok ? r.json() : { videoEnabled: false }))
+      .then((j) => Boolean(j.videoEnabled))
+      .catch(() => false);
+  }
+  return videoGenAvailable;
 }
 
 export async function generateMagicVideo(prompt: string, style: import("../types").GenerationStyle, onProgress?: (msg: string) => void, filesByAssetId?: Map<string, File>): Promise<Project> {
@@ -35,13 +53,14 @@ export async function generateMagicVideo(prompt: string, style: import("../types
 - imagePrompt: 
    - Если imageType="ai", напиши детальный промпт для нейросети на АНГЛИЙСКОМ (например: "A cyberpunk city at night, neon lights, 8k resolution").
    - Если imageType="real", напиши точный поисковый запрос на АНГЛИЙСКОМ (например: "Eiffel Tower", "Elon Musk", "Mount Everest").
+- motion: короткое описание ДВИЖЕНИЯ в кадре на АНГЛИЙСКОМ для видео-нейросети (движение камеры + движение объекта, например: "slow cinematic dolly-in, mist drifting between skyscrapers" или "drone orbit shot, waves crashing in slow motion"). Всегда заполняй!
 
 Ответь строго в JSON формате:
 {
   "title": "Название видео",
   "scenes": [
-    { "voiceover": "Она возвышается над Парижем как стальной титан, приковывая взгляды миллионов.", "imageType": "real", "imagePrompt": "Eiffel Tower" },
-    { "voiceover": "Но что, если завтра её поглотят неоновые джунгли?", "imageType": "ai", "imagePrompt": "Futuristic flying cars around a glowing tower, sci-fi city, 8k" }
+    { "voiceover": "Она возвышается над Парижем как стальной титан, приковывая взгляды миллионов.", "imageType": "real", "imagePrompt": "Eiffel Tower", "motion": "slow aerial orbit around the tower at golden hour, birds passing" },
+    { "voiceover": "Но что, если завтра её поглотят неоновые джунгли?", "imageType": "ai", "imagePrompt": "Futuristic flying cars around a glowing tower, sci-fi city, 8k", "motion": "cinematic dolly-in through neon rain, flying cars streaking past" }
   ]
 }`;
 
@@ -145,16 +164,61 @@ async function buildSceneMedia(
     console.error("TTS failed", e);
   }
 
-  // 2. Fetch Image
+  // 2. Fetch visual — REAL VIDEO first (if the free video backend is up),
+  //    then image fallbacks. A moving AI shot beats a Ken-Burns photo in
+  //    perceived quality by an order of magnitude.
   let imageAsset: MediaAsset | null = null;
   try {
     const isLandscape = style.contentType === "youtube" || style.contentType === "presentation" || style.contentType === "documentary";
     const w = isLandscape ? 1920 : 1080;
     const h = isLandscape ? 1080 : 1920;
 
+    // --- 2a. Text-to-Video (Seedance via Pollinations, free tier) ---
+    if (await isVideoGenAvailable()) {
+      try {
+        // Video models want a single "action shot" description: subject + motion.
+        const videoPrompt = [scene.imagePrompt, scene.motion].filter(Boolean).join(", ");
+        // Длительность клипа = длительность озвучки сцены (2–10с — лимиты модели).
+        const clipDur = Math.max(2, Math.min(10, Math.ceil(audioDuration + 0.5)));
+        const seed = (i * 7919 + titleLength * 131) % 10000;
+        const vidUrl = `/api/video-gen?prompt=${encodeURIComponent(videoPrompt)}&duration=${clipDur}&aspectRatio=${isLandscape ? "16:9" : "9:16"}&seed=${seed}`;
+        const vidRes = await fetch(vidUrl);
+        if (vidRes.ok && (vidRes.headers.get("content-type") || "").includes("video")) {
+          const vidBlob = await vidRes.blob();
+          if (vidBlob.size > 20_000) {
+            const vidKey = uid("blob");
+            const file = new File([vidBlob], `Scene ${i + 1}.mp4`, { type: "video/mp4" });
+            await saveBlob(vidKey, file);
+            filesByAssetId.set(vidKey, file);
+
+            // Реальная длительность сгенерированного клипа (может отличаться от заказанной)
+            let realDur = clipDur;
+            try {
+              const { readVideoMeta } = await import("../media");
+              realDur = Math.max(1, (await readVideoMeta(file)).duration || clipDur);
+            } catch { /* keep requested duration */ }
+
+            imageAsset = {
+              id: vidKey,
+              name: `Scene ${i + 1} (AI video)`,
+              kind: "video",
+              mime: "video/mp4",
+              blobKey: vidKey,
+              duration: realDur,
+              width: w, height: h,
+              createdAt: Date.now(),
+              hasAudio: false
+            };
+          }
+        }
+      } catch (e) {
+        console.warn("Video generation failed, falling back to image", e);
+      }
+    }
+
     let imgUrl = "";
 
-    if (scene.imageType === "real") {
+    if (!imageAsset && scene.imageType === "real") {
       try {
         const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(scene.imagePrompt)}&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url&format=json&origin=*`;
         const wikiRes = await fetch(wikiUrl);
@@ -170,7 +234,7 @@ async function buildSceneMedia(
       }
     }
 
-    if (!imgUrl) {
+    if (!imageAsset && !imgUrl) {
       // Детерминированный сид: тот же сценарий (та же сцена, тот же заголовок) —
       // тот же кадр. Math.random() делал повторную генерацию непредсказуемой и
       // ломал воспроизводимость превью/экспорта.
@@ -178,25 +242,27 @@ async function buildSceneMedia(
       imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(scene.imagePrompt)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
     }
 
-    const imgRes = await fetch(imgUrl);
-    if (imgRes.ok) {
-      const imgBlob = await imgRes.blob();
-      const imgKey = uid("blob");
-      const file = new File([imgBlob], `Scene ${i + 1}`, { type: "image/jpeg" });
-      await saveBlob(imgKey, file);
-      filesByAssetId.set(imgKey, file);
+    if (!imageAsset && imgUrl) {
+      const imgRes = await fetch(imgUrl);
+      if (imgRes.ok) {
+        const imgBlob = await imgRes.blob();
+        const imgKey = uid("blob");
+        const file = new File([imgBlob], `Scene ${i + 1}`, { type: "image/jpeg" });
+        await saveBlob(imgKey, file);
+        filesByAssetId.set(imgKey, file);
 
-      imageAsset = {
-        id: imgKey,
-        name: `Scene ${i + 1}`,
-        kind: "image",
-        mime: "image/jpeg",
-        blobKey: imgKey,
-        duration: audioDuration + 0.5,
-        width: w, height: h,
-        createdAt: Date.now(),
-        hasAudio: true
-      };
+        imageAsset = {
+          id: imgKey,
+          name: `Scene ${i + 1}`,
+          kind: "image",
+          mime: "image/jpeg",
+          blobKey: imgKey,
+          duration: audioDuration + 0.5,
+          width: w, height: h,
+          createdAt: Date.now(),
+          hasAudio: true
+        };
+      }
     }
   } catch (e) {
     console.error("Image gen failed", e);
@@ -289,7 +355,22 @@ async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMed
     const imgAsset = sceneMedia[i]?.image;
     if (!imgAsset) continue;
 
-    const sceneDuration = imgAsset.duration || 3;
+    const isRealVideo = imgAsset.kind === "video";
+    const voiceDur = sceneMedia[i]?.duration || 3;
+    // Для видео-сцены хронометраж диктует озвучка; клип растягиваем slow-mo,
+    // если он короче фразы (кинематографично и бесшовно), но не медленнее 55%.
+    let sceneDuration = imgAsset.duration || 3;
+    let sceneSpeed = 1;
+    if (isRealVideo) {
+      const needed = voiceDur + 0.5;
+      const srcDur = imgAsset.duration || needed;
+      if (srcDur >= needed) {
+        sceneDuration = needed;
+      } else {
+        sceneSpeed = Math.max(0.55, srcDur / needed);
+        sceneDuration = Math.min(needed, srcDur / sceneSpeed);
+      }
+    }
 
     // 1. Video Clip with Ken Burns & Transitions
     const vClip = createVideoClip({
@@ -298,11 +379,22 @@ async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMed
       start: cursor,
       duration: sceneDuration
     });
-    // Детерминированное движение камеры: та же сцена — тот же монтаж (превью = экспорт).
-    const motionPool = i === 0
-      ? ["zoom-out", "pan-left"]
-      : ["zoom-in", "pan-left", "pan-right", "zoom-in", "pan-up", "pan-down"];
-    vClip.cameraMotion = motionPool[(i * 5 + 2) % motionPool.length] as any;
+    if (isRealVideo) {
+      // Сгенерированное видео уже содержит движение камеры — искусственный
+      // Ken Burns поверх реального моушена выглядит как дрожь.
+      vClip.cameraMotion = "none";
+      if (sceneSpeed !== 1) {
+        vClip.speed = sceneSpeed;
+        vClip.outPoint = vClip.inPoint + sceneDuration * sceneSpeed;
+      }
+      vClip.muted = true; // звук сцены — озвучка + музыка, не шум модели
+    } else {
+      // Детерминированное движение камеры: та же сцена — тот же монтаж (превью = экспорт).
+      const motionPool = i === 0
+        ? ["zoom-out", "pan-left"]
+        : ["zoom-in", "pan-left", "pan-right", "zoom-in", "pan-up", "pan-down"];
+      vClip.cameraMotion = motionPool[(i * 5 + 2) % motionPool.length] as any;
+    }
     vClip.transitionIn = i === 0 ? { type: "cut", duration: 0 } : { type: activeTemplate.transition, duration: 0.4 };
     // Объединяющий грейд шаблона: сцены из разных генераторов/источников
     // иначе выглядят как нарезка из разных фильмов.

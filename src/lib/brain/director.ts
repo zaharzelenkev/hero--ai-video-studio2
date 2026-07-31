@@ -7,11 +7,34 @@ export class DirectorBrain {
   static async defineStrategy(request: AIAnalysisRequest): Promise<{ genre: string, targetDuration: number, instructions: string }> {
     const prompt = (request.userPrompt || "").toLowerCase();
     let detectedGenre = "tiktok";
-    
+
+    // 0. Явный шаблон пользователя — высший приоритет: если человек выбрал
+    // «Подкаст», монтируем по правилам подкаста, что бы ни было в промпте.
+    const templateToGenre: Record<string, string> = {
+      podcast: "podcast", interview: "interview", vlog: "vlog", gaming: "gaming",
+      fitness: "fitness", wedding: "wedding", food: "food", musicvideo: "musicvideo",
+      education: "education", realestate: "realestate", documentary: "documentary",
+      cinematic: "travel", luxury: "travel", apple: "ad",
+      tiktok: "tiktok", hormozi: "tiktok", mrbeast: "tiktok", tech: "education",
+    };
+    const forcedGenre = request.templateHint && request.templateHint !== "auto"
+      ? templateToGenre[request.templateHint]
+      : undefined;
+
     // 1. Поиск жанра по промпту
-    if (prompt.match(/(подкаст|интервью|podcast|interview)/)) detectedGenre = "podcast";
-    else if (prompt.match(/(реклам|ad|промо|коммерц)/)) detectedGenre = "ad";
-    else if (prompt.match(/(тревел|travel|свадьб|wedding|влог|vlog)/)) detectedGenre = "travel";
+    if (forcedGenre) detectedGenre = forcedGenre;
+    else if (prompt.match(/(подкаст|podcast)/)) detectedGenre = "podcast";
+    else if (prompt.match(/(интервью|interview)/)) detectedGenre = "interview";
+    else if (prompt.match(/(реклам|\bad\b|промо|коммерц)/)) detectedGenre = "ad";
+    else if (prompt.match(/(свадьб|wedding|венчан|невест)/)) detectedGenre = "wedding";
+    else if (prompt.match(/(тревел|travel|путешеств)/)) detectedGenre = "travel";
+    else if (prompt.match(/(влог|vlog)/)) detectedGenre = "vlog";
+    else if (prompt.match(/(гейм|game|игров|летсплей|стрим|twitch)/)) detectedGenre = "gaming";
+    else if (prompt.match(/(фитнес|fitness|трениров|спортзал|воркаут|workout|кроссфит)/)) detectedGenre = "fitness";
+    else if (prompt.match(/(еда|рецепт|food|кулинар|готовк|ресторан)/)) detectedGenre = "food";
+    else if (prompt.match(/(клип|music video|мьюзик|песн)/)) detectedGenre = "musicvideo";
+    else if (prompt.match(/(урок|обучени|туториал|tutorial|курс|лекци|обзор|инструкц)/)) detectedGenre = "education";
+    else if (prompt.match(/(недвижимост|квартир|дом на продаж|real estate|апартамент)/)) detectedGenre = "realestate";
     else if (prompt.match(/(документал|doc|фильм)/)) detectedGenre = "documentary";
     else if (!prompt || prompt.length < 5) {
         // 2. Умное автоопределение, если пользователь не ввел промпт или шаблон (Шаблон "Auto")

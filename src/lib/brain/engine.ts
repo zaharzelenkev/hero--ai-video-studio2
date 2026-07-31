@@ -2,6 +2,14 @@ import type { AIAnalysisRequest, AIEditDecision } from "../ai/aiService";
 import { DirectorBrain } from "./director";
 import { AI_CONFIG } from "../../config/ai";
 
+/** Жанровые семейства: единая точка правды для ветвлений темпа/приёмов.
+ *  Новые жанры (gaming, fitness, wedding...) наследуют правильную механику,
+ *  а не проваливаются в дефолтный medium. */
+export const FAST_GENRES = new Set(["tiktok", "ad", "gaming", "fitness", "musicvideo"]);
+export const SLOW_GENRES = new Set(["travel", "cinematic", "documentary", "luxury", "wedding", "realestate"]);
+/** Жанры «говорящей головы»: обязательный B-Roll, PIP-перебивки, teaser-хук. */
+export const TALKING_GENRES = new Set(["podcast", "interview", "vlog", "education", "youtube"]);
+
 export interface DirectorScene {
   id: string;
   phase: "hook" | "buildup" | "climax" | "outro";
@@ -310,7 +318,7 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
                     bStart = Math.max(0, Math.random() * ((bestAsset.duration || 10) - scene.duration));
                 }
 
-                const isPip = (strategy.genre === "podcast" || strategy.genre === "tiktok" || strategy.genre === "ad") && Math.random() > 0.5;
+                const isPip = (TALKING_GENRES.has(strategy.genre) || strategy.genre === "tiktok" || strategy.genre === "ad") && Math.random() > 0.5;
                 scene.bRolls.push({
                     assetId: bestAsset.id,
                     sourceStart: bStart,
@@ -639,8 +647,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       scenes: [],
       audioStrategy: {
         // Выбираем жанр музыки исходя из жанра видео и эмоции
-        musicStyle: strategy.genre === "travel" || strategy.genre === "luxury" ? "cinematic"
-                    : strategy.genre === "tiktok" || strategy.genre === "ad" ? "electronic" : "lofi",
+        musicStyle: SLOW_GENRES.has(strategy.genre) ? "cinematic"
+                    : FAST_GENRES.has(strategy.genre) ? "electronic" : "lofi",
         duckingEnabled: false,
         denoiseSpeech: false,
         removeSilence: false,
@@ -752,8 +760,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     if (beats.length === 0) return script;
 
     const target = strategy.targetDuration;
-    const isFastGenre = strategy.genre === "tiktok" || strategy.genre === "ad";
-    const isSlowGenre = strategy.genre === "travel" || strategy.genre === "cinematic" || strategy.genre === "documentary" || strategy.genre === "luxury";
+    const isFastGenre = FAST_GENRES.has(strategy.genre);
+    const isSlowGenre = SLOW_GENRES.has(strategy.genre);
 
     // --- МУЗЫКАЛЬНАЯ СЕТКА ---
     // Длительности планов квантуются КРАТНО медианному периоду бита: монтаж
@@ -1040,7 +1048,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     }
     
     // Flash-Forward Teaser Hook (The "MrBeast/TikTok" Secret)
-    if (genre === "tiktok" || genre === "ad" || genre === "youtube" || genre === "podcast") {
+    if (FAST_GENRES.has(genre) && genre !== "musicvideo" || TALKING_GENRES.has(genre)) {
          const climaxScene = script.scenes.find(s => s.phase === "climax");
          const hookScene = script.scenes.find(s => s.phase === "hook");
 
@@ -1092,7 +1100,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       let newLessons: string[] = [];
 
       // 1. Проверка темпа для быстрых форматов
-      if (script.genre === "tiktok" || script.genre === "ad") {
+      if (FAST_GENRES.has(script.genre)) {
           for (const scene of script.scenes) {
               if (scene.duration > 3.5 && scene.phase !== "outro") {
                   
@@ -1104,7 +1112,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       }
 
       // 2. Проверка кинематографичности (воздух в монтаже)
-      if (script.genre === "travel" || script.genre === "cinematic" || script.genre === "documentary") {
+      if (SLOW_GENRES.has(script.genre)) {
           const fastCuts = script.scenes.filter(s => s.duration < 1.5).length;
           if (fastCuts > script.scenes.length * 0.4) {
               newLessons.push(`ОШИБКА РИТМА: В кинематографичном жанре слишком много быстрых склеек (< 1.5с). Зритель не успевает насладиться эстетикой. В следующий раз давай кадру 'подышать' 4-6 секунд.`);
@@ -1112,7 +1120,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       }
       
       // 3. Проверка перебивок для подкастов
-      if (script.genre === "podcast" || script.genre === "interview") {
+      if (TALKING_GENRES.has(script.genre)) {
           const totalBRolls = script.scenes.reduce((acc, s) => acc + s.bRolls.length, 0);
           if (totalBRolls === 0 && script.targetDuration > 10) {
               newLessons.push(`ОШИБКА УДЕРЖАНИЯ: Подкаст без B-Roll (перебивок). Говорящая голова наскучит зрителю. Обязательно перекрывай лицо визуальным рядом каждые несколько секунд.`);
@@ -1200,11 +1208,11 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     return {
       contentType: script.genre as any,
       targetDuration: script.targetDuration,
-      pace: script.genre === "tiktok" || script.genre === "ad" ? "fast" : "medium",
+      pace: FAST_GENRES.has(script.genre) ? "fast" : SLOW_GENRES.has(script.genre) ? "slow" : "medium",
       colorGrade: "cinematic",
       clips,
       musicSync: true,
-      transitions: script.genre === "tiktok" || script.genre === "ad" ? "cut" : "crossfade",
+      transitions: FAST_GENRES.has(script.genre) ? "cut" : "crossfade",
       textOverlays,
       audioEnhancements: {
         normalize: true,

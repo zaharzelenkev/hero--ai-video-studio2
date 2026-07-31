@@ -1,4 +1,7 @@
-export type TemplateId = "auto" | "hormozi" | "mrbeast" | "apple" | "minimal" | "cinematic" | "documentary" | "tiktok" | "podcast" | "luxury" | "tech" | "reels" | "youtube";
+export type TemplateId =
+  | "auto" | "hormozi" | "mrbeast" | "apple" | "minimal" | "cinematic" | "documentary"
+  | "tiktok" | "podcast" | "luxury" | "tech" | "reels" | "youtube"
+  | "interview" | "vlog" | "gaming" | "fitness" | "wedding" | "food" | "musicvideo" | "education" | "realestate";
 
 export interface VideoTemplate {
   id: TemplateId;
@@ -120,6 +123,114 @@ export const TEMPLATES: VideoTemplate[] = [
     effects: ["vignette"]
   },
   {
+    id: "interview",
+    name: "Interview",
+    icon: "🎤",
+    description: "Крупные планы, нижние титры, B-Roll",
+    pace: "medium",
+    colorGrade: "neutral",
+    transition: "cut",
+    kenBurns: false,
+    text: { fontFamily: "Inter", fontSize: 58, color: "#ffffff", backgroundColor: "black@0.55", strokeColor: "#000000", strokeWidth: 0, align: "center", yPosition: 0.86, animation: "fade" },
+    effects: ["vignette"]
+  },
+  {
+    id: "vlog",
+    name: "Vlog",
+    icon: "🤳",
+    description: "Живой темп, тёплый свет, джамп-каты",
+    pace: "dynamic",
+    colorGrade: "warm",
+    transition: "hblur",
+    kenBurns: false,
+    text: { fontFamily: "Montserrat", fontSize: 70, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 6, align: "center", yPosition: 0.78, animation: "pop" },
+    effects: []
+  },
+  {
+    id: "gaming",
+    name: "Gaming",
+    icon: "🎮",
+    description: "Неон, глитчи, максимум драйва",
+    pace: "fast",
+    colorGrade: "vivid",
+    transition: "pixelize",
+    kenBurns: false,
+    text: { fontFamily: "Bangers", fontSize: 88, color: "#39FF14", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 9, align: "center", yPosition: 0.22, animation: "glitch" },
+    effects: ["sharpen", "vignette"]
+  },
+  {
+    id: "fitness",
+    name: "Fitness",
+    icon: "🏋️",
+    description: "Мощные акценты, жёсткий ритм",
+    pace: "fast",
+    colorGrade: "dramatic",
+    transition: "cut",
+    kenBurns: false,
+    text: { fontFamily: "Montserrat", fontSize: 82, color: "#FF4D00", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 8, align: "center", yPosition: 0.5, animation: "stomp" },
+    effects: ["sharpen", "vignette"]
+  },
+  {
+    id: "wedding",
+    name: "Wedding",
+    icon: "💍",
+    description: "Нежный свет, плавная романтика",
+    pace: "slow",
+    colorGrade: "warm",
+    transition: "crossfade",
+    kenBurns: true,
+    text: { fontFamily: "Playfair Display", fontSize: 52, color: "#FFF6E9", backgroundColor: "transparent", strokeColor: "#00000055", strokeWidth: 1, align: "center", yPosition: 0.84, animation: "blur-in" },
+    effects: ["glow", "vignette"]
+  },
+  {
+    id: "food",
+    name: "Food",
+    icon: "🍔",
+    description: "Сочные макро-кадры и наезды",
+    pace: "medium",
+    colorGrade: "warm",
+    transition: "zoom",
+    kenBurns: true,
+    text: { fontFamily: "Montserrat", fontSize: 64, color: "#FFD166", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 5, align: "center", yPosition: 0.8, animation: "pop" },
+    effects: ["sharpen", "glow"]
+  },
+  {
+    id: "musicvideo",
+    name: "Music Video",
+    icon: "🎵",
+    description: "Монтаж строго в бит, teal-orange",
+    pace: "fast",
+    colorGrade: "teal-orange",
+    transition: "hblur",
+    kenBurns: false,
+    text: { fontFamily: "Bangers", fontSize: 76, color: "#ffffff", backgroundColor: "transparent", strokeColor: "#000000", strokeWidth: 7, align: "center", yPosition: 0.15, animation: "elastic" },
+    effects: ["vignette", "letterbox"]
+  },
+  {
+    id: "education",
+    name: "Обучение",
+    icon: "🎓",
+    description: "Чёткая структура, читаемые титры",
+    pace: "medium",
+    colorGrade: "neutral",
+    transition: "smoothleft",
+    kenBurns: true,
+    text: { fontFamily: "Inter", fontSize: 60, color: "#ffffff", backgroundColor: "black@0.55", strokeColor: "#000000", strokeWidth: 0, align: "center", yPosition: 0.82, animation: "typewriter" },
+    effects: []
+  },
+  {
+    id: "realestate",
+    name: "Real Estate",
+    icon: "🏠",
+    description: "Простор, свет, плавные пролёты",
+    pace: "slow",
+    colorGrade: "neutral",
+    transition: "smoothleft",
+    kenBurns: true,
+    text: { fontFamily: "Playfair Display", fontSize: 54, color: "#ffffff", backgroundColor: "black@0.4", strokeColor: "#000000", strokeWidth: 0, align: "center", yPosition: 0.88, animation: "slide-up" },
+    effects: ["glow"]
+  },
+  {
     id: "minimal",
     name: "Minimal",
     icon: "◻️",
@@ -160,12 +271,20 @@ export const TEMPLATES: VideoTemplate[] = [
 export function getTemplateForContentType(contentType: string): VideoTemplate {
   let id = "minimal";
   if (contentType === "shorts" || contentType === "tiktok" || contentType === "reels") id = "tiktok";
-  if (contentType === "travel" || contentType === "wedding") id = "cinematic";
+  if (contentType === "travel") id = "cinematic";
+  if (contentType === "wedding") id = "wedding";
   if (contentType === "ad") id = "apple";
-  if (contentType === "podcast" || contentType === "interview") id = "hormozi";
-  if (contentType === "educational" || contentType === "tutorial") id = "tech";
+  if (contentType === "podcast") id = "podcast";
+  if (contentType === "interview") id = "interview";
+  if (contentType === "educational" || contentType === "tutorial" || contentType === "education") id = "education";
   if (contentType === "documentary") id = "documentary";
-  if (contentType === "youtube" || contentType === "vlog") id = "mrbeast";
-  
+  if (contentType === "youtube") id = "mrbeast";
+  if (contentType === "vlog") id = "vlog";
+  if (contentType === "music-video" || contentType === "musicvideo") id = "musicvideo";
+  if (contentType === "gaming") id = "gaming";
+  if (contentType === "fitness" || contentType === "sport") id = "fitness";
+  if (contentType === "food") id = "food";
+  if (contentType === "realestate") id = "realestate";
+
   return TEMPLATES.find(t => t.id === id) || TEMPLATES[1];
 }

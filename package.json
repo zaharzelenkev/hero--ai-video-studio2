@@ -15,7 +15,8 @@
     "vercel-build": "npm run build",
     "test:music": "tsx scripts/test-music-node.mts",
     "test:audition": "tsx scripts/test-music-audition.mts",
-    "test:production": "tsx scripts/test-production-plan.mts"
+    "test:production": "tsx scripts/test-production-plan.mts",
+    "test:director": "tsx scripts/test-ai-director.mts"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.6",

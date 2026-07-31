@@ -3,7 +3,7 @@ import { PACE_CLIP_SECONDS } from "./promptStyle";
 import { createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeats } from "./beatDetection";
 import { applyTextAnimation } from "./textAnimations";
-import { analyzeWithAI, type AIAnalysisRequest } from "./ai/aiService";
+import { analyzeAndPlanWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
 import { AI_CONFIG } from "@/config/ai";
 import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
@@ -186,7 +186,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
 
   // AI-powered analysis (if API key provided and intelligent cuts enabled)
 
-  onProgress?.("Интеллектуальный анализ и планирование...");
+  onProgress?.("AI Director: анализ материалов и построение режиссёрского плана...");
   const analysisRequest: AIAnalysisRequest = {
     userPrompt: style.rawPrompt,
     templateHint: style.templateId,
@@ -263,7 +263,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   analysisRequest.beats = beats;
   analysisRequest.musicInPointSec = musicInPoint;
 
-  const aiDecision = await analyzeWithAI(analysisRequest);
+  // AI DIRECTOR: все решения (драматургия, отбор планов, переходы, перебивки,
+  // музыкальная стратегия) принимаются ЗДЕСЬ, до первой склейки. Монтажный
+  // движок ниже — исполнитель готового режиссёрского плана.
+  const { decision: aiDecision, plan: directorPlan } = await analyzeAndPlanWithAI(analysisRequest);
 
   if (aiDecision.pace) style.pace = aiDecision.pace as any;
   if (aiDecision.colorGrade && aiDecision.colorGrade !== "none") {
@@ -430,7 +433,14 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                toneJump = Math.abs(prevSmp.avgB - curB);
             }
          }
-         if (toneJump > 70 && style.pace !== "fast" && style.pace !== "dynamic") {
+         // ПЕРЕХОД ОТ РЕЖИССЁРА: AI Director выбрал стык ещё до монтажа
+         // (с мотивировкой в плане) — исполняем его, шаблонные эвристики ниже
+         // остаются фоллбэком для решений без режиссёрского плана.
+         const hint = (aiClip as import("./ai/aiService").AIEditDecision["clips"][number]).transitionHint;
+         if (hint && hint.type) {
+            transType = hint.type;
+            transDur = hint.duration;
+         } else if (toneJump > 70 && style.pace !== "fast" && style.pace !== "dynamic") {
             transType = "fadeblack";
             transDur = 0.3;
          } else if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
@@ -1380,6 +1390,10 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       musicClip.volume = { value: baseLevel, keyframes: kfs };
     }
   }
+
+  // Режиссёрский план, который исполнил монтажный движок: сохраняем в проект —
+  // план доступен в редакторе (Production room) и объясняет каждую склейку.
+  if (directorPlan) project.directorPlan = directorPlan;
 
   return project;
 }

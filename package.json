@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:montage": "tsx scripts/test-montage-compile.mts",
+    "test:upgrades": "tsx scripts/test-montage-upgrades.mts",
     "test:e2e": "tsx scripts/test-ffmpeg-e2e.mts",
     "postinstall": "node scripts/copy-ffmpeg-core.mjs && node scripts/copy-mediapipe.mjs || node scripts/copy-ffmpeg-core-fallback.js || echo 'FFmpeg copy failed, will use CDN fallback'",
     "copy-ffmpeg": "node scripts/copy-ffmpeg-core.mjs",

@@ -35,10 +35,54 @@ export interface VideoSegmentMetadata {
    * по-настоящему красочный кадр от просто тёмного/пересветлого.
    */
   colorfulness?: number;
+  /**
+   * Доминирующий цветовой тон кадра (0..360, -1 = ахроматичный кадр).
+   * Считается по гистограмме оттенков, взвешенной насыщенностью: сильный
+   * цветовой акцент кадра (неон, закат, студийный фон) — это «подпись»
+   * кадра. Нужен для Match Cut по цвету и цветовой совместимости B-Roll
+   * с основным рядом.
+   */
+  dominantHue?: number;
+  /** Гистограмма оттенков (36 корзин × 10°) — аккумулируется при компакции сегментов. */
+  hueHist?: number[];
   qualityScore: number; // 1-10
   isSceneChange: boolean;
   hasAction: boolean;
   aestheticScore: number;
+}
+
+/**
+ * Гистограмма оттенков кадра (36 корзин по 10°), взвешенная насыщенностью
+ * (delta RGB) — доминирующий тон «сочных» областей, серый фон не голосует.
+ */
+export function computeHueHistogram(data: Uint8ClampedArray): number[] {
+  const hist = new Array<number>(36).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const delta = max - min;
+    if (delta < 0.08) continue; // ахроматичные пиксели не голосуют
+    let h: number;
+    if (max === r) h = 60 * (((g - b) / delta) % 6);
+    else if (max === g) h = 60 * ((b - r) / delta + 2);
+    else h = 60 * ((r - g) / delta + 4);
+    if (h < 0) h += 360;
+    const bin = Math.min(35, Math.floor((h % 360) / 10));
+    hist[bin] += delta; // вес = насыщенность
+  }
+  return hist;
+}
+
+/** Доминирующий тон по гистограмме (центр пиковой корзины) или -1. */
+export function dominantHueOf(hist: number[] | undefined): number {
+  if (!hist) return -1;
+  let best = -1;
+  let bestV = 0;
+  for (let i = 0; i < hist.length; i++) {
+    if (hist[i] > bestV) { bestV = hist[i]; best = i; }
+  }
+  return bestV > 0 ? Math.round(best * 10 + 5) : -1;
 }
 
 /**
@@ -286,6 +330,7 @@ export async function analyzeVideoLocally(
         const avgSaturation = totalSaturation / pixelCount;
         const contrast = maxLuma - minLuma;
         const colorfulness = computeColorfulness(data);
+        const hueHist = computeHueHistogram(data);
         
         // Тёмный = провально экспонирован (плоский мрак). Высококонтрастная ночная
         // сцена (неон, огни) — это КИНО, она не должна караться: фильтруем ниже по contrast.
@@ -391,6 +436,8 @@ export async function analyzeVideoLocally(
           contrast: Math.round(contrast),
           saturation: Math.round(avgSaturation),
           colorfulness: Math.round(colorfulness * 10) / 10,
+          dominantHue: dominantHueOf(hueHist),
+          hueHist,
           qualityScore: qScore,
           isSceneChange,
           hasAction: actionScore > 0,
@@ -475,6 +522,7 @@ export async function analyzeImageLocally(file: File): Promise<VideoSegmentMetad
         const avgSaturation = totalSaturation / pixelCount;
         const contrast = maxLuma - minLuma;
         const colorfulness = computeColorfulness(data);
+        const hueHist = computeHueHistogram(data);
         const laplacianVar = calculateLaplacianVariance(data, W, H);
 
         const isDark = avgBrightness < 30 || maxLuma < 100;
@@ -537,6 +585,8 @@ export async function analyzeImageLocally(file: File): Promise<VideoSegmentMetad
           contrast: Math.round(contrast),
           saturation: Math.round(avgSaturation),
           colorfulness: Math.round(colorfulness * 10) / 10,
+          dominantHue: dominantHueOf(hueHist),
+          hueHist,
           qualityScore: Math.max(1, Math.min(10, Math.round(qScore))),
           isSceneChange: false,
           hasAction: false,
@@ -598,6 +648,14 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       }
       if (next.hasAction) current.hasAction = true;
       if (next.motionLevel === "high" && current.motionLevel !== "shake") current.motionLevel = "high";
+      // Цветовая «подпись» склеенного сегмента: гистограмма оттенков суммируется,
+      // доминирующий тон пересчитывается по общей гистограмме.
+      if (next.hueHist) {
+        const curHist: number[] = (current as any).hueHist || new Array<number>(36).fill(0);
+        const merged = curHist.map((v, i) => v + (next.hueHist![i] || 0));
+        (current as any).hueHist = merged;
+        (current as any).dominantHue = dominantHueOf(merged);
+      }
     }
   }
   compacted.push(current);

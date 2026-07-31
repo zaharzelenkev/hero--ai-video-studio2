@@ -17,6 +17,7 @@
  */
 
 import type { VideoSegmentMetadata } from "../localAnalyzer";
+import { dominantHueOf } from "../localAnalyzer";
 import type { AudioEnergySegment } from "../media";
 
 // ---------------------------------------------------------------------------
@@ -226,6 +227,11 @@ export interface Shot {
   contrast?: number;
   saturation?: number;
   colorfulness?: number;
+  /** Доминирующий цветовой тон (0..360, -1 = ахроматичный) — «подпись» кадра
+   *  для Match Cut по цвету и цветовой совместимости перебивок. */
+  hue?: number;
+  /** Композиция кадра 0..10: правило третей для лиц, центрирование, воздух. */
+  composition: number;
   dark: boolean;
   /** Кинематографичная тёмная сцена (неон, ночь): художественный выбор, не брак. */
   cinematicDark: boolean;
@@ -354,6 +360,7 @@ function aggregateShot(
   let faceX: number | undefined;
   let faceY: number | undefined;
   let faceSize: number | undefined;
+  const hueHist = new Array<number>(36).fill(0);
   const faceSamples: { t: number; x: number; y: number; size: number }[] = [];
   const motionW: Record<VideoSegmentMetadata["motionLevel"], number> = { static: 0, low: 0, medium: 0, high: 0, shake: 0 };
 
@@ -366,6 +373,7 @@ function aggregateShot(
     if (s.contrast !== undefined) wc += s.contrast * w;
     if (s.saturation !== undefined) ws += s.saturation * w;
     if (s.colorfulness !== undefined) wcol += s.colorfulness * w;
+    if (s.hueHist) for (let i = 0; i < 36; i++) hueHist[i] += (s.hueHist[i] ?? 0) * w;
     motionW[s.motionLevel] += w;
     if (s.isDark) darkW += w;
     if (s.isBlurry) blurryW += w;
@@ -379,6 +387,24 @@ function aggregateShot(
         faceSize = Math.max(faceSize ?? 0, s.faceSize ?? 0);
       }
     }
+  }
+
+  // Композиция по правилу третей: лицо на пересечении третей — сильная
+  // композиция (профессиональная съёмка), лицо в самом центре — нейтрально,
+  // лицо у края/в углу — слабо. Кадры без лиц оцениваем по «воздуху» (небо/
+  // пустота сверху), если сегменты не дают информации — нейтральные 5.
+  let composition = 5;
+  if (hasFaces && faceX !== undefined && faceY !== undefined) {
+    const nearLine = (v: number, line: number) => Math.abs(v - line) <= 0.13;
+    const thirds = [1 / 3, 2 / 3];
+    const onH = thirds.some((l) => nearLine(faceX, l));
+    const onV = thirds.some((l) => nearLine(faceY, l));
+    const centered = Math.abs(faceX - 0.5) < 0.12 && Math.abs(faceY - 0.5) < 0.12;
+    if (onH && onV) composition = 9;
+    else if (onH || onV) composition = 7;
+    else if (centered) composition = 6;
+    else if (faceX < 0.1 || faceX > 0.9 || faceY < 0.08 || faceY > 0.92) composition = 3;
+    else composition = 5;
   }
 
   const q = wq / wSum;
@@ -408,6 +434,9 @@ function aggregateShot(
   if (hasFaces) score += 20;
   if (hasAction) score += 30;
   score += Math.min(18, (colorfulness ?? 0) * 0.4);
+  // Композиция: лицо на третях добавляет (профессиональная постановка кадра),
+  // лицо в углу кадра — срезает (кадр «мимо»).
+  score += (composition - 5) * 1.5;
   if (audioPeak > 0.7) score *= 1.25;
   else if (audioPeak > 0.4) score *= 1.1;
   else if (audioPeak > 0 && audioPeak <= 0.2 && !hasFaces && !hasAction) score -= 20;
@@ -429,6 +458,8 @@ function aggregateShot(
 
   const reasons: string[] = [];
   if (hasFaces) reasons.push(size === "close" ? "крупный план лица" : "человек в кадре");
+  if (composition >= 7) reasons.push("кадр по правилу третей");
+  if (composition <= 3) reasons.push("лицо в углу кадра (слабая композиция)");
   if (hasAction) reasons.push("действие в кадре");
   if (cameraMotion !== "static" && cameraMotion !== "unknown") reasons.push(`камера: ${CAMERA_LABELS[cameraMotion]}`);
   if (q >= 8) reasons.push("высокое качество");
@@ -487,6 +518,8 @@ function aggregateShot(
     contrast: contrast !== undefined ? Math.round(contrast) : undefined,
     saturation: wSum > 0 ? Math.round(ws / wSum) : undefined,
     colorfulness: colorfulness !== undefined ? Math.round(colorfulness * 10) / 10 : undefined,
+    hue: dominantHueOf(hueHist),
+    composition,
     dark,
     cinematicDark,
     blurry: blurryRatio > 0.4,
@@ -524,6 +557,7 @@ function syntheticShot(asset: PerceivedAssetInput): Shot {
     blurry: false,
     qualityScore: 5,
     aestheticScore: 5,
+    composition: 5,
     momentum: 0.3,
     audioPeak: 0,
     emotion: "neutral",

@@ -284,14 +284,18 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
     return +(Math.max(minBeats, Math.min(maxBeats, k)) * beatDur).toFixed(3);
   };
 
-  // --- Кульминация: на дропе музыки, иначе на 75% таймлайна ---
+  // --- Кульминация: на дропе музыки (или энергетическом пике), иначе на 75% ---
   let wantClimaxAt = target * 0.75;
   let dropAligned = false;
-  if (perceived.music.dropsTimeline.length > 0) {
-    const inWindow = perceived.music.dropsTimeline.filter((t) => t >= target * 0.45 && t <= target * 0.85);
+  // Дропы + «high»-секции: если формального дропа в рабочем окне нет, удар
+  // ставится на ближайший выраженный энергетический подъём — кульминация
+  // не должна «провисать» на тихой части трека.
+  const peaksTimeline = [...perceived.music.dropsTimeline, ...perceived.music.highsTimeline].sort((a, b) => a - b);
+  if (peaksTimeline.length > 0) {
+    const inWindow = peaksTimeline.filter((t) => t >= target * 0.45 && t <= target * 0.85);
     if (inWindow.length > 0) {
       wantClimaxAt = inWindow[0];
-      dropAligned = true;
+      dropAligned = perceived.music.dropsTimeline.some((d) => Math.abs(d - wantClimaxAt) < 0.4);
     }
   }
   if (musicGrid.length > 0) {
@@ -330,8 +334,9 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   notes.push(`Хук: «${hookShot.assetName}» @${hookShot.cutIn.toFixed(1)}с (${hookShot.reasons.slice(0, 3).join(", ") || "лучшая суммарная оценка"}) — ${hookDur.toFixed(1)}с, дальше зритель решает, смотреть ли.`);
 
   const scenes: PlannedScene[] = [];
-  const pushScene = (scene: PlannedScene, brightness: number | undefined): void => {
+  const pushScene = (scene: PlannedScene, brightness: number | undefined, hue?: number): void => {
     noteSceneBrightness(scene, brightness);
+    noteSceneHue(scene, hue);
     scenes.push(scene);
   };
 
@@ -352,6 +357,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
         cameraAngle: hookShot.size,
         shotSize: hookShot.size,
         cameraMotion: CAMERA_LABELS[hookShot.cameraMotion],
+        cameraMotionKind: hookShot.cameraMotion,
       },
       transitionIn: { type: "cut", duration: 0, reason: "вход резкой склейкой — без раскачки" },
       bRolls: [],
@@ -359,6 +365,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
       why: `Хук из «${hookShot.assetName}»: ${hookShot.reasons.slice(0, 3).join(", ") || "максимальная суммарная оценка"}.`,
     },
     hookShot.brightness,
+    hookShot.hue,
   );
   ctx.strongRegistry.push({ assetId: hookShot.assetId, start: hookShot.cutIn, phase: "hook" });
 
@@ -409,6 +416,67 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   let waveIdx = 0;
   let currentTime = hookDur;
   let climaxPlaced = false;
+
+  // --- SETUP (контекст): после хука зритель должен понять, ЧТО смотрит.
+  // Establishing-план (общий, спокойный) сразу после хук-кадра — классическая
+  // структура «крючок → контекст → история». В быстрых жанрах контекст
+  // сжигает первые секунды удержания — ставим его только в slow/medium.
+  if (!ctx.isFast && pool.length > 1) {
+    const setupCandidates = pool.filter(
+      (s) =>
+        s.size === "wide" &&
+        s.id !== hookShot.id &&
+        s.tier !== "reject" &&
+        !(climaxReserveBase && s === climaxReserveBase),
+    );
+    // Не берём тот же ассет, что и хук (сразу два куска одного исходника вяжут ряд).
+    const setupShot =
+      setupCandidates.find((s) => s.assetId !== hookShot.assetId && s.assetId !== lastAssetId) ??
+      setupCandidates.find((s) => s.assetId !== hookShot.assetId) ??
+      setupCandidates[0];
+    if (setupShot) {
+      let setupDur = isSlow ? 3.8 : 2.9;
+      if (beatDur) setupDur = qBeats(setupDur, isSlow ? 5 : 3, 10);
+      setupDur = Math.min(setupDur, setupShot.cutOut - setupShot.cutIn, target - currentTime);
+      if (setupDur >= 1.6) {
+        pushScene(
+          {
+            id: `scene_${scenes.length}_setup`,
+            phase: "setup",
+            intent: "Context (Establishing)",
+            emotion: "calm",
+            targetIntensity: 0.45,
+            duration: setupDur,
+            source: {
+              assetId: setupShot.assetId,
+              start: setupShot.cutIn,
+              end: setupShot.cutIn + setupDur,
+              speed: 1,
+              zoom: true,
+              cameraAngle: setupShot.size,
+              shotSize: setupShot.size,
+              cameraMotion: CAMERA_LABELS[setupShot.cameraMotion],
+              cameraMotionKind: setupShot.cameraMotion,
+            },
+            transitionIn: undefined,
+            bRolls: [],
+            captions: [],
+            why: `Контекст: общий план «${setupShot.assetName}» — зритель понял, где происходит история.`,
+          },
+          setupShot.brightness,
+          setupShot.hue,
+        );
+        usageCount.set(setupShot.assetId, (usageCount.get(setupShot.assetId) || 0) + 1);
+        shotUseCount.set(setupShot, (shotUseCount.get(setupShot) || 0) + 1);
+        coveredTo.set(setupShot, setupShot.cutIn + setupDur);
+        recentShots.push(setupShot);
+        lastAssetId = setupShot.assetId;
+        lastShot = setupShot;
+        lastSize = setupShot.size;
+        currentTime += setupDur;
+      }
+    }
+  }
 
   const RHYTHM_WAVE = [3.6, 3.0, 1.1, 0.9, 1.2, 2.6];
   let guard = 0;
@@ -474,6 +542,28 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
       if (!shot) break;
     }
 
+    // PATTERN INTERRUPT (взлом ритма): в быстрых жанрах каждый ~4-й план —
+    // контрастный кадр (другой ассет + другая крупность + другой цветовой тон).
+    // Ровный поток похожих планов приедается — глаз «спотыкается» о контраст
+    // и внимание возвращается. Классический приём удержания (MrBeast/TikTok).
+    let interrupt = false;
+    if (phase === "buildup" && !sceneIsClimax && !ctx.isSlow && !ctx.isTalking
+        && scenes.length >= 3 && scenes.length % 4 === 3 && pool.length > 1) {
+      const contrast = pool.find((s) => {
+        if (s.assetId === lastAssetId || s.id === shot!.id) return false;
+        if (s.size === lastSize) return false;
+        if (s.tier !== "strong" && s.score < 75) return false;
+        if (s.cutOut - s.cutIn < 1.0) return false;
+        const sh = shot!.hue;
+        if (sh !== undefined && sh >= 0 && s.hue !== undefined && s.hue >= 0 && hueDiff(sh, s.hue) <= 60) return false;
+        return true;
+      }) ?? pool.find((s) => s.assetId !== lastAssetId && s.size !== lastSize && s.cutOut - s.cutIn >= 1.0);
+      if (contrast) {
+        shot = contrast;
+        interrupt = true;
+      }
+    }
+
     lastAssetId = shot.assetId;
     lastShot = shot;
     lastSize = shot.size;
@@ -489,7 +579,11 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
     } else if (sceneIsClimax) {
       dur = 1.6;
     } else if (phase === "buildup") {
-      dur = isSlow ? 4.4 : 3.8;
+      // НАРАСТАНИЕ ТЕМПА: по мере приближения к кульминации планы укорачиваются
+      // (до −22%) — монтаж «сжимается», напряжение растёт, зритель чувствует
+      // приближение пика физически, а не только по смыслу.
+      const approach = 1 - 0.22 * Math.min(1, Math.max(0, (progress - 0.15) / 0.6));
+      dur = (isSlow ? 4.4 : 3.8) * approach;
     } else {
       dur = isFast ? 2.4 : 3.2;
     }
@@ -541,7 +635,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
       {
         id: `scene_${scenes.length}_${shot.id}`,
         phase: sceneIsClimax ? "climax" : phase,
-        intent: sceneIsClimax ? "Climax on Drop" : "Flow",
+        intent: sceneIsClimax ? "Climax on Drop" : interrupt ? "Pattern Interrupt" : "Flow",
         emotion: sceneIsClimax ? "dramatic" : shot.emotion === "energetic" ? "energetic" : "calm",
         targetIntensity: sceneIsClimax ? 1 : phase === "outro" ? 0.4 : 0.6,
         duration: tlDur,
@@ -554,20 +648,85 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
           cameraAngle: shot.size,
           shotSize: shot.size,
           cameraMotion: CAMERA_LABELS[shot.cameraMotion],
+          cameraMotionKind: shot.cameraMotion,
         },
         bRolls: [],
         captions: [],
         why: sceneIsClimax
           ? `Кульминация на дропе: «${shot.assetName}» — ${shot.reasons.slice(0, 3).join(", ") || "самый эпичный кадр"}.`
-          : phase === "outro"
-            ? `Выдох: спокойный ${sizeLabel(shot.size)} план «${shot.assetName}» — эмоцию отпускаем.`
-            : `Нарастание: «${shot.assetName}» @${srcStart.toFixed(1)}с — ${shot.reasons.slice(0, 2).join(", ") || sizeLabel(shot.size)}.`,
+          : interrupt
+            ? `Pattern Interrupt: контрастный план «${shot.assetName}» (${sizeLabel(shot.size)}, тон ${shot.hue !== undefined && shot.hue >= 0 ? `${shot.hue}°` : "ахроматичный"}) — взлом монотонности.`
+            : phase === "outro"
+              ? `Выдох: спокойный ${sizeLabel(shot.size)} план «${shot.assetName}» — эмоцию отпускаем.`
+              : `Нарастание: «${shot.assetName}» @${srcStart.toFixed(1)}с — ${shot.reasons.slice(0, 2).join(", ") || sizeLabel(shot.size)}.`,
       },
       shot.brightness,
+      shot.hue,
     );
     if (sceneIsClimax) {
       climaxPlaced = true;
       ctx.strongRegistry.push({ assetId: shot.assetId, start: srcStart, phase: "climax" });
+
+      // DROP DOUBLE-HIT: второй удар по дропу — свежий сильный план сразу после
+      // кульминационного. Энергия пика держится два кадра (удар + эхо), а не
+      // гаснет на первом же кадре — удержание на пике длиннее.
+      if (ctx.isFast && currentTime + tlDur < target - 1.6) {
+        const echoPool = pool.filter(
+          (s) =>
+            s.assetId !== shot!.assetId &&
+            !(climaxReserveBase && s === climaxReserveBase) &&
+            s.tier === "strong" &&
+            s.score >= 80 &&
+            s.cutOut - s.cutIn >= 1.2 &&
+            !recentShots.includes(s),
+        );
+        const echoShot = echoPool.sort((a, b) => b.score - a.score)[0];
+        if (echoShot) {
+          let echoDur = 1.2;
+          if (beatDur) echoDur = Math.max(0.9, qBeats(echoDur, 2, 4));
+          echoDur = Math.min(echoDur, echoShot.cutOut - echoShot.cutIn, target - (currentTime + tlDur));
+          if (echoDur >= 0.9) {
+            pushScene(
+              {
+                id: `scene_${scenes.length}_echo_${echoShot.id}`,
+                phase: "buildup",
+                intent: "Drop Double-Hit",
+                emotion: "energetic",
+                targetIntensity: 0.85,
+                duration: echoDur,
+                source: {
+                  assetId: echoShot.assetId,
+                  start: echoShot.cutIn,
+                  end: echoShot.cutIn + echoDur,
+                  speed: 1,
+                  zoom: true,
+                  cameraAngle: echoShot.size,
+                  shotSize: echoShot.size,
+                  cameraMotion: CAMERA_LABELS[echoShot.cameraMotion],
+                  cameraMotionKind: echoShot.cameraMotion,
+                },
+                transitionIn: { type: "fadewhite", duration: 0.2, reason: "второй удар дропа — вспышка" },
+                bRolls: [],
+                captions: [],
+                why: `Второй удар дропа: «${echoShot.assetName}» — пик держится два кадра.`,
+              },
+              echoShot.brightness,
+              echoShot.hue,
+            );
+            usageCount.set(echoShot.assetId, (usageCount.get(echoShot.assetId) || 0) + 1);
+            shotUseCount.set(echoShot, (shotUseCount.get(echoShot) || 0) + 1);
+            coveredTo.set(echoShot, echoShot.cutIn + echoDur);
+            recentShots.push(echoShot);
+            if (recentShots.length > 2) recentShots.shift();
+            // Следующий отбор не должен повторять ассет эха подряд.
+            lastAssetId = echoShot.assetId;
+            lastShot = echoShot;
+            lastSize = echoShot.size;
+            currentTime += echoDur;
+            notes.push("Double-hit: после кульминации поставлен второй сильный план — пик держится дольше.");
+          }
+        }
+      }
     }
     currentTime += tlDur;
   }
@@ -592,6 +751,8 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
 
   // --- ПЕРЕХОДЫ: режиссёр решает стыки ДО монтажа, с мотивировкой ---
   for (let i = 1; i < scenes.length; i++) {
+    // «Второй удар дропа» — осознанная вспышка, её не переопределяем эвристикой.
+    if (scenes[i].intent === "Drop Double-Hit") continue;
     scenes[i].transitionIn = designTransition(scenes[i - 1], scenes[i], ctx);
   }
 
@@ -645,6 +806,20 @@ function sizeLabel(size: Shot["size"]): string {
   return size === "close" ? "крупный" : size === "medium" ? "средний" : "общий";
 }
 
+/** Направление горизонтального движения камеры (для whip pan / match cut). */
+function horizontalMotion(kind: string | undefined): "left" | "right" | null {
+  if (kind === "pan-left" || kind === "pan-right") return kind === "pan-left" ? "left" : "right";
+  if (kind === "dynamic" || kind === "drift") return null;
+  return null;
+}
+
+/** Круговое расстояние между цветовыми тонами (0..180). */
+function hueDiff(a: number, b: number): number {
+  let d = Math.abs(a - b);
+  if (d > 180) d = 360 - d;
+  return d;
+}
+
 /**
  * Решение о стыке ДВУХ планов. Смотрим на тональный разрыв, динамику обеих
  * сторон и жанр. Возвращает undefined там, где осмысленного выбора нет —
@@ -661,10 +836,35 @@ function designTransition(prev: PlannedScene, cur: PlannedScene, ctx: DirCtx): P
   if (prevB !== undefined && curB !== undefined && Math.abs(prevB - curB) > 70 && !ctx.isFast) {
     return { type: "fadeblack", duration: 0.3, reason: "тональный разрыв кадров — проход через чёрный" };
   }
+
+  // WHIP PAN (match cut по движению): оба плана панорамируют в ОДНУ сторону —
+  // хлыст скрывает склейку, движение «перетекает» из кадра в кадр.
+  const prevDir = horizontalMotion(prev.source.cameraMotionKind);
+  const curDir = horizontalMotion(cur.source.cameraMotionKind);
+  if (prevDir && prevDir === curDir) {
+    return { type: "hblur", duration: 0.28, reason: `Whip pan: оба плана панорамируют ${prevDir === "left" ? "влево" : "вправо"} — движение перетекает через склейку` };
+  }
+
+  // MATCH CUT ПО ЦВЕТУ: доминирующий тон соседних планов совпадает —
+  // «родственные» кадры склеиваются растворением, взгляд не спотыкается.
+  const prevHue = hueOf(prev);
+  const curHue = hueOf(cur);
+  if (prevHue !== undefined && curHue !== undefined && prevHue >= 0 && curHue >= 0) {
+    let diff = Math.abs(prevHue - curHue);
+    if (diff > 180) diff = 360 - diff;
+    if (diff <= 28) {
+      const dur = ctx.isSlow ? 0.5 : ctx.isFast ? 0.25 : 0.4;
+      return { type: "crossfade", duration: dur, reason: `Match cut по цвету: общий тон ≈${curHue}° — кадры родственные, растворение естественно` };
+    }
+  }
+
   if (cur.phase === "climax") {
     return ctx.isSlow
       ? { type: "crossfade", duration: 0.5, reason: "кинематографичный вход в кульминацию" }
       : { type: "fadewhite", duration: 0.35, reason: "удар кульминации через вспышку" };
+  }
+  if (cur.phase === "outro" && prev.phase === "climax") {
+    return { type: "crossfade", duration: 0.5, reason: "выдох после кульминации — растворение" };
   }
   if (ctx.isFast) {
     const r = ctx.rand(cur.id + "/tr");
@@ -686,6 +886,15 @@ function brightnessOf(scene: PlannedScene): number | undefined {
 }
 function noteSceneBrightness(scene: PlannedScene, brightness: number | undefined): void {
   sceneBrightnessCache.set(scene, brightness);
+}
+
+/** Доминирующий тон исходного окна сцены (для match cut по цвету). */
+const sceneHueCache = new WeakMap<PlannedScene, number | undefined>();
+function hueOf(scene: PlannedScene): number | undefined {
+  return sceneHueCache.get(scene);
+}
+function noteSceneHue(scene: PlannedScene, hue: number | undefined): void {
+  sceneHueCache.set(scene, hue);
 }
 
 // ---------------------------------------------------------------------------

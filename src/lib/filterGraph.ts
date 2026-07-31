@@ -1,6 +1,7 @@
 import type { AudioClip, ExportSettings, Project, TextClip, VideoClip } from "./types";
 import { paramToFfmpegExpr } from "./keyframes";
 import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, sanitizeGlyphs, transitionToXfade } from "./presets";
+import { speedRampToSetptsExpr } from "./speedRamp";
 
 let uidCounter = 0;
 function id(prefix: string) {
@@ -81,7 +82,14 @@ function buildVideoClipChain(
     );
   }
 
-  if (clip.speed && clip.speed !== 1) {
+  if (clip.speedRamp && clip.speedRamp.keyframes.length >= 2) {
+    // SPEED RAMP: кусочно-постоянная кривая скорости. Ключи — в координатах
+    // ТАЙМЛАЙНА клипа; рендер строит точное обратное отображение
+    // «входное время → выходное» (см. speedRamp.ts — единая точка правды).
+    const next = id(`c${tag}_ramp_`);
+    lines.push(`[${current}]setpts='${speedRampToSetptsExpr(clip.speedRamp.keyframes)}'[${next}]`);
+    current = next;
+  } else if (clip.speed && clip.speed !== 1) {
     const next = id(`c${tag}_`);
     lines.push(`[${current}]setpts=PTS/${clip.speed}[${next}]`);
     current = next;

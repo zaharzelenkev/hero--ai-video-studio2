@@ -48,6 +48,32 @@ export interface DirectorScript {
   };
 }
 
+// Фильтр речевых фраз — ЕДИНЫЙ для эвристического и LLM-пути.
+// Стоп-слова-паразиты и чистые приветствия — это то, что монтажёр режет
+// на первом проходе: вход LLM тоже должен быть очищен, иначе он тратит
+// «внимание» и контекст на мусор и хуже строит арку.
+const SPEECH_FILLERS = new Set([
+  "ну", "э", "ээ", "эээ", "м", "мм", "ммм", "аа", "эх",
+  "типа", "какбы", "вот", "короче", "значит", "угу", "ага",
+]);
+const SPEECH_GREETING_RE = /^(привет|всем|здравствуйте|здорово|добрый|доброе|день|вечер|утро|друзья|ребята|hello|hi|hey|guys)$/i;
+
+export function filterSpeechPhrases<T extends { start: number; end: number; text: string; isPause?: boolean }>(phrases: T[]): T[] {
+  return phrases.filter(p => {
+    if (p.isPause) return true;
+    const toks = p.text.toLowerCase().split(/\s+/)
+      .map((w: string) => w.replace(/[^а-яa-zё]/g, ""))
+      .filter(Boolean);
+    if (toks.length === 0) return false;
+    if (toks.every((w: string) => SPEECH_FILLERS.has(w))) return false;
+    const realToks = toks.filter((w: string) => !SPEECH_FILLERS.has(w));
+    if (realToks.length > 0 && realToks.every((w: string) => SPEECH_GREETING_RE.test(w)) && (p.end - p.start) < 2.2) return false;
+    if (toks.length <= 3 && realToks.length <= 1 && (p.end - p.start) < 1.0) return false;
+    if (p.end - p.start < 0.2) return false;
+    return true;
+  });
+}
+
 export class DirectorEngine {
 
   static async formulateScript(request: AIAnalysisRequest): Promise<DirectorScript> {
@@ -74,7 +100,9 @@ export class DirectorEngine {
                  for (let i = 1; i < words.length; i++) {
                      const w = words[i];
                      const gap = w.start - curr.end;
-                     if (gap > 0.4 || (curr.end - curr.start > 4.0)) {
+                     // >= 0.35: строгое «> 0.4» втаскивало хвостовые филлеры внутрь
+                     // фразы при паузе ровно-в-узел (фильтр их тогда уже не видел).
+                     if (gap >= 0.35 || (curr.end - curr.start > 4.0)) {
                          phrases.push(curr);
                          curr = { start: w.start, end: w.end, text: w.text };
                      } else {
@@ -84,7 +112,7 @@ export class DirectorEngine {
                  }
                  phrases.push(curr);
              }
-             const validPhrases = phrases.filter(p => p.end - p.start >= 0.2);
+             const validPhrases = filterSpeechPhrases(phrases);
              
              if (validPhrases.length > 0) {
                  script = await this.buildNarrativeScriptWithLLM(request, strategy, speechAssets, visualAssets, validPhrases);
@@ -357,8 +385,9 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
         const w = words[i];
         const gap = w.start - curr.end;
         
-        // Разрываем фразу на паузе > 0.4s или если она стала слишком длинной
-        if (gap > 0.4 || (curr.end - curr.start > 4.0)) {
+        // Разрываем фразу на слышимой паузе (>= 0.35s: пауза 0.4 «в узел» раньше
+        // втаскивала хвостовой филлер внутрь соседней фразы) или при перегрузе.
+        if (gap >= 0.35 || (curr.end - curr.start > 4.0)) {
             phrases.push(curr);
             
             // Эвристика топовых монтажеров: если пауза от 0.7 до 2.5 секунд, это эмоциональный момент (Reaction). Сохраняем его!
@@ -374,27 +403,9 @@ ${validPhrases.map((p, i) => `[${i}] ${p.text} (${p.start.toFixed(1)}s - ${p.end
     }
     phrases.push(curr);
 
-    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья), но защита пауз.
-    // Правило по словам, а не по всей фразе: цепочки «ну эээ типа» — самый частый
-    // мусор говорящих голов, их вырезание и есть фирменный «плотный» автомонтаж.
-    const FILLERS = new Set([
-        "ну", "э", "ээ", "эээ", "м", "мм", "ммм", "аа", "эээ", "эх",
-        "типа", "какбы", "вот", "короче", "значит", "угу", "ага",
-    ]);
-    const validPhrases = phrases.filter(p => {
-        if (p.isPause) return true;
-        const toks = p.text.toLowerCase().split(/\s+/)
-            .map((w: string) => w.replace(/[^а-яa-zё]/g, ""))
-            .filter(Boolean);
-        if (toks.length === 0) return false;
-        // вся фраза — чистые паразиты («ну эээ», «типа как бы»)
-        if (toks.every((w: string) => FILLERS.has(w))) return false;
-        // короткая по времени стоп-фраза почти без смысловых слов («ну короче да»)
-        const contentToks = toks.filter((w: string) => !FILLERS.has(w));
-        if (toks.length <= 3 && contentToks.length <= 1 && (p.end - p.start) < 1.0) return false;
-        if (p.end - p.start < 0.2) return false;
-        return true;
-    });
+    // 3. Фильтрация "мусорных" фраз (слова-паразиты, эканья, чистые приветствия),
+    // с защитой драматических пауз. Единый фильтр движка (см. filterSpeechPhrases).
+    const validPhrases = filterSpeechPhrases(phrases);
 
     if (validPhrases.length === 0) validPhrases.push(phrases[0]);
 
@@ -484,9 +495,12 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
 
         // B-Roll Overlay Logic (Pattern Interrupt)
         if (bRollPool.length > 0) {
-            // Перекрываем скучные длинные фразы или специфические слова
+            // Перекрываем скучные длинные фразы или специфические слова.
+            // Расширенный словарь «визуальных» существительных: то, что зритель
+            // ожидает УВИДЕТЬ, когда слышит (показ не рассказ — ретеншн-триггер).
+            const VISUAL_NOUNS = /(например|посмотри|смотри|представь|город|улиц|люди|человек|деньги|бюджет|работа|офис|проблема|машин|дорог|море|океан|пляж|горы|лес|парк|еда|ресторан|кофе|спорт|трениров|дом|квартир|семь|друз|телефон|компьютер|сайт|экран|бизнес|клиент|продаж|магазин|путешеств|отпуск|самолет|отель|школ|книга|фильм|музык|собак|кошк|кот|природ|закат|ночь|утро)/i;
             const isLong = (p.end - p.start > 2.5);
-            const hasVisualKeyword = p.text.match(/(например|посмотри|представь|город|люди|мир|деньги|работа|проблема)/i);
+            const hasVisualKeyword = p.text.match(VISUAL_NOUNS);
             // Либо каждые N фраз принудительно (чтобы не заскучать)
             const isNthPhrase = (i % 4 === 0 && i !== 0);
 
@@ -496,6 +510,18 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
                 if (bRollPool.length > 1 && bAsset.id === (scenes[scenes.length-1]?.bRolls[0]?.assetId)) {
                    bRollIndex++;
                    bAsset = bRollPool[bRollIndex % bRollPool.length];
+                }
+
+                // СЕМАНТИКА БЕЗ LLM: если спикер назвал предмет, а имя одного из
+                // ассетов содержит тот же корень — показываем ИМЕННО его
+                // («…мы поехали на море» поверх sea.mp4, а не случайного офиса).
+                if (hasVisualKeyword && bRollPool.length > 1) {
+                   const stem = String(hasVisualKeyword[0]).toLowerCase();
+                   if (stem.length >= 3) {
+                      const named = bRollPool.find((a: any) => (a.name || "").toLowerCase().includes(stem));
+                      const prevB = scenes[scenes.length-1]?.bRolls[0]?.assetId;
+                      if (named && named.id !== prevB) bAsset = named;
+                   }
                 }
                 
                 // Pick a random good segment, not always the 0th
@@ -543,6 +569,49 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
         finalScenes[finalScenes.length - 1].phase = "outro";
     }
 
+    // 7. ЭМОЦИОНАЛЬНАЯ КУЛЬМИНАЦИЯ РЕЧИ.
+    // Раньше эвристический тракт был «плоским»: кульминации не существовало,
+    // поэтому applyProfessionalTechniques (акцентный зум) и flash-forward
+    // teaser («смотри до конца») молча не срабатывали для говорящих голов —
+    // а это самый массовый контент платформы. Пик ищем по двум каналам:
+    // энергия камерного звука (крик/смех/аплодисменты) и смысловые маркеры
+    // («главное», «итог», «секрет» — классические payoff-фразы).
+    {
+        const energyOf = (lvl?: string) =>
+            lvl === "drop" ? 1 : lvl === "high" ? 0.7 : lvl === "medium" ? 0.35 : 0.1;
+        let acc = 0;
+        let bestClimaxIdx = -1;
+        let bestClimaxScore = 0;
+        for (let i = 0; i < finalScenes.length; i++) {
+            const s = finalScenes[i];
+            const mid = acc + s.duration / 2;
+            acc += s.duration;
+            // Пик не ставим в завязку (первые 30%) и не в самый финал — там аутро.
+            if (mid < strategy.targetDuration * 0.3 || mid > strategy.targetDuration * 0.95) continue;
+            if (s.phase === "hook") continue;
+            const src0 = s.mainClip.sourceStart;
+            const src1 = s.mainClip.sourceEnd;
+            let score = 0.3;
+            if (mainAsset.audioEnergy) {
+                for (const e of mainAsset.audioEnergy) {
+                    const ov = Math.min(src1, e.endTime) - Math.max(src0, e.startTime);
+                    if (ov > 0) score = Math.max(score, energyOf((e as any).energyLevel));
+                }
+            }
+            const ph = validPhrases.find(p => p.start >= src0 - 0.3 && p.start < src1);
+            if (ph && /(главное|самое важное|итог|вывод|секрет|поэтому|запомни|вот почему)/i.test(ph.text)) {
+                score += 0.5;
+            }
+            if (score > bestClimaxScore) { bestClimaxScore = score; bestClimaxIdx = i; }
+        }
+        if (bestClimaxIdx > 0) {
+            const cs = finalScenes[bestClimaxIdx];
+            cs.phase = "climax";
+            cs.emotion = "dramatic";
+            cs.mainClip.zoom = true; // punch-in на пиковой фразе
+        }
+    }
+
     return {
         concept: "Smart Dialogue Jump-Cut (AutoPod Style)",
         genre: strategy.genre,
@@ -559,8 +628,8 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
   }
 
   private static buildVisualScript(
-    _request: AIAnalysisRequest, 
-    strategy: any, 
+    _request: AIAnalysisRequest,
+    strategy: any,
     visualAssets: any[]
   ): DirectorScript {
     const script: DirectorScript = {
@@ -570,7 +639,7 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       scenes: [],
       audioStrategy: {
         // Выбираем жанр музыки исходя из жанра видео и эмоции
-        musicStyle: strategy.genre === "travel" || strategy.genre === "luxury" ? "cinematic" 
+        musicStyle: strategy.genre === "travel" || strategy.genre === "luxury" ? "cinematic"
                     : strategy.genre === "tiktok" || strategy.genre === "ad" ? "electronic" : "lofi",
         duckingEnabled: false,
         denoiseSpeech: false,
@@ -607,161 +676,346 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
       /** Площадь крупнейшего лица (0..1) — если крупно, движение камеры срежет лицо. */
       faceSize?: number;
     }
-    
-    const beats: VisualBeat[] = [];
-    for (const asset of visualAssets) {
-      if (asset.segments) {
-        for (const seg of asset.segments) {
-           // «Тёмная» сцена с высоким контрастом (неон, ночные огни) — стилистическое кино,
-           // выкидываем только плоский мрак. «Блюр» уже откалиброван против боке.
-           const cinematicDark = seg.isDark && (seg.contrast ?? 0) >= 150;
-           if ((seg.isDark && !cinematicDark) || seg.isBlurry || seg.motionLevel === "shake" || seg.qualityScore < 4) continue;
-           const dur = seg.endTime - seg.startTime;
-           if (dur < 0.5) continue;
-           
-           let score = seg.qualityScore * 10 + (seg.aestheticScore || 5) * 5;
-           if (seg.hasFaces) score += 20;
-           if (seg.hasAction) score += 30;
-           
-           // Heuristic: If there is audio energy data, boost segments that correspond to high energy
-           // We map the visual segment to the audio energy timeline.
-           let energyMultiplier = 1;
-           if (asset.audioEnergy) {
-               const relevantEnergy = asset.audioEnergy.filter((e: any) => e.startTime <= seg.endTime && e.endTime >= seg.startTime);
-               if (relevantEnergy.length > 0) {
-                   const avgEnergy = relevantEnergy.reduce((s: number, e: any) => s + e.energyLevel, 0) / relevantEnergy.length;
-                   energyMultiplier = 1 + (avgEnergy * 0.5); // Boost up to 50% based on audio loudness/intensity
-                   
-                   // Speed up boring low-energy segments
-                   if (avgEnergy < 0.2 && !seg.hasFaces && !seg.hasAction) {
-                       score -= 20; // Penalize boring silent B-roll
-                   }
-               }
-           }
-           score *= energyMultiplier;
-           
-           // Принудительно отдаем максимальный приоритет кадру, совпадающему с пиком аудио-энергии
-           let isAbsoluteClimax = false;
-           if (asset.id === climaxAssetId && Math.abs(seg.startTime - climaxTime) < 2.0) {
-               score += 200; // Гарантированно попадет в монтаж
-               isAbsoluteClimax = true;
-           }
-           
-           beats.push({
-             assetId: asset.id,
-             start: seg.startTime,
-             duration: dur,
-             score,
-             hasFaces: seg.hasFaces,
-             hasAction: seg.hasAction || false,
-             faceSize: seg.faceSize,
-             isEpic: isAbsoluteClimax || (seg.motionLevel === "high" && seg.aestheticScore > 7)
-           });
-        }
-      } else {
-        beats.push({ assetId: asset.id, start: 0, duration: asset.duration || 5, score: 50, hasFaces: false, hasAction: false, isEpic: false });
-      }
-    }
 
-    beats.sort((a,b) => b.score - a.score);
+    // Жёсткий фильтр брака + мягкий фоллбэк: если после отсева НЕЧЕГО монтировать,
+    // снимаем требования — ролик из «так себе» кадров всегда лучше пустого ролика.
+    // Раньше строгий фильтр мог вернуть пустой план (пустой ролик на выходе!).
+    const collectBeats = (relaxed: boolean): VisualBeat[] => {
+      const out: VisualBeat[] = [];
+      for (const asset of visualAssets) {
+        if (asset.segments) {
+          for (const seg of asset.segments) {
+            const cinematicDark = seg.isDark && (seg.contrast ?? 0) >= 150;
+            if (seg.isDark && !cinematicDark) continue;
+            if (seg.motionLevel === "shake") continue;
+            if (!relaxed) {
+              if (seg.isBlurry || seg.qualityScore < 4) continue;
+            } else {
+              if (seg.isBlurry && (seg.contrast ?? 0) < 70) continue; // мыло + плоскость = совсем брак
+              if (seg.qualityScore < 2) continue;
+            }
+            const dur = seg.endTime - seg.startTime;
+            if (dur < 0.5) continue;
+
+            let score = seg.qualityScore * 10 + (seg.aestheticScore || 5) * 5;
+            if (seg.hasFaces) score += 20;
+            if (seg.hasAction) score += 30;
+            // Колоритность Hasler–Süsstrunk: сочные кадры (закаты, неон, природа)
+            // читаются «дороже» — отдаём им приоритет без завышения блёклых.
+            score += Math.min(18, (seg.colorfulness ?? 0) * 0.4);
+
+            let energyMultiplier = 1;
+            if (asset.audioEnergy) {
+                const relevantEnergy = asset.audioEnergy.filter((e: any) => e.startTime <= seg.endTime && e.endTime >= seg.startTime);
+                if (relevantEnergy.length > 0) {
+                    const avgEnergy = relevantEnergy.reduce((s: number, e: any) => s + e.energyLevel, 0) / relevantEnergy.length;
+                    energyMultiplier = 1 + (avgEnergy * 0.5);
+                    if (avgEnergy < 0.2 && !seg.hasFaces && !seg.hasAction) {
+                        score -= 20;
+                    }
+                }
+            }
+            score *= energyMultiplier;
+            if (relaxed) score *= 0.7; // лучший «плохой» кадр всё равно уступает любому «хорошему»
+
+            // Принудительно отдаем максимальный приоритет кадру, совпадающему с пиком аудио-энергии.
+            // ВНИМАНИЕ: только если у ассетов реально есть энергетика камерного звука
+            // (maxOverallEnergy > -1). Без неё детект «залипал» на t=0 первого ассета —
+            // лучший action-кадр терялся среди фальшивых эпиков.
+            let isAbsoluteClimax = false;
+            if (maxOverallEnergy > -1 && asset.id === climaxAssetId && Math.abs(seg.startTime - climaxTime) < 2.0) {
+                score += 200; // Гарантированно попадет в монтаж
+                isAbsoluteClimax = true;
+            }
+
+            out.push({
+              assetId: asset.id,
+              start: seg.startTime,
+              duration: dur,
+              score,
+              hasFaces: seg.hasFaces,
+              hasAction: seg.hasAction || false,
+              faceSize: seg.faceSize,
+              isEpic: isAbsoluteClimax || (seg.motionLevel === "high" && seg.aestheticScore > 7)
+            });
+          }
+        } else {
+          out.push({ assetId: asset.id, start: 0, duration: asset.duration || 5, score: 50, hasFaces: false, hasAction: false, isEpic: false });
+        }
+      }
+      return out;
+    };
+
+    let beats = collectBeats(false);
+    if (beats.length === 0) beats = collectBeats(true);
+    beats.sort((a, b) => b.score - a.score);
     if (beats.length === 0) return script;
 
-    let currentTime = 0;
     const target = strategy.targetDuration;
-    
+    const isFastGenre = strategy.genre === "tiktok" || strategy.genre === "ad";
+    const isSlowGenre = strategy.genre === "travel" || strategy.genre === "cinematic" || strategy.genre === "documentary" || strategy.genre === "luxury";
+
+    // --- МУЗЫКАЛЬНАЯ СЕТКА ---
+    // Длительности планов квантуются КРАТНО медианному периоду бита: монтаж
+    // дышит в ритме трека «по построению», а не благодаря пост-фактум снаппингу.
+    const musicGrid = (_request.beats ?? []).filter(b => b >= 0 && b <= target + 5).slice().sort((a, b) => a - b);
+    let beatDur = 0;
+    if (musicGrid.length >= 5) {
+      const deltas: number[] = [];
+      for (let i = 1; i < musicGrid.length; i++) {
+        const d = musicGrid[i] - musicGrid[i - 1];
+        if (d > 0.2 && d < 1.5) deltas.push(d);
+      }
+      deltas.sort((a, b) => a - b);
+      if (deltas.length >= 4) beatDur = deltas[Math.floor(deltas.length / 2)];
+    }
+    /** Квантование длительности к ближайшему целому числу битов (с коридором). */
+    const qBeats = (seconds: number, minBeats: number, maxBeats: number): number => {
+      if (!beatDur) return seconds;
+      const k = Math.round(seconds / beatDur);
+      const clampedK = Math.max(minBeats, Math.min(maxBeats, k));
+      return +(clampedK * beatDur).toFixed(3);
+    };
+
+    // --- КУЛЬМИНАЦИЯ НА ДРОПЕ МУЗЫКИ ---
+    // Главный кадр ролика ставим не «где-то на 70%», а точно на первый мощный
+    // дроп трека в окне 45–85% таймлайна (в координатах таймлайна: минус inPoint).
+    // Без пользовательской музыки — классика: 75% таймлайна.
+    let wantClimaxAt = target * 0.75;
+    {
+      const musicAsset = _request.assets.find((a: any) => a.type === "audio" && a.audioEnergy && a.audioEnergy.length > 0);
+      const musicEnergy = musicAsset?.audioEnergy as import("../media").AudioEnergySegment[] | undefined;
+      if (musicEnergy && musicEnergy.length > 0) {
+        const mp = _request.musicInPointSec ?? 0;
+        const windowSegs = musicEnergy
+          .map((e) => ({ t: e.startTime - mp, level: e.energyLevel }))
+          .filter((e) => e.t >= target * 0.45 && e.t <= target * 0.85);
+        const drop = windowSegs.find((e) => e.level === "drop") ?? windowSegs[0];
+        if (drop) wantClimaxAt = drop.t;
+      }
+      // Снап к ближайшему биту: удар кульминации совпадает с долей.
+      if (musicGrid.length) {
+        let best = wantClimaxAt;
+        let bestDist = Infinity;
+        for (const b of musicGrid) {
+          const d = Math.abs(b - wantClimaxAt);
+          if (d < bestDist) { bestDist = d; best = b; }
+        }
+        if (bestDist <= 0.7) wantClimaxAt = best;
+      }
+      wantClimaxAt = Math.max(target * 0.4, Math.min(target * 0.9, wantClimaxAt));
+    }
+
+    let currentTime = 0;
+
+    // Хук: лицо или действие; у быстрых жанров — ультракороткий (1.4-1.8с),
+    // зритель решает «смотреть ли» за первые ~1.5с, длинный хук = свайп.
+    // Длительность квантуется на бит-сетку, иначе смещение хука ломало бы
+    // выравнивание ВСЕХ последующих склеек (накопительный сдвиг фазы).
     const hookBeat = beats.find(b => b.hasFaces || b.hasAction) || beats[0];
-    const hookDur = Math.min(hookBeat.duration, 2.5);
+    const hookMax = isFastGenre ? 1.7 : isSlowGenre ? 2.4 : 2.0;
+    const hookDur = Math.min(hookBeat.duration, beatDur ? qBeats(hookMax, 2, 6) : hookMax);
     script.scenes.push({
       id: "scene_hook", phase: "hook", intent: "Capture Attention", duration: hookDur, emotion: "energetic",
       mainClip: { assetId: hookBeat.assetId, sourceStart: hookBeat.start, sourceEnd: hookBeat.start + hookDur, speed: 1, zoom: true },
       bRolls: [], captions: []
     });
     currentTime += hookDur;
-    
-    let pool = beats.filter(b => b !== hookBeat);
 
-    // Правило пика: самый эпичный кадр резервируется под кульминацию (~70-85% таймлайна),
+    // Правило пика: самый эпичный кадр резервируется под кульминацию —
     // иначе fair-usage тратит лучший момент на середину и финал проседает.
+    // TEASE→PAYOFF: если эпик-окно уже открыло ролик хуком (тизер на 1.6-2.4с),
+    // кульминация берёт ПРОДОЛЖЕНИЕ того же окна — зритель получает развязку
+    // того момента, которым его зацепили (кинематографический приём, не дубль).
     let climaxReserve: VisualBeat | null = null;
-    const epicIdx = pool.findIndex(b => b.isEpic);
-    if (epicIdx >= 0) climaxReserve = pool.splice(epicIdx, 1)[0];
+    {
+      const epic = beats.find(b => b.isEpic) ?? null;
+      if (epic) {
+        if (epic === hookBeat && epic.duration > hookDur + 1.8) {
+          climaxReserve = { ...epic, start: epic.start + hookDur, duration: epic.duration - hookDur };
+        } else if (epic !== hookBeat) {
+          climaxReserve = epic;
+        }
+      }
+    }
     let reserveUsed = false;
 
-    // Track usage per asset to ensure absolute fairness across all files
+    // --- ПЕРЕИСПОЛЬЗУЕМЫЙ ПУЛ ПЛАНОВ ---
+    // СТАРЫЙ БАГ: pool.splice делал каждое окно одноразовым — при дефиците
+    // исходников ролик обрывался задолго до цели, а кульминация и аутро
+    // просто исчезали (драматургическая арка ломалась). Теперь окна
+    // переиспользуемы с анти-повторной памятью: то же окно не раньше, чем
+    // через 2 сцены, тот же ассет — не подряд; неиспользованные окна и
+    // «свежие» ассеты всегда выигрывают у повторов.
     const usageCount = new Map<string, number>();
     for (const a of visualAssets) usageCount.set(a.id, 0);
     usageCount.set(hookBeat.assetId, 1);
+    const beatUseCount = new Map<VisualBeat, number>();
+    beatUseCount.set(hookBeat, 1);
+    const recentBeats: VisualBeat[] = [hookBeat];
+    /** До какой исходной секунды каждое окно уже показано (для свежих повторов). */
+    const beatCoveredTo = new Map<VisualBeat, number>();
+    beatCoveredTo.set(hookBeat, hookBeat.start + hookDur);
 
     let lastAssetId = hookBeat.assetId;
+    let lastBeat: VisualBeat = hookBeat;
     let waveIdx = 0;
 
-    while (currentTime < target && (pool.length > 0 || (climaxReserve && !reserveUsed))) {
-      const progress = currentTime / target;
-      const phase = progress < 0.7 ? "buildup" : progress < 0.9 ? "climax" : "outro";
+    // КРУПНОСТЬ ПЛАНОВ: «никогда два общих плана подряд» (Зэткин/Мёрч).
+    // Из сигналов анализатора: faceSize>=5% кадра → крупный; есть лицо → средний;
+    // без лиц → общий/экшн-широкий. Кинематографичный монтаж дышит чередованием
+    // масштаба: общий (контекст) → средний → крупный (деталь/эмоция).
+    type PlanSize = "close" | "medium" | "wide";
+    const sizeOf = (b: VisualBeat): PlanSize => {
+      if (b.faceSize !== undefined && b.faceSize >= 0.05) return "close";
+      if (b.hasFaces) return "medium";
+      return "wide";
+    };
+    let lastPlanSize: PlanSize = sizeOf(hookBeat);
 
-      let beat: VisualBeat;
-      if (climaxReserve && !reserveUsed && (progress >= 0.7 || pool.length === 0)) {
+    let guard = 0;
+    while (currentTime < target - 0.3 && guard++ < 400) {
+      const progress = currentTime / target;
+      // Драматургия: buildup → ЕДИНСТВЕННАЯ кульминация (резерв на дропе) → outro.
+      // Раньше фаза "climax" назначалась целой полосе 62–88% таймлайна — получался
+      // конвейер одинаковых slow-mo микроклипов вместо одного удара.
+      const phase: DirectorScene["phase"] =
+        reserveUsed ? "outro" : (!climaxReserve && progress > 0.88) ? "outro" : "buildup";
+
+      let beat: VisualBeat | null = null;
+
+      // Кульминация: резерв встаёт максимально близко к дропу музыки.
+      if (climaxReserve && !reserveUsed && (currentTime >= wantClimaxAt - 0.15 || currentTime >= target - 1.6)) {
         beat = climaxReserve;
         reserveUsed = true;
       } else {
-      // We want an asset that has been used the LEAST number of times, and is NOT the last asset used
-      let bestBeatIndex = -1;
-      let lowestUsage = Infinity;
-
-      for (let i = 0; i < pool.length; i++) {
-         const b = pool[i];
-         if (b.assetId === lastAssetId && pool.length > 1) continue; // Don't repeat consecutively if possible
-
-         const usage = usageCount.get(b.assetId) || 0;
-         if (usage < lowestUsage) {
-             if (phase === "climax" && !b.isEpic && !b.hasAction && pool.some(p => p.isEpic || p.hasAction)) continue;
-             lowestUsage = usage;
-             bestBeatIndex = i;
-         }
+        // Выбор: свежесть окна (1000) > разнообразие ассетов (60) > качество кадра.
+        let bestScore = Infinity;
+        for (const b of beats) {
+          if (b === lastBeat) continue;
+          if (recentBeats.includes(b)) continue;
+          if (b === climaxReserve && !reserveUsed) continue; // эпик — только на дроп
+          if (b.assetId === lastAssetId && beats.length > 1) continue;
+          const bu = beatUseCount.get(b) || 0;
+          const au = usageCount.get(b.assetId) || 0;
+          let rank = bu * 1000 + au * 60 - b.score;
+          // В аутро — спокойные красивые планы, не экшен: эмоция «выдох».
+          if (phase === "outro" && b.hasAction) rank += 150;
+          // Чередование крупности: два одинаковых масштаба подряд плоско ложатся
+          // на плёнку; для медленных жанров штраф жёстче (это их «язык»).
+          if (sizeOf(b) === lastPlanSize) rank += isSlowGenre ? 130 : 45;
+          if (rank < bestScore) { bestScore = rank; beat = b; }
+        }
+        // Память могла исключить всё — ослабляем: разрешаем окна из recent, но кроме последнего.
+        if (!beat) {
+          let fb: VisualBeat | null = null;
+          let fbRank = Infinity;
+          for (const b of beats) {
+            if (b === lastBeat) continue;
+            if (b === climaxReserve && !reserveUsed) continue;
+            const bu = beatUseCount.get(b) || 0;
+            const rank = bu * 1000 + (usageCount.get(b.assetId) || 0) * 60 - b.score;
+            if (rank < fbRank) { fbRank = rank; fb = b; }
+          }
+          beat = fb;
+        }
+        if (!beat) break;
       }
 
-      // Fallback
-      if (bestBeatIndex === -1) bestBeatIndex = 0;
-
-      beat = pool[bestBeatIndex];
-      pool.splice(bestBeatIndex, 1);
-      }
-      
       lastAssetId = beat.assetId;
+      lastBeat = beat;
+      lastPlanSize = sizeOf(beat);
       usageCount.set(beat.assetId, (usageCount.get(beat.assetId) || 0) + 1);
-      
-      // Ритмические волны для динамичных жанров: установочные кадры прерываются
-      // серией коротких акцентов — пульс (4-4-1-1-1-4) вместо ровного конвейера.
+      beatUseCount.set(beat, (beatUseCount.get(beat) || 0) + 1);
+      recentBeats.push(beat);
+      if (recentBeats.length > 2) recentBeats.shift();
+
+      // Длительности: номинал по жанру/фазе, затем квантование под бит-сетку.
+      const sceneIsClimax = beat === climaxReserve && reserveUsed;
       let dur: number;
-      if (phase === "buildup" && (strategy.genre === "tiktok" || strategy.genre === "ad")) {
+      if (phase === "buildup" && !sceneIsClimax && isFastGenre) {
          const RHYTHM_WAVE = [3.6, 3.0, 1.1, 0.9, 1.2, 2.6];
          dur = RHYTHM_WAVE[waveIdx++ % RHYTHM_WAVE.length];
+      } else if (sceneIsClimax) {
+         dur = 1.6; // плотный удар на дропе — не растекаться
+      } else if (phase === "buildup") {
+         dur = isSlowGenre ? 4.4 : 3.8;
       } else {
-         // Аутро 3.2с: 5 секунд статики в конце убивает удержание — зритель свайпает
-         // до финального аккорда; платформа считает это проседанием ретеншна.
-         dur = phase === "buildup" ? 4 : phase === "climax" ? 1.5 : 3.2;
+         dur = isFastGenre ? 2.4 : 3.2; // outro
       }
+      if (beatDur) {
+        dur = qBeats(dur, isSlowGenre && phase === "buildup" ? 5 : 2, phase === "outro" ? 8 : 12);
+      }
+
       dur = Math.min(dur, beat.duration, target - currentTime);
-      if (dur < 0.5) break;
-      
+      // Обрезка по окну исходника сбила бы фазу сетки для ВСЕХ дальнейших
+      // склеек (накопительный сдвиг): опускаемся до влезающего целого числа битов.
+      if (beatDur) {
+        const k = Math.floor(dur / beatDur + 1e-6);
+        if (k >= 2) dur = +(k * beatDur).toFixed(3);
+      }
+      if (dur < 0.5) {
+        // Ассетов с нужным запасом длительности может не найтись — мягкий выход.
+        break;
+      }
+
+      // Подход к кульминации: если дроп близко, КОРРЕКТИРУЕМ предшествующий план
+      // так, чтобы его стык пришёлся ровно на дроп: чуть растягиваем (дохватить)
+      // или чуть сжимаем (не перешагнуть) — субсекундное попадание в долю
+      // вместо случайного зазора.
+      if (!sceneIsClimax && climaxReserve && !reserveUsed) {
+        const gap = wantClimaxAt - currentTime;
+        const diff = gap - dur;
+        if (diff > 0.6 && diff <= 2.2 && beat.duration >= gap) {
+          dur = gap; // дохват
+        } else if (diff < -0.6 && diff >= -1.8 && gap >= 1.4) {
+          dur = gap; // сжатие, чтобы не перешагнуть дроп
+        }
+      }
+
       // Автоматическое ускорение (Speed Ramping) скучных сегментов
       let speed = 1;
-      if (beat.score < 40 && !beat.hasFaces && phase === "buildup") {
-         speed = 2.0; 
-         dur *= 2; 
-         dur = Math.min(dur, beat.duration, (target - currentTime) * 2);
+      if (beat.score < 40 && !beat.hasFaces && phase === "buildup" && !sceneIsClimax) {
+         speed = 2.0;
+         dur = Math.min(dur * 2, beat.duration, (target - currentTime) * 2);
+      }
+
+      // Повторное использование окна: если сегмент длиннее уже показанной части,
+      // повтор берёт СВЕЖИЙ хвост — зритель не видит один и тот же кусок дважды.
+      let srcStart = beat.start;
+      {
+        const coveredTo = beatCoveredTo.get(beat);
+        if (coveredTo !== undefined && coveredTo > beat.start + 0.2
+            && beat.start + beat.duration - coveredTo >= dur) {
+          srcStart = coveredTo;
+        }
+        beatCoveredTo.set(beat, Math.max(coveredTo ?? 0, srcStart + dur));
       }
 
       script.scenes.push({
-        id: `scene_${Date.now()}_${currentTime}`, phase, intent: "Flow", duration: dur / speed, emotion: phase === "climax" ? "dramatic" : "calm",
+        id: `scene_${Date.now()}_${Math.round(currentTime * 1000)}`,
+        phase: sceneIsClimax ? "climax" : phase,
+        intent: sceneIsClimax ? "Climax on Drop" : "Flow",
+        duration: dur / speed,
+        emotion: sceneIsClimax ? "dramatic" : "calm",
         // Зум запрещён для крупных планов лиц (срезает подбородок/лоб) и экшена (склейка режется в движении).
-        mainClip: { assetId: beat.assetId, sourceStart: beat.start, sourceEnd: beat.start + dur, speed: speed, zoom: !beat.hasAction && !(beat.faceSize !== undefined && beat.faceSize >= 0.08) },
+        mainClip: { assetId: beat.assetId, sourceStart: srcStart, sourceEnd: srcStart + dur, speed, zoom: !beat.hasAction && !(beat.faceSize !== undefined && beat.faceSize >= 0.08) },
         bRolls: [], captions: []
       });
-      currentTime += dur;
+      // Таймлайн продвигается на длительность ВОСПРОИЗВЕДЕНИЯ сцены
+      // (при speed-ramp исходный спан шире таймлайн-окна).
+      currentTime += dur / speed;
     }
 
-
+    // Финальный обрубок: последний план короче ~1.3с выглядит дёрганой
+    // «заглушкой» перед концом (зритель считывает её как технический сбой).
+    // Чистое завершение на полноценном кадре + endingFadeOut лучше, чем
+    // дотягивание целевой длительности любой ценой.
+    while (script.scenes.length >= 2) {
+      const last = script.scenes[script.scenes.length - 1];
+      if (last.duration >= 1.3 || last.phase === "climax") break;
+      script.scenes.pop();
+    }
 
     return script;
   }
@@ -789,8 +1043,16 @@ ${validPhrases.slice(0, 30).map((p, i) => `[${i}] ${p.text}`).join('\n')}
     if (genre === "tiktok" || genre === "ad" || genre === "youtube" || genre === "podcast") {
          const climaxScene = script.scenes.find(s => s.phase === "climax");
          const hookScene = script.scenes.find(s => s.phase === "hook");
-         
-         if (climaxScene && hookScene && climaxScene.mainClip.assetId !== hookScene.mainClip.assetId && script.scenes.length > 3) {
+
+         // Однокамерный монолог: раньше teaser был запрещён условием «разные ассеты»
+         // и говорящая голова лишалась приёма «смотри до конца». Дубль — это когда
+         // тизер повторяет ТО ЖЕ окно источника; разные окна одного видео — законный
+         // flash-forward (зрителю показывают БУДУЩУЮ фразу, а не дубль хука).
+         const sameWindow = !!climaxScene && !!hookScene
+            && climaxScene.mainClip.assetId === hookScene.mainClip.assetId
+            && Math.abs(climaxScene.mainClip.sourceStart - hookScene.mainClip.sourceStart) < 1.5;
+
+         if (climaxScene && hookScene && !sameWindow && script.scenes.length > 3) {
              const teaserDur = Math.min(1.0, climaxScene.duration);
              const teaserScene = {
                  id: "scene_teaser_" + Date.now(),

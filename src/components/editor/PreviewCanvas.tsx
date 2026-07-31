@@ -141,19 +141,57 @@ export default function PreviewCanvas() {
             const coverScale = Math.max(canvas.width / naturalW, canvas.height / naturalH) * scale;
             const w = naturalW * coverScale;
             const h = naturalH * coverScale;
-            
-            // x represents the focus point (-1 to 1). 
-            // A shift of x=-1 means we want to show the LEFT side of the image, 
+
+            // x represents the focus point (-1 to 1).
+            // A shift of x=-1 means we want to show the LEFT side of the image,
             // which means we must shift the image to the RIGHT.
-            const shiftX = -x * Math.max(0, w - canvas.width) / 2;
-            const shiftY = -y * Math.max(0, h - canvas.height) / 2;
-            
+            let shiftX = -x * Math.max(0, w - canvas.width) / 2;
+            let shiftY = -y * Math.max(0, h - canvas.height) / 2;
+
+            // FACE-REFRAME (focusX/focusY): автомонтаж кадрирует cover-кроп по
+            // детекту лиц, и ffmpeg-экспорт применяет тот же сдвиг через crop.
+            // Раньше превью это игнорировало — пользователь видел один кадр,
+            // а на экспорте получал ДРУГОЙ (WYSIWYG-разрыв). Семантика 1:1 с
+            // filterGraph: окно canvas-размера центрируется на точке фокуса и
+            // клампится внутрь изображения.
+            if (clip.focusX) {
+              const fx = clip.focusX ? evalParam(clip.focusX, localTime) : 0.5;
+              const maxShiftX = Math.max(0, (w - canvas.width) / 2);
+              const want = ((fx ?? 0.5) - 0.5) * w;
+              shiftX = -Math.max(-maxShiftX, Math.min(maxShiftX, want));
+            }
+            if (clip.focusY) {
+              const fy = clip.focusY ? evalParam(clip.focusY, localTime) : 0.5;
+              const maxShiftY = Math.max(0, (h - canvas.height) / 2);
+              const want = ((fy ?? 0.5) - 0.5) * h;
+              shiftY = -Math.max(-maxShiftY, Math.min(maxShiftY, want));
+            }
+
             const cx = canvas.width / 2 + shiftX;
             const cy = canvas.height / 2 + shiftY;
-            
+
+            if (clip.blurPad) {
+              // BLUR-PAD (1:1 с экспортом): размытая подложка из того же кадра,
+              // поверх — чёткий кадр целиком по центру.
+              ctx.save();
+              ctx.filter = `blur(16px) brightness(0.86) saturate(0.9) ${ctx.filter}`;
+              ctx.translate(cx, cy);
+              ctx.rotate((rotation * Math.PI) / 180);
+              // Подложка чуть крупнее канваса — размытие не даёт тёмную кайму по краям
+              ctx.drawImage(el, -w / 2 * 1.04, -h / 2 * 1.04, w * 1.04, h * 1.04);
+              ctx.restore();
+              // Передний план: contain-fit
+              const fitScale = Math.min(canvas.width / naturalW, canvas.height / naturalH) * scale;
+              const fw = naturalW * fitScale;
+              const fh = naturalH * fitScale;
+              ctx.translate(canvas.width / 2, canvas.height / 2);
+              ctx.rotate((rotation * Math.PI) / 180);
+              ctx.drawImage(el, -fw / 2, -fh / 2, fw, fh);
+            } else {
             ctx.translate(cx, cy);
             ctx.rotate((rotation * Math.PI) / 180);
             ctx.drawImage(el, -w / 2, -h / 2, w, h);
+            }
           } else {
             const w = naturalW * scale;
             const h = naturalH * scale;

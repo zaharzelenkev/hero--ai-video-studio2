@@ -122,23 +122,28 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     });
   }
 
-  // 0. Local Fast Vision Analysis
+  // 0. Local Fast Vision Analysis (ВИДЕО + ФОТО):
+  // раньше анализировались только видео — слайдшоу из фото монтировалось
+  // вслепую (всем score=50, без лиц для Ken Burns). Теперь фото проходят
+  // тот же конвейер качества/эстетики/лиц.
   const localSegments = new Map<string, VideoSegmentMetadata[]>();
   if (style.intelligentCuts) {
-    const videoAssets = visualAssets.filter((asset) => asset.kind === "video" && filesByAssetId.get(asset.id));
-    onProgress?.(`Анализ динамики... 0/${videoAssets.length}`);
+    const analyzable = visualAssets.filter((asset) => filesByAssetId.get(asset.id));
+    onProgress?.(`Анализ кадров... 0/${analyzable.length}`);
     let doneCount = 0;
-    await pooled(videoAssets, 2, async (asset) => {
+    await pooled(analyzable, 2, async (asset) => {
       const file = filesByAssetId.get(asset.id);
       if (!file) return;
       try {
-        const segs = await analyzeVideoLocally(file);
+        const segs = asset.kind === "image"
+          ? await (await import("./localAnalyzer")).analyzeImageLocally(file)
+          : await analyzeVideoLocally(file);
         localSegments.set(asset.id, segs);
       } catch (e) {
         console.warn("Local analysis failed for", asset.name, e);
       } finally {
         doneCount++;
-        onProgress?.(`Анализ динамики... ${doneCount}/${videoAssets.length}: ${asset.name}`);
+        onProgress?.(`Анализ кадров... ${doneCount}/${analyzable.length}: ${asset.name}`);
       }
     });
   }
@@ -178,7 +183,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   }
 
   onProgress?.("Интеллектуальный анализ...");
-  
+
   // AI-powered analysis (if API key provided and intelligent cuts enabled)
 
   onProgress?.("Интеллектуальный анализ и планирование...");
@@ -189,11 +194,74 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       name: a.name,
       type: a.kind,
       duration: a.duration,
+      width: a.width,
+      height: a.height,
       transcript: transcripts.get(a.id),
       segments: localSegments.get(a.id),
       audioEnergy: audioEnergyMap.get(a.id),
     })),
   };
+
+  // --- РАННЯЯ СТРАТЕГИЯ + МУЗЫКАЛЬНАЯ СЕТКА (ДО режиссёра) ---
+  // Режиссёр планирует склейки и кульминацию исходя из РЕАЛЬНОГО ритма:
+  // сначала выбираем inPoint трека (старт с дропа) и сдвигаем биты в
+  // координаты таймлайна, а уже потом строим сценарий. Раньше всё это
+  // происходило ПОСЛЕ планирования — кульминация ставилась вслепую.
+  const { DirectorBrain } = await import("./brain/director");
+  const earlyStrategy = await DirectorBrain.defineStrategy(analysisRequest);
+
+  // Прогноз шаблона: совпадает с итоговой резолюцией ниже (обе детерминированы
+  // от strategy.genre), поэтому сетка планирования = сетка рендера.
+  const predictedTemplate = style.templateId && style.templateId !== "auto"
+    ? TEMPLATES.find(t => t.id === style.templateId)
+    : getTemplateForContentType(earlyStrategy.genre);
+
+  // Ритм-сетка для ПРОЦЕДУРНОЙ музыки: когда пользовательского трека нет, саундтрек
+  // синтезируется нашим генератором — его BPM и фаза известны заранее. Строим сетку
+  // аналитически: склейки, флеши и дропы встают в ритм даже без файла трека.
+  if (style.beatSync && beats.length === 0 && !musicAsset
+      && typeof window !== "undefined" && window.OfflineAudioContext) {
+    try {
+      const { proceduralStyleForTemplate, STYLE_BPM } = await import("./musicGenerator");
+      const mStyle = proceduralStyleForTemplate(predictedTemplate?.id || "minimal");
+      const beatDur = 60 / (STYLE_BPM[mStyle] ?? 120);
+      const estDur = Math.max(30, earlyStrategy.targetDuration) + 20;
+      for (let t = 0; t <= estDur; t += beatDur) beats.push(t);
+    } catch { /* сетка не критична — монтаж продолжится без неё */ }
+  }
+
+  // --- СТАРТ МУЗЫКИ С ДРОПА ---
+  // Профи начинают трек с энергетического крюка (дроп/припев), а не с произвольной
+  // нулевой секунды — иначе первые 10-20 секунд музыки часто бывают "пустым" интро.
+  // Выбираем inPoint на границе пикового энергосегмента, выровненную по сетке битов,
+  // и сдвигаем сетку: все склейки, вспышки и снаппинг ниже работают уже в слышимом ритме.
+  let musicInPoint = 0;
+  if (musicAsset && (musicAsset.duration || 0) > 0) {
+    const estDuration = Math.max(10, earlyStrategy.targetDuration || 30);
+    const spareRoom = (musicAsset.duration || 0) - estDuration;
+    if (spareRoom > 4) {
+      const energies = audioEnergyMap.get(musicAsset.id);
+      let target = energies
+        ?.filter(e => (e.energyLevel === "drop" || e.energyLevel === "high") && e.startTime <= spareRoom + 1)
+        .map(e => e.startTime)
+        .find(t => t > 0.5) ?? 0;
+      if (target > 0 && beats.length) {
+        // начало музыкальной фразы: ближайший бит не позже пика энергии
+        const aligned = [...beats].filter(b => b <= target + 0.3).pop();
+        if (aligned !== undefined) target = aligned;
+      }
+      musicInPoint = Math.max(0, Math.min(target, spareRoom));
+    }
+    if (musicInPoint > 0.2 && beats.length) {
+      beats = beats.map(b => b - musicInPoint).filter(b => b >= 0.25);
+    }
+  }
+
+  // Режиссёр получает сетку в координатах таймлайна и inPoint музыки:
+  // склейки квантуются под ритм, кульминация встаёт на дроп.
+  analysisRequest.beats = beats;
+  analysisRequest.musicInPointSec = musicInPoint;
+
   const aiDecision = await analyzeWithAI(analysisRequest);
 
   if (aiDecision.pace) style.pace = aiDecision.pace as any;
@@ -218,46 +286,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   
   const targetClipLen = PACE_CLIP_SECONDS[style.pace];
 
-  // Ритм-сетка для ПРОЦЕДУРНОЙ музыки: когда пользовательского трека нет, саундтрек
-  // синтезируется нашим генератором — его BPM и фаза известны заранее. Строим сетку
-  // аналитически: склейки, флеши и дропы встают в ритм даже без файла трека.
-  if (style.beatSync && beats.length === 0 && !musicAsset
-      && typeof window !== "undefined" && window.OfflineAudioContext) {
-    try {
-      const { proceduralStyleForTemplate, STYLE_BPM } = await import("./musicGenerator");
-      const mStyle = proceduralStyleForTemplate(activeTemplate.id);
-      const beatDur = 60 / (STYLE_BPM[mStyle] ?? 120);
-      const estDur = Math.max(30, aiDecision?.targetDuration || 30) + 20;
-      for (let t = 0; t <= estDur; t += beatDur) beats.push(t);
-    } catch { /* сетка не критична — монтаж продолжится без неё */ }
-  }
-
-  // --- СТАРТ МУЗЫКИ С ДРОПА ---
-  // Профи начинают трек с энергетического крюка (дроп/припев), а не с произвольной
-  // нулевой секунды — иначе первые 10-20 секунд музыки часто бывают "пустым" интро.
-  // Выбираем inPoint на границе пикового энергосегмента, выровненную по сетке битов,
-  // и сдвигаем сетку: все склейки, вспышки и снаппинг ниже работают уже в слышимом ритме.
-  let musicInPoint = 0;
-  if (musicAsset && (musicAsset.duration || 0) > 0) {
-    const estDuration = Math.max(10, aiDecision?.targetDuration || 30);
-    const spareRoom = (musicAsset.duration || 0) - estDuration;
-    if (spareRoom > 4) {
-      const energies = audioEnergyMap.get(musicAsset.id);
-      let target = energies
-        ?.filter(e => (e.energyLevel === "drop" || e.energyLevel === "high") && e.startTime <= spareRoom + 1)
-        .map(e => e.startTime)
-        .find(t => t > 0.5) ?? 0;
-      if (target > 0 && beats.length) {
-        // начало музыкальной фразы: ближайший бит не позже пика энергии
-        const aligned = [...beats].filter(b => b <= target + 0.3).pop();
-        if (aligned !== undefined) target = aligned;
-      }
-      musicInPoint = Math.max(0, Math.min(target, spareRoom));
-    }
-    if (musicInPoint > 0.2 && beats.length) {
-      beats = beats.map(b => b - musicInPoint).filter(b => b >= 0.25);
-    }
-  }
+  // (Бит-сетка и музыкальный inPoint теперь вычисляются РАНЬШЕ режиссёра — см. блок
+  // «РАННЯЯ СТРАТЕГИЯ + МУЗЫКАЛЬНАЯ СЕТКА» выше. Здесь остаётся только разметка.)
 
   // Биты как визуальные маркеры на таймлайне для удобства ручной правки
   if (beats.length) {
@@ -387,7 +417,22 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
          transType = "cut";
          transDur = 0;
       } else {
-         if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
+         // Контекстный переход: ТОНАЛЬНЫЙ РАЗРЫВ между соседними планами.
+         // Резкая склейка кадров с разной экспозицией (студия→улица, день→ночь)
+         // «моргает» — профи прикрывают такие стыки коротким проходом через чёрный.
+         let toneJump = 0;
+         const prevSmp = prevMainClip ? expoSamples.find(s => s.clip === prevMainClip) : undefined;
+         if (prevSmp && (asset.kind === "video" || asset.kind === "image") && clipSegs.length > 0) {
+            const stats = clipSegs.filter(s => s.brightness !== undefined);
+            if (stats.length > 0) {
+               const curB = stats.reduce((a, s) => a + (s.brightness ?? 0), 0) / stats.length;
+               toneJump = Math.abs(prevSmp.avgB - curB);
+            }
+         }
+         if (toneJump > 70 && style.pace !== "fast" && style.pace !== "dynamic") {
+            transType = "fadeblack";
+            transDur = 0.3;
+         } else if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt")) {
             const flashes = ["pixelize", "hlslice", "hblur"];
             transType = flashes[Math.floor(detRand(asset.id) * flashes.length)] as any;
             transDur = 0.2;
@@ -431,7 +476,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       // Авто-экспозиция: фрагменты с разных камер разной светимости разрывают ролик.
       // Собираем статистику клипа; единое выравнивание к медиане — после размещения
       // всех планов (каждый клип тянем к ОБЩЕМУ таргету, а не по локальному порогу).
-      if (clipSegs.length > 0 && asset.kind === "video") {
+      // Фото включены: у слайдшоу тональные скачки между снимками заметнее всего.
+      if (clipSegs.length > 0 && (asset.kind === "video" || asset.kind === "image")) {
          const stats = clipSegs.filter(s => s.brightness !== undefined);
          if (stats.length > 0) {
             const avgB = stats.reduce((a, s) => a + (s.brightness ?? 0), 0) / stats.length;
@@ -653,6 +699,25 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           { id: `hk1_${Math.random().toString(36).slice(2, 8)}`, time: 0, value: baseScale, easing: "easeOut" },
           { id: `hk2_${Math.random().toString(36).slice(2, 8)}`, time: duration, value: baseScale * 1.12, easing: "linear" },
         ];
+      }
+
+      // BLUR-PAD для портретных источников на ландшафтном канвасе:
+      // cover-кроп вертикального видео в 16:9 обезглавливает кадр (зум ×2.7+),
+      // а чёрные полосы выглядят дешево. Отраслевой стандарт — размытая
+      // подложка из того же кадра + полный кадр по центру. Движение камеры
+      // и наезд при этом отключаем (кадр виден целиком — резать нечего).
+      {
+        const canvasAspect = project.resolution.width / project.resolution.height;
+        const assetAspect = (asset.width ?? 16) / (asset.height ?? 9);
+        if (!isBroll && assetAspect < canvasAspect * 0.72
+            && (asset.kind === "video" || asset.kind === "image")) {
+          clip.blurPad = true;
+          clip.cameraMotion = "none";
+          clip.scale.value = 1;
+          clip.scale.keyframes = [];
+          clip.focusX = undefined;
+          clip.focusY = undefined;
+        }
       }
 
       track.clips.push(clip);
@@ -886,9 +951,17 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                        end: currentGroup[currentGroup.length - 1].end,
                        text: currentGroup.map(c => (c as any).word || (c as any).text).join(" "),
                        hasPunctuation,
+                       // Акцент-слова: на них срабатывает желтая подсветка + punch-zoom.
+                       // Числа/деньги/проценты — фактура, ради которой досматривают;
+                       // стоп-эмоции («секрет», «ошибка», «бесплатно») — триггеры удержания.
+                       // Старая эвристика «длина > 6» ловила любые длинные слова и мусор.
                        isEmphasized: currentGroup.some(c => {
-                          const t = ((c as any).word || (c as any).text).replace(/[^а-яА-Яa-zA-Z0-9]/g, "");
-                          return t.length > 6 || /^(не|нет|все|очень|важно|супер|как|что|это)$/i.test(t);
+                          const raw = String((c as any).word || (c as any).text || "");
+                          if (/\d/.test(raw)) return true; // цифры: даты, суммы, рейтинги
+                          if (/[!?]$/.test(raw.trim())) return true; // реплика-выпад
+                          const t = raw.toLowerCase().replace(/[^а-яёa-z]/g, "");
+                          if (t.length >= 8) return true;
+                          return /^(не|нет|никогда|нигде|всегда|все|очень|важно|главное|секрет|бесплатно|ошибка|опасно|больше|меньше|лучше|хуже|почему|зачем|сколько|никто|всё|never|always|best|worst|free|secret|mistake|why|how)$/.test(t);
                        })
                     });
                     currentGroup = [];

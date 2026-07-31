@@ -28,10 +28,38 @@ export interface VideoSegmentMetadata {
   contrast?: number;
   /** Средняя насыщенность (0..255). */
   saturation?: number;
+  /**
+   * Метрика колоритности Hasler–Süsstrunk (0..~120): оппонентные каналы
+   * rg = R−G, yb = (R+G)/2−B. Серые/блёклые кадры ≈0-10, живые ≈25-45,
+   * сочные закаты/неон >50. Надёжнее «средней насыщенности» отличает
+   * по-настоящему красочный кадр от просто тёмного/пересветлого.
+   */
+  colorfulness?: number;
   qualityScore: number; // 1-10
   isSceneChange: boolean;
   hasAction: boolean;
   aestheticScore: number;
+}
+
+/**
+ * Колоритность по Hasler–Süsstrunk — бесплатная (O(n) по пикселям) и
+ * устойчивая мера «сочности» кадра: std оппонентных каналов + 0.3*mean.
+ */
+function computeColorfulness(data: Uint8ClampedArray): number {
+  let sumRg = 0, sumYb = 0, sumRg2 = 0, sumYb2 = 0, n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const rg = r - g;
+    const yb = 0.5 * (r + g) - b;
+    sumRg += rg; sumYb += yb;
+    sumRg2 += rg * rg; sumYb2 += yb * yb;
+    n++;
+  }
+  if (n === 0) return 0;
+  const meanRg = sumRg / n, meanYb = sumYb / n;
+  const stdRg = Math.sqrt(Math.max(0, sumRg2 / n - meanRg * meanRg));
+  const stdYb = Math.sqrt(Math.max(0, sumYb2 / n - meanYb * meanYb));
+  return Math.sqrt(stdRg * stdRg + stdYb * stdYb) + 0.3 * Math.sqrt(meanRg * meanRg + meanYb * meanYb);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +285,7 @@ export async function analyzeVideoLocally(
         const avgBrightness = totalBrightness / pixelCount;
         const avgSaturation = totalSaturation / pixelCount;
         const contrast = maxLuma - minLuma;
+        const colorfulness = computeColorfulness(data);
         
         // Тёмный = провально экспонирован (плоский мрак). Высококонтрастная ночная
         // сцена (неон, огни) — это КИНО, она не должна караться: фильтруем ниже по contrast.
@@ -323,10 +352,14 @@ export async function analyzeVideoLocally(
         const isSceneChange = avgDiff > 45 && prevData !== null && motionRatio > 0.8;
 
         
-        // Aesthetic scoring based on color theory (Rule of Thirds / Color harmony approximation)
-        // High saturation + good contrast usually equals a more visually pleasing "stock-like" shot.
+        // Aesthetic scoring: контраст + КОЛОРИТНОСТЬ (Hasler) + лица.
+        // «Красивый стоковый» кадр — тот, что сочный по оппонентным каналам,
+        // а не просто перенасыщенный: метрика не завышает тёмные/пересветы.
         let aestheticScore = 5;
-        if (avgSaturation > 40 && contrast > 100 && !isDark && !isBlurry) aestheticScore += 3;
+        if (avgSaturation > 40 && contrast > 100 && !isDark && !isBlurry) aestheticScore += 2;
+        if (colorfulness > 25 && !isDark && !isBlurry) aestheticScore += 2;
+        else if (colorfulness > 15 && !isDark) aestheticScore += 1;
+        if (colorfulness < 6 && !isDark && contrast < 90) aestheticScore -= 1; // блёклый плоский кадр
         if (hasFaces && !isBlurry) aestheticScore += 2;
         if (motionLevel === "shake" || isBlurry) aestheticScore -= 4;
 
@@ -336,7 +369,7 @@ export async function analyzeVideoLocally(
         if (!isBlurry) qScore += 2;
         if (hasFaces) qScore += 2;
         if (actionScore > 0) qScore += 1; // Bonus for localized action
-        if (avgSaturation > 30) qScore += 1; // colorful
+        if (avgSaturation > 30 || colorfulness > 20) qScore += 1; // colorful
         if (contrast > 120) qScore += 1; // good contrast
         if (motionLevel === "shake") qScore -= 3;
         if (isDark) qScore -= 2;
@@ -357,6 +390,7 @@ export async function analyzeVideoLocally(
           brightness: Math.round(avgBrightness),
           contrast: Math.round(contrast),
           saturation: Math.round(avgSaturation),
+          colorfulness: Math.round(colorfulness * 10) / 10,
           qualityScore: qScore,
           isSceneChange,
           hasAction: actionScore > 0,
@@ -394,6 +428,134 @@ export async function analyzeVideoLocally(
   });
 }
 
+/**
+ * Анализ ФОТОГРАФИЙ: без него слайдшоу монтировалось вслепую — все фото
+ * получали дефолтный score=50, размытые/тёмные кадры проходили в ролик,
+ * а Ken Burns не знал, где лицо (focusX/focusY), и панорамы срезали портреты.
+ *
+ * Метрики идентичны видео-анализу (та же шкала qScore/aestheticScore),
+ * чтобы Director ранжировал фото и видео в одной системе координат.
+ * Возвращает единственный сегмент [0, 10с] — верхняя граница окна показа;
+ * реальную длительность на таймлайне решает Director.
+ */
+export async function analyzeImageLocally(file: File): Promise<VideoSegmentMetadata[]> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = async () => {
+      try {
+        const W = 64;
+        const H = 64;
+        const canvas = document.createElement("canvas");
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return resolve([]);
+
+        ctx.drawImage(img, 0, 0, W, H);
+        const data = ctx.getImageData(0, 0, W, H).data;
+
+        let totalBrightness = 0;
+        let minLuma = 255;
+        let maxLuma = 0;
+        let totalSaturation = 0;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+          totalBrightness += luma;
+          if (luma < minLuma) minLuma = luma;
+          if (luma > maxLuma) maxLuma = luma;
+          totalSaturation += Math.max(r, g, b) - Math.min(r, g, b);
+        }
+
+        const pixelCount = W * H;
+        const avgBrightness = totalBrightness / pixelCount;
+        const avgSaturation = totalSaturation / pixelCount;
+        const contrast = maxLuma - minLuma;
+        const colorfulness = computeColorfulness(data);
+        const laplacianVar = calculateLaplacianVariance(data, W, H);
+
+        const isDark = avgBrightness < 30 || maxLuma < 100;
+        // 64x64-превью фото разреженнее видеокадра: порог блюра чуть мягче,
+        // иначе честные портреты с кремовым боке вылетают из слайдшоу.
+        const isBlurry = laplacianVar < 45 && contrast < 100;
+
+        // Лица — полноразмерный проход (до 384px), как и для видео.
+        let hasFaces = false;
+        let faceX: number | undefined;
+        let faceY: number | undefined;
+        let faceSize: number | undefined;
+        const mpDetector = await loadMediaPipeFaceDetector();
+        if (mpDetector) {
+          const scale = Math.min(1, 384 / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+          const fc = document.createElement("canvas");
+          fc.width = Math.max(32, Math.round((img.naturalWidth || 320) * scale));
+          fc.height = Math.max(32, Math.round((img.naturalHeight || 240) * scale));
+          const fctx = fc.getContext("2d");
+          if (fctx) {
+            fctx.drawImage(img, 0, 0, fc.width, fc.height);
+            const mpFace = await detectFacesWithMediaPipe(mpDetector, fc);
+            if (mpFace) {
+              hasFaces = true;
+              faceX = Math.min(1, Math.max(0, mpFace.x));
+              faceY = Math.min(1, Math.max(0, mpFace.y));
+              faceSize = mpFace.size;
+            }
+          }
+        }
+
+        // Та же шкала, что и в видео-анализе — единая система ранжирования.
+        let aestheticScore = 5;
+        if (avgSaturation > 40 && contrast > 100 && !isDark && !isBlurry) aestheticScore += 2;
+        if (colorfulness > 25 && !isDark && !isBlurry) aestheticScore += 2;
+        else if (colorfulness > 15 && !isDark) aestheticScore += 1;
+        if (colorfulness < 6 && !isDark && contrast < 90) aestheticScore -= 1;
+        if (hasFaces && !isBlurry) aestheticScore += 2;
+        if (isBlurry) aestheticScore -= 4;
+
+        let qScore = 5;
+        if (!isDark) qScore += 1;
+        if (!isBlurry) qScore += 2;
+        if (hasFaces) qScore += 2;
+        if (avgSaturation > 30 || colorfulness > 20) qScore += 1;
+        if (contrast > 120) qScore += 1;
+        if (isDark) qScore -= 2;
+
+        resolve([{
+          startTime: 0,
+          endTime: 10, // верхняя граница окна показа; решает Director
+          motionLevel: "static",
+          isDark,
+          isBlurry,
+          hasFaces,
+          faceX,
+          faceY,
+          faceSize,
+          brightness: Math.round(avgBrightness),
+          contrast: Math.round(contrast),
+          saturation: Math.round(avgSaturation),
+          colorfulness: Math.round(colorfulness * 10) / 10,
+          qualityScore: Math.max(1, Math.min(10, Math.round(qScore))),
+          isSceneChange: false,
+          hasAction: false,
+          aestheticScore: Math.max(1, Math.min(10, Math.round(aestheticScore))),
+        }]);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve([]);
+    };
+
+    img.src = url;
+  });
+}
+
 // Group similar consecutive frames to reduce JSON payload for the LLM
 function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
   if (raw.length === 0) return [];
@@ -426,6 +588,7 @@ function compactSegments(raw: VideoSegmentMetadata[]): VideoSegmentMetadata[] {
       if (next.brightness !== undefined) (current as any).brightness = Math.round((((current as any).brightness ?? next.brightness) + next.brightness) / 2);
       if (next.contrast !== undefined) (current as any).contrast = Math.round((((current as any).contrast ?? next.contrast) + next.contrast) / 2);
       if (next.saturation !== undefined) (current as any).saturation = Math.round((((current as any).saturation ?? next.saturation) + next.saturation) / 2);
+      if (next.colorfulness !== undefined) (current as any).colorfulness = Math.round(((((current as any).colorfulness ?? next.colorfulness) + next.colorfulness) / 2) * 10) / 10;
       // If any frame had faces or motion, keep the higher priority tags
       if (next.hasFaces) {
         current.hasFaces = true;

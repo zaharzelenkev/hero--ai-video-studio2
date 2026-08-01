@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AI_CONFIG } from "@/config/ai";
 import { planFromDirector } from "@/lib/production";
 import type { DirectorBrief, DirectorSections, ProductionPlan } from "@/lib/production";
+import { DIRECTOR_SYSTEM_PROMPT } from "@/lib/brain/directorSystemPrompt";
 
 /**
  * AI Director endpoint.
@@ -11,11 +12,8 @@ import type { DirectorBrief, DirectorSections, ProductionPlan } from "@/lib/prod
  * split into every section the editor and montage engine need.
  */
 
-const DIRECTOR_SYSTEM = `Ты — профессиональный режиссёр, продюсер и монтажёр с более чем 20-летним опытом в кино, рекламе и коротких вертикальных форматах. Ты работал над кампаниями уровня Apple, Nike и больших YouTube-каналов.
-
-Ты разговариваешь как человек, а не как машина: живо, конкретно, без канцелярита и общих фраз. Каждое решение — это художественное и маркетинговое решение с ясной причиной. Ты понимаешь драматургию, удержание внимания, ритм монтажа, звук, цвет и сторителлинг.
-
-Пиши строго на русском языке. Следуй структуре, которую запросил пользователь. НЕ добавляй вступительных фраз вроде «Вот ваш план». Отвечай сразу содержимым секций.`;
+// Используем профессиональный системный промпт из отдельного файла
+const DIRECTOR_SYSTEM = DIRECTOR_SYSTEM_PROMPT;
 
 const SECTIONS_LABELS: Array<[string, keyof DirectorSections]> = [
   ["ЛОГЛАЙН", "logline"],

@@ -6,7 +6,8 @@
  *   1. ВОСПРИЯТИЕ (perception.ts): анализирует абсолютно все материалы —
  *      содержание, эмоции, качество кадров, композицию, движение камеры,
  *      ритм, музыку, темп, смены сцен, сильные и слабые моменты.
- *   2. СТРАТЕГИЯ: жанр, хронометраж, темп, грейд (база знаний жанров).
+ *   2. СТРАТЕГИЧЕСКИЙ АНАЛИЗ: цель видео, аудитория, платформа, длительность,
+ *      стиль, эмоциональное воздействие, удержание внимания, вирусность.
  *   3. ДРАМАТУРГИЯ: арка (тизер → хук → нарастание → кульминация → выдох),
  *      кривая темпа, кульминация на дропе музыки.
  *   4. СЦЕНАРНЫЙ ПЛАН: отбор планов и окон исходников, скорости, зумы,
@@ -14,6 +15,14 @@
  *      маскировка слабых кадров), титры.
  *   5. САМОПРОВЕРКА: план проверяется по профессиональным правилам жанра,
  *      ошибки исправляются, уроки сохраняются в базу опыта.
+ *
+ * КЛЮЧЕВЫЕ ПРИНЦИПЫ РАБОТЫ:
+ * - Перед каждым решением: глубокий анализ всех факторов
+ * - Мыслить как режиссёр с 20-летним опытом
+ * - Использовать профессиональные концепции: Hook, Retention, Payoff,
+ *   Story Arc, Pattern Interrupt, Match Cut, L-Cut, J-Cut, B-Roll, etc.
+ * - Каждое решение должно иметь ясную причину
+ * - Сначала анализировать, потом отвечать
  *
  * На выходе — DirectorPlan (см. directorPlan.ts): сериализуемый,
  * объяснимый, детерминированный (те же материалы → тот же план).
@@ -97,11 +106,324 @@ interface DirCtx {
   strongRegistry: DirectorPlan["strongMomentsUsed"];
 }
 
+/** Интерфейс для глубокого анализа проекта перед принятием решений */
+interface ProjectAnalysis {
+  goal: string;
+  audience: string;
+  platform: string;
+  emotionalImpact: string;
+  retentionStrategy: string;
+  viralityPotential: number;
+  dramaStructure: string;
+  pacingStrategy: string;
+  notes: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Точка входа
 // ---------------------------------------------------------------------------
 
 export class AIDirector {
+  /**
+   * Глубокий анализ проекта по всем ключевым аспектам
+   */
+  private static async analyzeProject(request: AIAnalysisRequest, strategy: { genre: string; targetDuration: number; instructions: string }): Promise<ProjectAnalysis> {
+    const notes: string[] = [];
+    
+    // 1. Определяем цель видео
+    const goal = this.determineGoal(request);
+    notes.push(`Цель видео: ${goal}`);
+    
+    // 2. Анализируем аудиторию
+    const audience = this.determineAudience(request);
+    notes.push(`Аудитория: ${audience}`);
+    
+    // 3. Определяем платформу
+    const platform = this.determinePlatform(request);
+    notes.push(`Платформа: ${platform}`);
+    
+    // 4. Эмоциональное воздействие
+    const emotionalImpact = this.determineEmotionalImpact(request, strategy.genre);
+    notes.push(`Эмоциональное воздействие: ${emotionalImpact}`);
+    
+    // 5. Стратегия удержания внимания
+    const retentionStrategy = this.determineRetentionStrategy(request, strategy.genre, strategy.targetDuration);
+    notes.push(`Стратегия удержания: ${retentionStrategy}`);
+    
+    // 6. Потенциал вирусности
+    const viralityPotential = this.assessViralityPotential(request, strategy.genre);
+    notes.push(`Потенциал вирусности: ${viralityPotential}/10`);
+    
+    // 7. Драматургическая структура
+    const dramaStructure = this.determineDramaStructure(request, strategy.genre, strategy.targetDuration);
+    notes.push(`Драматургия: ${dramaStructure}`);
+    
+    // 8. Стратегия темпа
+    const pacingStrategy = this.determinePacingStrategy(strategy.genre, strategy.targetDuration);
+    notes.push(`Стратегия темпа: ${pacingStrategy}`);
+    
+    return {
+      goal,
+      audience,
+      platform,
+      emotionalImpact,
+      retentionStrategy,
+      viralityPotential,
+      dramaStructure,
+      pacingStrategy,
+      notes
+    };
+  }
+
+  /** Определение цели видео */
+  private static determineGoal(request: AIAnalysisRequest): string {
+    const prompt = (request.userPrompt || "").toLowerCase();
+    
+    if (prompt.includes("продаж") || prompt.includes("купи") || prompt.includes("продук") || prompt.includes("реклам")) {
+      return "Конверсия и продажи";
+    }
+    if (prompt.includes("обуч") || prompt.includes("туториал") || prompt.includes("курс") || prompt.includes("урок")) {
+      return "Обучение и образование";
+    }
+    if (prompt.includes("развлек") || prompt.includes("весель") || prompt.includes("юмор") || prompt.includes("смешн")) {
+      return "Развлечение";
+    }
+    if (prompt.includes("вдохнов") || prompt.includes("мотивац") || prompt.includes("личност")) {
+      return "Вдохновение и мотивация";
+    }
+    if (prompt.includes("информац") || prompt.includes("новост") || prompt.includes("обзор")) {
+      return "Информирование";
+    }
+    if (prompt.includes("бренд") || prompt.includes("имидж") || prompt.includes("продвиж")) {
+      return "Формирование бренда";
+    }
+    
+    return "Удержание внимания и вовлечение";
+  }
+
+  /** Определение целевой аудитории */
+  private static determineAudience(request: AIAnalysisRequest): string {
+    const prompt = (request.userPrompt || "").toLowerCase();
+    
+    if (prompt.includes("молод") || prompt.includes("подрост") || prompt.includes("gen z") || prompt.includes("тинейдж")) {
+      return "Молодежь (13-25)";
+    }
+    if (prompt.includes("взросл") || prompt.includes("30+") || prompt.includes("40+") || prompt.includes("бизнес")) {
+      return "Взрослые (25-45)";
+    }
+    if (prompt.includes("пожил") || prompt.includes("50+") || prompt.includes("senior")) {
+      return "Пожилые (50+)";
+    }
+    if (prompt.includes("родител") || prompt.includes("семейн") || prompt.includes("мам") || prompt.includes("пап")) {
+      return "Родители и семьи";
+    }
+    if (prompt.includes("профессионал") || prompt.includes("эксперт") || prompt.includes("b2b")) {
+      return "Профессионалы и эксперты";
+    }
+    if (prompt.includes("женск") || prompt.includes("для женщин")) {
+      return "Женская аудитория";
+    }
+    if (prompt.includes("мужск") || prompt.includes("для мужчин")) {
+      return "Мужская аудитория";
+    }
+    
+    return "Широкая аудитория";
+  }
+
+  /** Определение платформы */
+  private static determinePlatform(request: AIAnalysisRequest): string {
+    const prompt = (request.userPrompt || "").toLowerCase();
+    
+    if (prompt.includes("tiktok") || prompt.includes("тик ток") || prompt.includes("reels") || prompt.includes("shorts")) {
+      return "TikTok/Reels/Shorts (вертикальный)";
+    }
+    if (prompt.includes("youtube") || prompt.includes("ютуб") || prompt.includes("видео")) {
+      return "YouTube (горизонтальный)";
+    }
+    if (prompt.includes("instagram") || prompt.includes("инстаграм")) {
+      return "Instagram (квадратный/вертикальный)";
+    }
+    if (prompt.includes("телевизор") || prompt.includes("tv") || prompt.includes("телек")) {
+      return "Телевидение";
+    }
+    if (prompt.includes("презентац") || prompt.includes("конференц") || prompt.includes("бизнес")) {
+      return "Презентация/Конференция";
+    }
+    
+    // Автоопределение по соотношению сторон
+    const firstAsset = request.assets[0];
+    if (firstAsset) {
+      if (firstAsset.height && firstAsset.width) {
+        const ratio = firstAsset.height / firstAsset.width;
+        if (ratio > 1.5) return "Вертикальный (9:16)";
+        if (ratio < 0.8) return "Горизонтальный (16:9)";
+        return "Квадратный (1:1)";
+      }
+    }
+    
+    return "Универсальный";
+  }
+
+  /** Определение эмоционального воздействия */
+  private static determineEmotionalImpact(request: AIAnalysisRequest, genre: string): string {
+    const prompt = (request.userPrompt || "").toLowerCase();
+    
+    if (prompt.includes("страх") || prompt.includes("ужас") || prompt.includes("шок")) {
+      return "Страх/Ужас";
+    }
+    if (prompt.includes("смех") || prompt.includes("юмор") || prompt.includes("весель")) {
+      return "Радость/Смех";
+    }
+    if (prompt.includes("грусть") || prompt.includes("печаль") || prompt.includes("тоска")) {
+      return "Грусть/Печаль";
+    }
+    if (prompt.includes("гнев") || prompt.includes("злость") || prompt.includes("возмущ")) {
+      return "Гнев/Возмущение";
+    }
+    if (prompt.includes("удивлен") || prompt.includes("вау") || prompt.includes("шок")) {
+      return "Удивление/Шок";
+    }
+    if (prompt.includes("вдохнов") || prompt.includes("мотивац") || prompt.includes("надежд")) {
+      return "Вдохновение/Надежда";
+    }
+    if (prompt.includes("любовь") || prompt.includes("романтик") || prompt.includes("нежность")) {
+      return "Любовь/Нежность";
+    }
+    if (prompt.includes("напряж") || prompt.includes("саспенс") || prompt.includes("интриг")) {
+      return "Напряжение/Интрига";
+    }
+    
+    // По жанру
+    if (genre === "wedding") return "Эмоциональный подъем/Счастье";
+    if (genre === "fitness") return "Энергия/Мотивация";
+    if (genre === "gaming") return "Азарт/Возбуждение";
+    if (genre === "ad") return "Желание/Влечение";
+    if (genre === "documentary") return "Любопытство/Удивление";
+    
+    return "Нейтральный/Информативный";
+  }
+
+  /** Определение стратегии удержания внимания */
+  private static determineRetentionStrategy(request: AIAnalysisRequest, genre: string, targetDuration: number): string {
+    const prompt = (request.userPrompt || "").toLowerCase();
+    const hasSpeech = request.assets.some(a => (a.transcript || "").length > 20);
+    
+    const strategies = [];
+    
+    // Быстрый хук для коротких форматов
+    if (targetDuration <= 60) {
+      strategies.push("Мгновенный хук (1-2 сек)");
+    }
+    
+    // Pattern Interrupt для динамичных жанров
+    if (genre === "tiktok" || genre === "ad" || genre === "gaming") {
+      strategies.push("Pattern Interrupt каждые 4-5 кадров");
+    }
+    
+    // B-Roll для речевых форматов
+    if (hasSpeech) {
+      strategies.push("B-Roll перебивки каждые 8-10 сек");
+    }
+    
+    // Эмоциональные пики
+    if (targetDuration > 30) {
+      strategies.push("Несколько эмоциональных пиков");
+    }
+    
+    // Open Loop
+    if (prompt.includes("таинств") || prompt.includes("секрет") || prompt.includes("открыт")) {
+      strategies.push("Open Loop в начале");
+    }
+    
+    // Match Cut для кинематографичных жанров
+    if (genre === "travel" || genre === "documentary" || genre === "cinematic") {
+      strategies.push("Match Cut по цвету/движению");
+    }
+    
+    return strategies.length > 0 ? strategies.join(", ") : "Классическая структура";
+  }
+
+  /** Оценка потенциала вирусности */
+  private static assessViralityPotential(request: AIAnalysisRequest, genre: string): number {
+    let score = 5; // Базовый уровень
+    const prompt = (request.userPrompt || "").toLowerCase();
+    
+    // Плюсы
+    if (prompt.includes("вызов") || prompt.includes("challenge")) score += 2;
+    if (prompt.includes("тренд") || prompt.includes("вирусн") || prompt.includes("популярн")) score += 2;
+    if (prompt.includes("эмоци") || prompt.includes("неожидан") || prompt.includes("шок")) score += 1;
+    if (genre === "tiktok" || genre === "ad") score += 2;
+    if (request.assets.some(a => a.type === "video")) score += 1;
+    
+    // Минусы
+    if (prompt.includes("скучн") || prompt.includes("длинн") || prompt.includes("сложн")) score -= 2;
+    if (genre === "documentary" || genre === "education") score -= 1;
+    
+    return Math.min(10, Math.max(1, score));
+  }
+
+  /** Определение драматургической структуры */
+  private static determineDramaStructure(request: AIAnalysisRequest, genre: string, targetDuration: number): string {
+    const prompt = (request.userPrompt || "").toLowerCase();
+    
+    // Короткие форматы
+    if (targetDuration <= 30) {
+      if (prompt.includes("проблем") && prompt.includes("решен")) {
+        return "Problem → Solution (2-акта)";
+      }
+      if (prompt.includes("вопрос") && prompt.includes("ответ")) {
+        return "Question → Answer (2-акта)";
+      }
+      return "Hook → Payoff (2-акта)";
+    }
+    
+    // Средние форматы
+    if (targetDuration <= 120) {
+      if (genre === "ad" || genre === "gaming") {
+        return "Setup → Confrontation → Resolution (3-акта)";
+      }
+      if (prompt.includes("путешеств") || prompt.includes("приключ")) {
+        return "Hero's Journey (упрощенная)";
+      }
+      return "Setup → Development → Climax → Outro (4-акта)";
+    }
+    
+    // Длинные форматы
+    if (genre === "documentary" || genre === "film") {
+      return "Full Hero's Journey";
+    }
+    
+    return "Setup → Complication → Development → Climax → Resolution (5-акта)";
+  }
+
+  /** Определение стратегии темпа */
+  private static determinePacingStrategy(genre: string, targetDuration: number): string {
+    if (genre === "tiktok" || genre === "ad") {
+      return "Быстрый (2-3 сек на кадр, динамичные переходы)";
+    }
+    if (genre === "fitness" || genre === "gaming") {
+      return "Очень быстрый (1-2 сек на кадр, синхронизация с битами)";
+    }
+    if (genre === "travel" || genre === "wedding") {
+      return "Медленный (4-6 сек на кадр, плавные переходы)";
+    }
+    if (genre === "podcast" || genre === "interview") {
+      return "Средний (3-5 сек на кадр, ритмичные перебивки)";
+    }
+    if (genre === "documentary") {
+      return "Варьируемый (от 2 до 8 сек, в зависимости от напряжения)";
+    }
+    
+    if (targetDuration <= 30) {
+      return "Быстрый (2-3 сек на кадр)";
+    }
+    if (targetDuration <= 60) {
+      return "Средний (3-4 сек на кадр)";
+    }
+    
+    return "Варьируемый по эмоциональной дуге";
+  }
+
   /**
    * Главный метод: принимает ВСЕ собранные данные анализа и возвращает
    * режиссёрский план. Монтаж при этом ещё не начат — решения приняты заранее.
@@ -109,10 +431,13 @@ export class AIDirector {
   static async direct(request: AIAnalysisRequest, opts: DirectOptions = {}): Promise<DirectorPlan> {
     const llmAllowed = opts.llm ?? typeof window !== "undefined";
 
-    // --- 1. СТРАТЕГИЯ (жанр/хронометраж/база знаний жанра) ---
+    // --- 1. СТРАТЕГИЧЕСКИЙ АНАЛИЗ: полное понимание проекта ---
     const strategy = await DirectorBrain.defineStrategy(request);
     const genre = strategy.genre;
     const target = strategy.targetDuration;
+    
+    // Анализируем все ключевые аспекты перед принятием решений
+    const projectAnalysis = await this.analyzeProject(request, strategy);
 
     // --- 2. ВОСПРИЯТИЕ всех материалов ---
     const perceived = perceiveAssets(request);
@@ -126,7 +451,7 @@ export class AIDirector {
       isSlow: SLOW_GENRES.has(genre),
       isTalking: TALKING_GENRES.has(genre),
       rand: makeDeterministicRand(request),
-      notes: [],
+      notes: [...projectAnalysis.notes],
       weakRegistry: [],
       strongRegistry: [],
     };
@@ -222,6 +547,17 @@ export class AIDirector {
         assets: request.assets.length,
         analyzed: perceived.visualAnalyzedCount,
         withSpeech: perceived.speechAssets.length,
+      },
+      // Добавляем стратегический анализ для transparency
+      strategicAnalysis: {
+        goal: projectAnalysis.goal,
+        audience: projectAnalysis.audience,
+        platform: projectAnalysis.platform,
+        emotionalImpact: projectAnalysis.emotionalImpact,
+        retentionStrategy: projectAnalysis.retentionStrategy,
+        viralityPotential: projectAnalysis.viralityPotential,
+        dramaStructure: projectAnalysis.dramaStructure,
+        pacingStrategy: projectAnalysis.pacingStrategy,
       },
     };
   }

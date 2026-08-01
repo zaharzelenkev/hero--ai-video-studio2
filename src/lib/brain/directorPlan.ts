@@ -116,6 +116,17 @@ export interface StrongMomentUse {
   phase: PlanPhase;
 }
 
+export interface StrategicAnalysis {
+  goal: string;
+  audience: string;
+  platform: string;
+  emotionalImpact: string;
+  retentionStrategy: string;
+  viralityPotential: number;
+  dramaStructure: string;
+  pacingStrategy: string;
+}
+
 export interface DirectorPlan {
   version: 1;
   createdAt: number;
@@ -139,4 +150,6 @@ export interface DirectorPlan {
   /** Самопроверка: что прошло и что режиссёр исправил сам. */
   qa: { passed: string[]; fixed: string[] };
   analysisCoverage: { assets: number; analyzed: number; withSpeech: number };
+  /** Стратегический анализ проекта: цель, аудитория, платформа, эмоции, удержание, вирусность */
+  strategicAnalysis?: StrategicAnalysis;
 }

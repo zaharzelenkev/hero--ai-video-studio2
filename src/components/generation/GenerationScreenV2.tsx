@@ -32,13 +32,18 @@ export default function GenerationScreenV2() {
     listProjects().then(setRecentProjects).catch(() => {});
   }, []);
 
-  const startDirector = async () => {
+  const startDirector = async (mode: "basic" | "pro" = "basic") => {
     const { createEmptyProject } = await import("@/lib/factories");
     const { saveProject } = await import("@/lib/db");
     const p = createEmptyProject("Новый проект");
     await saveProject(p);
     setRecentProjects(await listProjects());
-    router.push(`/director/${p.id}`);
+    try {
+      localStorage.setItem(`montiq.director.mode.${p.id}`, mode);
+    } catch {
+      /* ignore */
+    }
+    router.push(`/director/${p.id}?mode=${mode}`);
   };
 
   const canGenerate = (items.length > 0 || prompt.trim().length > 5) && stage !== "generating" && stage !== "reading";
@@ -177,21 +182,28 @@ export default function GenerationScreenV2() {
             </div>
           </div>
           <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
-            {[
-              ["💡", "Idea"], ["🎯", "Logline"], ["📖", "Treatment"], ["📜", "Script"], ["🎬", "Vision"],
-              ["🖼", "Storyboard"], ["📋", "Shot List"], ["🗓", "Planning"], ["🎭", "Casting"], ["📍", "Locations"],
-              ["⚠️", "Risks"], ["💬", "Chat"],
-            ].map(([icon, label]) => (
-              <div key={label} className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-[10px] font-semibold text-slate-400">
-                <span className="text-xs leading-none">{icon}</span>
-                <span className="hidden md:inline">{label}</span>
-              </div>
-            ))}
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+            <span className="hidden text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 lg:inline">
+              AI Director
+            </span>
+            <button
+              onClick={() => startDirector("basic")}
+              className="shrink-0 rounded-full border border-violet-400/30 bg-violet-500/10 px-3.5 py-1.5 text-[11px] font-extrabold text-violet-100 transition hover:bg-violet-500/20 hover:brightness-110"
+              title="Режиссёр сам ведёт вас вопросами в чате"
+            >
+              🧭 Базовый режим
+            </button>
+            <button
+              onClick={() => startDirector("pro")}
+              className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.02] px-3.5 py-1.5 text-[11px] font-extrabold text-slate-300 transition hover:bg-white/[0.06] hover:text-slate-100"
+              title="Полный Production Workspace со всеми разделами"
+            >
+              🎬 Профессиональный режим
+            </button>
           </div>
           <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
           <button
-            onClick={startDirector}
+            onClick={() => startDirector("basic")}
             className="shrink-0 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-[11px] font-extrabold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110"
           >
             Запустить AI Director →
@@ -225,7 +237,7 @@ export default function GenerationScreenV2() {
         {/* AI Director — separate production stage */}
         <div className="mb-10 flex justify-center">
           <button
-            onClick={startDirector}
+            onClick={() => startDirector("basic")}
             className="group relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6 text-left shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01] hover:border-violet-400/40 hover:bg-white/[0.04]"
             aria-label="Открыть AI Director"
           >
@@ -242,8 +254,9 @@ export default function GenerationScreenV2() {
                   </h2>
                 </div>
                 <p className="text-xs leading-relaxed text-slate-400">
-                  Начните не с монтажа, а с режиссуры. Виртуальный режиссёр соберёт бриф и подготовит
-                  логлайн, сценарий, раскадровку, shot list и план монтажа — до того, как вы вставите первый кадр.
+                  Начните не с монтажа, а с режиссуры. В базовом режиме режиссёр сам ведёт вас
+                  вопросами в чате и собирает весь Production Blueprint; в профессиональном — открывается
+                  полный Production Workspace со всеми разделами.
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3 text-sm font-extrabold text-white shadow-xl shadow-violet-900/40 transition-transform duration-300 group-hover:translate-x-1">

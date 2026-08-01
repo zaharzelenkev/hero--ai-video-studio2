@@ -120,13 +120,18 @@ function buildVideoClipChain(
     let cropX = "(in_w-out_w)/2";
     let cropY = "(in_h-out_h)/2";
     
+    // Smart Reframe (focusX/focusY): сдвигаем кроп так, чтобы лицо держалось в кадре.
+    // FFmpeg-выражения внутри crop НЕ в одинарных кавычках, поэтому запятые нужно
+    // экранировать (\,) — иначе парсер filtergraph примет их за разделитель цепочки и
+    // попытается прочитать «0» из clamp(...) как имя фильтра («No such filter: '0'»).
+    // Функция — clip(x,min,max), НЕ clamp (последней в ffmpeg eval не существует).
     if (clip.focusX !== undefined) {
       const fxExpr = paramToFfmpegExpr(clip.focusX, "t");
-      cropX = `clamp((in_w*(${fxExpr}))-(out_w/2),0,in_w-out_w)`;
+      cropX = `clip((in_w*(${fxExpr}))-(out_w/2)\\,0\\,in_w-out_w)`;
     }
     if (clip.focusY !== undefined) {
       const fyExpr = paramToFfmpegExpr(clip.focusY, "t");
-      cropY = `clamp((in_h*(${fyExpr}))-(out_h/2),0,in_h-out_h)`;
+      cropY = `clip((in_h*(${fyExpr}))-(out_h/2)\\,0\\,in_h-out_h)`;
     }
     
     // Animate zooming over the crop if scale.keyframes > 0 (Ken Burns emulation on cover)

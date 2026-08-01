@@ -160,7 +160,7 @@ export default function TimelineV2() {
       </div>
 
       <div ref={scrollRef} onScroll={updateScroll} className="flex-1 overflow-auto custom-scrollbar">
-        <div className="flex" style={{ minWidth: totalWidth + 80 }}>
+        <div className="relative flex" style={{ minWidth: totalWidth + 80 }}>
           {/* Track headers */}
           <div className="w-20 shrink-0 bg-[#0d0d16] border-r border-white/10 flex flex-col">
             {tracks.map((track: Track) => (
@@ -172,6 +172,15 @@ export default function TimelineV2() {
 
           {/* Timeline area */}
           <div className="flex-1 relative bg-gradient-to-b from-[#08080f] to-[#0a0a12]">
+            {/* The playhead continues through every track, not just the ruler.  A wide,
+                high-contrast hit area keeps it easy to see and grab while editing. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute top-0 bottom-0 z-20 w-4 -translate-x-1/2"
+              style={{ left: playhead * pxPerSecond }}
+            >
+              <div className="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-gradient-to-b from-amber-300 via-violet-400 to-cyan-300 shadow-[0_0_10px_rgba(129,140,248,0.9)]" />
+            </div>
             {tracks.map((track: Track) => (
               <div key={track.id} className="h-16 border-b border-white/5 relative flex items-center" style={{ height: 64 }}>
                 {track.clips.map((clip: Clip) => {
@@ -212,14 +221,14 @@ export default function TimelineV2() {
       {scrollInfo.canScroll && (
         <div className="shrink-0 px-3 pb-2 pt-1.5 bg-[#0d0d16] border-t border-white/10">
           <div
-            className="relative h-4 rounded-full bg-white/10 hover:bg-white/15 cursor-pointer"
+            className="relative h-5 rounded-full bg-white/10 hover:bg-white/15 cursor-pointer shadow-inner shadow-black/40"
             onMouseDown={onTrackMouseDown}
             title="Прокрутка таймлайна"
           >
             <div
               data-scroll-thumb="true"
               onMouseDown={onThumbMouseDown}
-              className="absolute top-0 h-4 rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 shadow-lg shadow-violet-900/50 cursor-grab active:cursor-grabbing"
+              className="absolute top-0 h-5 rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 shadow-lg shadow-violet-900/50 cursor-grab active:cursor-grabbing ring-1 ring-white/20"
               style={{ width: `${thumbWidthPct}%`, left: `${thumbLeftPct}%` }}
             />
           </div>

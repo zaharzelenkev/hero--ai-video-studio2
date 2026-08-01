@@ -115,7 +115,7 @@ function platformSettings(platform: ProductionPlatform) {
 
 /** Deterministic, offline-first creative brief so planning works without an API key. */
 export function createProductionPlan({ idea, templateId, assets = [] }: ProductionPlanInput): ProductionPlan {
-  const prompt = clean(idea) || "Новая история, которую нужно превратить в ясное и выразительное видео";
+  const prompt = clean(idea) || "Новое видео";
   const platform = detectPlatform(prompt, templateId);
   const settings = platformSettings(platform);
   const hasAudio = assets.some((asset) => asset.kind === "audio");

@@ -13,7 +13,6 @@ import { saveBlob, saveProject, listProjects, deleteProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import type { MediaAsset, Project } from "@/lib/types";
 import { createProductionPlan } from "@/lib/production";
-import ProductionBlueprint from "./ProductionBlueprint";
 
 type Stage = "idle" | "reading" | "generating" | "error";
 
@@ -27,15 +26,9 @@ export default function GenerationScreenV2() {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
-  const [videoGenEnabled, setVideoGenEnabled] = useState<boolean | null>(null);
-  
-    
+
   useEffect(() => {
     listProjects().then(setRecentProjects).catch(() => {});
-    fetch("/api/video-gen?health=1")
-      .then((r) => (r.ok ? r.json() : { videoEnabled: false }))
-      .then((j) => setVideoGenEnabled(Boolean(j.videoEnabled)))
-      .catch(() => setVideoGenEnabled(false));
   }, []);
 
   const startDirector = async () => {
@@ -200,28 +193,17 @@ export default function GenerationScreenV2() {
             <div className="relative flex items-center gap-5">
               <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400 text-3xl shadow-2xl shadow-violet-900/50 transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3">
                 🎬
-                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] shadow-lg">✦</span>
               </div>
               <div className="min-w-0 flex-1">
                 <div className="mb-0.5 flex items-center gap-2">
                   <h2 className="bg-gradient-to-r from-violet-200 via-fuchsia-200 to-amber-200 bg-clip-text text-xl font-black tracking-tight text-transparent">
                     AI Director
                   </h2>
-                  <span className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white shadow-lg">
-                    Премиум
-                  </span>
                 </div>
                 <p className="text-xs leading-relaxed text-slate-400">
                   Начните не с монтажа, а с режиссуры. Виртуальный режиссёр соберёт бриф и подготовит
                   логлайн, сценарий, раскадровку, shot list и план монтажа — до того, как вы вставите первый кадр.
                 </p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {["Логлайн", "Сценарий", "Storyboard", "Shot List", "Музыка", "Цвет", "Монтаж"].map((t) => (
-                    <span key={t} className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[9px] font-medium text-slate-400">
-                      {t}
-                    </span>
-                  ))}
-                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3 text-sm font-extrabold text-white shadow-xl shadow-violet-900/40 transition-transform duration-300 group-hover:translate-x-1">
                 Начать
@@ -240,7 +222,6 @@ export default function GenerationScreenV2() {
               <div className="mt-6">
                 <PromptForm prompt={prompt} onChange={setPrompt} templateId={templateId} onTemplateChange={setTemplateId} />
               </div>
-              <ProductionBlueprint plan={productionPlan} />
 
               {stage === "error" && (
                 <div className="mt-6 flex flex-col items-center justify-center rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-center backdrop-blur-sm animate-in fade-in zoom-in-95 duration-300">
@@ -283,23 +264,6 @@ export default function GenerationScreenV2() {
               <p className="mt-3 text-center text-[10px] text-slate-500">
                 Все данные обрабатываются локально на вашем устройстве
               </p>
-
-              {items.length === 0 && videoGenEnabled !== null && (
-                <p className="mt-2 text-center text-[10px] leading-relaxed text-slate-500">
-                  {videoGenEnabled ? (
-                    <span className="text-emerald-400/80">🎥 AI-видео активно: сцены генерируются как настоящие видеоклипы с движением</span>
-                  ) : (
-                    <>
-                      🖼 Генерация с нуля сейчас использует AI-изображения + движение камеры.{" "}
-                      Чтобы сцены были настоящими AI-видеоклипами, добавьте бесплатный ключ{" "}
-                      <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer" className="text-violet-400 underline hover:text-violet-300">
-                        Pollinations
-                      </a>{" "}
-                      в переменную <code className="text-slate-400">POLLINATIONS_API_KEY</code>
-                    </>
-                  )}
-                </p>
-              )}
             </div>
           </div>
         </div>

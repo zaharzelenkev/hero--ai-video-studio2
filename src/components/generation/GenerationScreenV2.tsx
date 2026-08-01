@@ -234,7 +234,7 @@ export default function GenerationScreenV2() {
         <div className="mb-10 flex justify-center">
           <button
             onClick={() => startDirector("basic")}
-            className="group relative w-full max-w-4xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6 text-left shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01] hover:border-violet-400/40 hover:bg-white/[0.04]"
+            className="group relative w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6 text-left shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01] hover:border-violet-400/40 hover:bg-white/[0.04]"
             aria-label="Открыть AI Director"
           >
             <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-violet-600/20 blur-[80px] transition-opacity duration-300 group-hover:bg-violet-600/30" />
@@ -266,7 +266,7 @@ export default function GenerationScreenV2() {
         {/* Main Content */}
         <div className="mb-12 flex justify-center">
           {/* Upload Section */}
-          <div className="w-full max-w-4xl">
+          <div className="w-full max-w-5xl">
             <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 shadow-2xl backdrop-blur-sm sm:p-8">
               <UploadZone items={items} onAdd={onAdd} onRemove={onRemove} />
               <div className="mt-6">

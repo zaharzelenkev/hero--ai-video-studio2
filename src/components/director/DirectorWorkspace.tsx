@@ -59,7 +59,7 @@ const emptyBrief = (): DirectorBrief => ({
 });
 
 const inputCls =
-  "w-full rounded-xl border border-white/[0.09] bg-black/30 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-violet-400/60 focus:bg-black/40 focus:ring-2 focus:ring-violet-500/20";
+  "w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-violet-400/60 focus:bg-black/30 focus:ring-2 focus:ring-violet-500/20";
 
 export default function DirectorWorkspace({
   projectId,
@@ -95,9 +95,8 @@ export default function DirectorWorkspace({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
-  const [isFallback, setIsFallback] = useState(false);
+  // NOTE: model selection (remote vs local) is internal and NEVER shown to the user.
 
-  // Сохраняем выбранный режим для этого проекта (Базовый / Профессиональный).
   useEffect(() => {
     try {
       localStorage.setItem(`montiq.director.mode.${projectId}`, mode);
@@ -106,7 +105,7 @@ export default function DirectorWorkspace({
     }
   }, [mode, projectId]);
 
-  // Load existing project on mount
+  // Load existing project
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -135,7 +134,6 @@ export default function DirectorWorkspace({
     };
   }, [projectId, loadProjectStore, project]);
 
-  // Persist helper (local state)
   const updatePreprod = (fn: (p: PreProduction) => PreProduction) => {
     setPreprod((prev) => {
       if (!prev) return prev;
@@ -161,41 +159,30 @@ export default function DirectorWorkspace({
 
   const readiness = useMemo(() => {
     if (!preprod) return Math.min(100, filledCount * 8);
-    const sections: Array<keyof PreProduction> = [
-      "idea",
-      "logline",
-      "treatment",
-      "script",
-      "vision",
-      "storyboard",
-      "shotlist",
-      "planning",
-      "casting",
-      "locations",
-      "risks",
+    const keys: Array<keyof PreProduction> = [
+      "idea", "logline", "treatment", "script", "vision",
+      "storyboard", "shotlist", "planning", "casting", "locations", "risks",
     ];
     let done = 0;
-    for (const key of sections) {
+    for (const key of keys) {
       const v = (preprod as any)[key];
       if (!v) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       if (typeof v === "object" && !Array.isArray(v)) {
-        // check key content
         if (key === "idea" && v.refined) done++;
         else if (key === "logline" && v.primary) done++;
         else if (key === "treatment" && v.synopsisLong) done++;
-        else if (key === "script" && v.scenes && v.scenes.length > 0) done++;
-        else if (key === "vision" && v.scenes && v.scenes.length > 0) done++;
-        else if (key === "storyboard" && v.frames && v.frames.length > 0) done++;
-        else if (key === "shotlist" && v.shots && v.shots.length > 0) done++;
-        else if (key === "planning" && v.schedule && v.schedule.length > 0) done++;
-        else if (key === "risks" && v.risks && v.risks.length > 0) done++;
+        else if (key === "script" && v.scenes?.length > 0) done++;
+        else if (key === "vision" && v.scenes?.length > 0) done++;
+        else if (key === "storyboard" && v.frames?.length > 0) done++;
+        else if (key === "shotlist" && v.shots?.length > 0) done++;
+        else if (key === "planning" && v.schedule?.length > 0) done++;
+        else if (key === "risks" && v.risks?.length > 0) done++;
       }
     }
-    // casting/locations start empty (user adds photos) → count them as partially done if role templates exist
     if (preprod.casting.length > 0) done++;
     if (preprod.locations.length > 0) done++;
-    return Math.round((done / sections.length) * 100);
+    return Math.round((done / keys.length) * 100);
   }, [preprod, filledCount]);
 
   const canGenerate = brief.idea.trim().length >= 4 && stage !== "generating";
@@ -205,15 +192,15 @@ export default function DirectorWorkspace({
     if (stg === "full") setStage("generating");
     setBusyStage(stg);
     const steps = [
-      "Режиссёр формулирует идею и ЦА…",
-      "Пишет логлайн и тритмент…",
-      "Работает над сценарием и драматургией…",
-      "Строит режиссёрскую экспликацию (камера, свет, звук)…",
-      "Раскадровывает кадры…",
-      "Составляет шот-лист и план съёмок…",
-      "Просчитывает риски…",
+      "Формулирую идею и ЦА…",
+      "Пишу логлайн и тритмент…",
+      "Работаю над сценарием и драматургией…",
+      "Строю кадры: камера, свет, звук…",
+      "Делаю раскадровку…",
+      "Составляю шот-лист и план съёмок…",
+      "Просчитываю риски…",
     ];
-    const timers = steps.map((msg, i) => setTimeout(() => setProgressMsg(msg), i * 1200 + 400));
+    const timers = steps.map((msg, i) => setTimeout(() => setProgressMsg(msg), i * 700 + 300));
 
     try {
       const currentPreprod = preprod || buildOfflinePreprod(brief);
@@ -230,7 +217,7 @@ export default function DirectorWorkspace({
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        setError(data.error || "Не удалось получить ответ от AI Director.");
+        setError(data.error || "Не удалось получить ответ.");
         if (stg === "full") setStage("brief");
         return;
       }
@@ -242,9 +229,7 @@ export default function DirectorWorkspace({
         setSections(data.sections || flattenSections(nextPreprod, brief));
         setStage("result");
         setActiveStage("idea");
-        setIsFallback(!!data.fallback);
       } else {
-        // merge stage result into current preprod
         setPreprod((prev) => {
           if (!prev) return prev;
           const next = { ...prev, [stg]: data.data } as PreProduction;
@@ -252,17 +237,16 @@ export default function DirectorWorkspace({
           setSections(flattenSections(next, brief));
           return next;
         });
-        setIsFallback(!!data.fallback);
       }
       setSaved(false);
     } catch (e: any) {
-      setError("Ошибка сети: " + (e.message || ""));
+      setError("Не удалось связаться с сервером — попробуйте ещё раз.");
       if (stg === "full") {
-        const fallback = buildOfflinePreprod(brief);
-        setPreprod(fallback);
-        setSections(flattenSections(fallback, brief));
+        // Local engine takes over transparently — user keeps working.
+        const local = buildOfflinePreprod(brief);
+        setPreprod(local);
+        setSections(flattenSections(local, brief));
         setStage("result");
-        setIsFallback(true);
       }
     } finally {
       timers.forEach(clearTimeout);
@@ -300,7 +284,6 @@ export default function DirectorWorkspace({
     }
   };
 
-  // Autosave when preprod changes (debounced)
   useEffect(() => {
     if (!preprod || !sections) return;
     const t = setTimeout(() => {
@@ -310,27 +293,23 @@ export default function DirectorWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preprod, activeStage, brief]);
 
-  /** Результат диалогового режима: режиссёр передаёт готовый Production Blueprint. */
   const handleBlueprint = (
     nextPreprod: PreProduction,
     nextSections: DirectorSections,
-    nextBrief: DirectorBrief,
-    fallback: boolean
+    nextBrief: DirectorBrief
   ) => {
     setPreprod(nextPreprod);
     setSections(nextSections);
     setBrief(nextBrief);
     setStage("result");
     setActiveStage("idea");
-    setIsFallback(fallback);
   };
 
-  /** «Перейти к монтажу»: сохранить план и передать его монтажному движку. */
   const goToEditor = async () => {
     try {
       if (preprod && sections) await persistPlan();
     } catch {
-      /* persistPlan уже показывает ошибку */
+      /* persistPlan already shows error */
     }
     router.push(`/editor/${projectId}`);
   };
@@ -356,56 +335,38 @@ export default function DirectorWorkspace({
   }, [activeStage]);
 
   const briefPanel = (
-    <div className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-6 shadow-2xl backdrop-blur-2xl">
-      <div className="mb-5 flex items-center justify-between">
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5 shadow-xl backdrop-blur-xl">
+      <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold tracking-tight text-slate-100">Production Brief</h2>
-          <p className="text-[11px] text-slate-500">Расскажите режиссёру о проекте — остальное он сделает сам.</p>
+          <h2 className="text-[15px] font-bold tracking-tight text-slate-100">Brief</h2>
+          <p className="text-[11px] text-slate-500">Несколько слов о проекте — остальное сделает режиссёр.</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold text-violet-200">
+        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-400">
           {filledCount}/8
         </span>
       </div>
 
-      <div className="space-y-4">
-        <Field label="Идея проекта">
+      <div className="space-y-3.5">
+        <Field label="Идея">
           <textarea
             value={brief.idea}
             onChange={(e) => set("idea", e.target.value)}
-            placeholder="О чём ролик? Напишите суть — что происходит, что показываем."
+            placeholder="О чём ролик, что происходит в кадре."
             rows={3}
             className={`${inputCls} resize-none`}
           />
         </Field>
-        <Field label="Цель видео">
-          <textarea
-            value={brief.goal}
-            onChange={(e) => set("goal", e.target.value)}
-            placeholder="Что должен сделать зритель или что он должен почувствовать?"
-            rows={2}
-            className={`${inputCls} resize-none`}
-          />
+        <Field label="Цель">
+          <input value={brief.goal} onChange={(e) => set("goal", e.target.value)} placeholder="Что зритель должен сделать / почувствовать?" className={inputCls} />
         </Field>
-        <Field label="Целевая аудитория">
-          <textarea
-            value={brief.audience}
-            onChange={(e) => set("audience", e.target.value)}
-            placeholder="Кто ваш зритель: возраст, интересы, боли, что смотрит."
-            rows={2}
-            className={`${inputCls} resize-none`}
-          />
+        <Field label="Аудитория">
+          <input value={brief.audience} onChange={(e) => set("audience", e.target.value)} placeholder="Кто смотрит: возраст, боли, интересы." className={inputCls} />
         </Field>
         <Field label="Ключевая мысль">
-          <textarea
-            value={brief.keyMessage}
-            onChange={(e) => set("keyMessage", e.target.value)}
-            placeholder="Одна фраза, которую зритель запомнит."
-            rows={2}
-            className={`${inputCls} resize-none`}
-          />
+          <input value={brief.keyMessage} onChange={(e) => set("keyMessage", e.target.value)} placeholder="Одна фраза, которую зритель запомнит." className={inputCls} />
         </Field>
-        <Field label="CTA / призыв к действию">
-          <input value={brief.callToAction} onChange={(e) => set("callToAction", e.target.value)} placeholder="Подписаться, оставить заявку, перейти по ссылке…" className={inputCls} />
+        <Field label="CTA">
+          <input value={brief.callToAction} onChange={(e) => set("callToAction", e.target.value)} placeholder="Подписаться / оставить заявку / перейти по ссылке…" className={inputCls} />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
@@ -416,33 +377,35 @@ export default function DirectorWorkspace({
               ))}
             </select>
           </Field>
-          <Field label="Длительность, сек">
+          <Field label="Длина, сек">
             <select value={brief.duration} onChange={(e) => set("duration", e.target.value)} className={`${inputCls} appearance-none`}>
               {DURATIONS.map((d) => (
-                <option key={d} value={d} className="bg-[#0c0c16]">{d} сек</option>
+                <option key={d} value={d} className="bg-[#0c0c16]">{d}с</option>
               ))}
             </select>
           </Field>
         </div>
 
-        <Field label="Стиль ролика">
-          <input value={brief.style} onChange={(e) => set("style", e.target.value)} placeholder="Динамичный/спокойный, лайфстайл/продуктовый…" className={inputCls} />
-        </Field>
-        <Field label="Настроение">
-          <input value={brief.mood} onChange={(e) => set("mood", e.target.value)} placeholder="Тёплое, драйвовое, ностальгическое, вдохновляющее…" className={inputCls} />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Стиль">
+            <input value={brief.style} onChange={(e) => set("style", e.target.value)} placeholder="Динамичный / спокойный…" className={inputCls} />
+          </Field>
+          <Field label="Настроение">
+            <input value={brief.mood} onChange={(e) => set("mood", e.target.value)} placeholder="Тёплое, драйвовое…" className={inputCls} />
+          </Field>
+        </div>
 
         <Field label="Темп">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {TEMPOS.map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => set("tempo", t)}
-                className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
                   brief.tempo === t
-                    ? "border-violet-400/60 bg-violet-500/20 text-violet-100 shadow-lg shadow-violet-900/30"
-                    : "border-white/10 bg-white/[0.03] text-slate-400 hover:bg-white/[0.06]"
+                    ? "border-violet-400/60 bg-violet-500/20 text-violet-100"
+                    : "border-white/10 bg-white/[0.02] text-slate-400 hover:bg-white/[0.05]"
                 }`}
               >
                 {t}
@@ -452,69 +415,47 @@ export default function DirectorWorkspace({
         </Field>
 
         <Field label="Референсы">
-          <textarea
-            value={brief.references}
-            onChange={(e) => set("references", e.target.value)}
-            placeholder="Ссылки или названия роликов/фильмов, на которые хотите быть похожи."
-            rows={2}
-            className={`${inputCls} resize-none`}
-          />
+          <input value={brief.references} onChange={(e) => set("references", e.target.value)} placeholder="Ролики или фильмы, на которые хотите быть похожи." className={inputCls} />
         </Field>
       </div>
 
       {error && (
-        <div className="mt-5 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</div>
+        <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-200">{error}</div>
       )}
 
       <button
         onClick={() => generate("full")}
         disabled={!canGenerate}
-        className="mt-6 w-full rounded-2xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 px-6 py-4 text-sm font-extrabold tracking-wide text-white shadow-2xl shadow-violet-900/40 transition-all hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+        className="mt-5 w-full rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 px-5 py-3 text-sm font-extrabold tracking-wide text-white shadow-xl shadow-violet-900/30 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {stage === "generating" ? "AI Director работает…" : "🎬 Запустить AI Director →"}
+        {stage === "generating" ? "Режиссёр работает…" : "🎬 Запустить AI Director"}
       </button>
-      {!brief.idea.trim() && (
-        <p className="mt-2 text-center text-[10px] text-slate-600">Опишите идею хотя бы парой слов, чтобы начать.</p>
-      )}
     </div>
   );
 
   const emptyState = (
-    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[1.75rem] border border-dashed border-white/[0.12] bg-white/[0.02] p-10 text-center">
-      <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/20 via-fuchsia-500/10 to-amber-400/20 shadow-2xl shadow-violet-900/30">
-        <span className="text-4xl">🎬</span>
+    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.02] p-10 text-center">
+      <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/20 via-fuchsia-500/10 to-amber-400/20 shadow-xl">
+        <span className="text-3xl">🎬</span>
       </div>
-      <h3 className="mb-2 text-xl font-bold tracking-tight text-slate-100">Виртуальный режиссёр ждёт брифа</h3>
-      <p className="mb-6 max-w-md text-sm leading-relaxed text-slate-400">
-        Заполните бриф слева — и AI Director пройдёт с вами все 12 этапов препродакшена:
-        от идеи и логлайна до кастинга, локаций и финального шот-листа.
+      <h3 className="mb-2 text-lg font-bold tracking-tight text-slate-100">Расскажите о проекте</h3>
+      <p className="max-w-md text-[13px] leading-relaxed text-slate-400">
+        Заполните бриф слева — и режиссёр соберёт логлайн, тритмент, сценарий,
+        раскадровку и шот-лист. Без форм и вкладок, без повторных вопросов.
       </p>
-      <div className="grid w-full max-w-2xl grid-cols-4 gap-3 text-left">
-        {[
-          { icon: "💡", t: "Замысел" },
-          { icon: "📜", t: "Сценарий" },
-          { icon: "🎬", t: "Режиссура" },
-          { icon: "📋", t: "Съёмки" },
-        ].map((c) => (
-          <div key={c.t} className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-3 text-center">
-            <div className="mb-1 text-xl">{c.icon}</div>
-            <div className="text-xs font-bold text-slate-200">{c.t}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 
   const generating = (
-    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[1.75rem] border border-white/[0.08] bg-white/[0.02] p-10 text-center">
-      <div className="relative mb-8 flex h-24 w-24 items-center justify-center">
+    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] p-10 text-center">
+      <div className="relative mb-7 flex h-20 w-20 items-center justify-center">
         <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-violet-400 border-r-amber-400" style={{ animationDuration: "1.4s" }} />
         <div className="absolute inset-2 animate-spin rounded-full border border-transparent border-b-fuchsia-400" style={{ animationDuration: "2.2s", animationDirection: "reverse" }} />
-        <span className="text-3xl">🎥</span>
+        <span className="text-2xl">🎥</span>
       </div>
-      <h3 className="mb-2 text-lg font-bold text-slate-100">Режиссёр работает над проектом</h3>
-      <p className="mb-6 max-w-sm text-sm text-slate-400">{progressMsg || "Проектируем кадры…"}</p>
-      <div className="h-1.5 w-64 overflow-hidden rounded-full bg-white/10">
+      <h3 className="mb-1.5 text-base font-bold text-slate-100">Режиссёр работает</h3>
+      <p className="max-w-sm text-[13px] text-slate-400">{progressMsg || "Проектирую кадры…"}</p>
+      <div className="mt-5 h-1 w-56 overflow-hidden rounded-full bg-white/10">
         <div className="h-full w-full origin-left animate-shimmer rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400" />
       </div>
     </div>
@@ -522,35 +463,31 @@ export default function DirectorWorkspace({
 
   const resultPanel = preprod && sections && (
     <div className="space-y-5">
-      <div className="overflow-hidden rounded-[1.75rem] border border-white/[0.08] bg-gradient-to-br from-violet-950/40 via-[#0d0d18]/90 to-amber-950/30 p-6 shadow-2xl backdrop-blur-2xl">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
+      <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-gradient-to-br from-violet-950/30 via-[#0d0d18]/80 to-amber-950/20 p-5 shadow-xl backdrop-blur-xl">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-              Этап 01 · Препродакшен
+              Препродакшен
             </div>
-            <h2 className="text-xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-200 via-fuchsia-200 to-amber-200">
+            <h2 className="truncate text-lg font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100">
               {preprod.treatment.title || brief.idea || "Production Book"}
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isFallback && (
-              <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold text-amber-200" title="AI-модель недоступна, используется локальный фоллбек">
-                ● Офлайн-режим
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium text-slate-300">
+              {readiness}%
+            </span>
+            {saved && (
+              <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
+                Сохранено
               </span>
             )}
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-medium text-slate-300">
-              Готовность {readiness}%
-            </span>
-            {saved && <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold text-emerald-300">✓ Сохранено</span>}
           </div>
         </div>
-        <div className="rounded-2xl border border-white/[0.07] bg-black/20 p-4">
-          <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-500">Логлайн</div>
-          <p className="text-sm leading-relaxed text-slate-200">{preprod.logline.primary}</p>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <p className="mt-3 text-[13px] leading-relaxed text-slate-300">{preprod.logline.primary}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {brief.platform && <Chip>{brief.platform}</Chip>}
-          {brief.duration && <Chip>{brief.duration} сек</Chip>}
+          {brief.duration && <Chip>{brief.duration}с</Chip>}
           {brief.tempo && <Chip>{brief.tempo}</Chip>}
           {brief.mood && <Chip>{brief.mood}</Chip>}
           {preprod.treatment.genre && <Chip>{preprod.treatment.genre}</Chip>}
@@ -558,8 +495,8 @@ export default function DirectorWorkspace({
       </div>
 
       {busyStage && (
-        <div className="rounded-2xl border border-violet-400/30 bg-violet-500/10 p-3 text-xs text-violet-100">
-          AI перестраивает раздел «{busyStage}» с учётом ваших правок…
+        <div className="rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-[11px] text-violet-100">
+          Перестраиваю раздел «{busyStage}» с учётом правок…
         </div>
       )}
 
@@ -571,27 +508,27 @@ export default function DirectorWorkspace({
         busy={busyStage !== null}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3 backdrop-blur-xl">
         <div className="flex gap-2">
           <button
             onClick={() => generate("full")}
             disabled={busyStage !== null}
-            className="rounded-full border border-white/10 bg-white/[0.05] px-5 py-2.5 text-xs font-bold text-slate-200 transition hover:bg-white/[0.1] disabled:opacity-50"
+            className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-white/[0.08] disabled:opacity-50"
           >
-            ♻ Перегенерировать весь план
+            Перегенерировать
           </button>
           <button
             onClick={persistPlan}
-            className="rounded-full border border-white/10 bg-white/[0.05] px-5 py-2.5 text-xs font-bold text-slate-200 transition hover:bg-white/[0.1]"
+            className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-white/[0.08]"
           >
-            {saved ? "✓ План сохранён" : "💾 Сохранить"}
+            {saved ? "Сохранено" : "Сохранить"}
           </button>
         </div>
         <button
           onClick={() => void goToEditor()}
-          className="rounded-full bg-gradient-to-r from-amber-500 to-orange-400 px-5 py-2.5 text-xs font-extrabold text-black shadow-xl transition hover:brightness-110"
+          className="rounded-full bg-gradient-to-r from-amber-500 to-orange-400 px-5 py-2 text-[11px] font-extrabold text-black shadow-lg transition hover:brightness-110"
         >
-          Перейти в редактор →
+          В редактор →
         </button>
       </div>
     </div>
@@ -599,16 +536,13 @@ export default function DirectorWorkspace({
 
   return (
     <div className="min-h-screen bg-[#07070f] text-slate-100 selection:bg-violet-500/30">
-      {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
         <div className="absolute inset-0 bg-gradient-to-b from-[#080814] via-[#07070f] to-[#0a0a16]" />
-        <div className="absolute -left-40 -top-32 h-[560px] w-[560px] rounded-full bg-violet-800/25 blur-[130px]" />
-        <div className="absolute -right-40 top-1/3 h-[520px] w-[520px] rounded-full bg-fuchsia-800/15 blur-[140px]" />
-        <div className="absolute bottom-[-20%] left-1/3 h-[520px] w-[520px] rounded-full bg-amber-700/15 blur-[150px]" />
-        <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
+        <div className="absolute -left-40 -top-32 h-[520px] w-[520px] rounded-full bg-violet-800/20 blur-[130px]" />
+        <div className="absolute -right-40 top-1/3 h-[480px] w-[480px] rounded-full bg-fuchsia-800/10 blur-[140px]" />
+        <div className="absolute bottom-[-20%] left-1/3 h-[480px] w-[480px] rounded-full bg-amber-700/10 blur-[150px]" />
       </div>
 
-      {/* Control panel ABOVE the logo (только в профессиональном режиме) */}
       {mode === "pro" && stage === "result" && preprod && (
         <PreprodControlBar
           projectId={projectId}
@@ -618,33 +552,29 @@ export default function DirectorWorkspace({
         />
       )}
 
-      {/* Header with logo */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#07070f]/70 backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-5 py-3.5 sm:px-8">
-          <div className="flex items-center gap-3">
-            <ModeSwitcher mode={mode} onChange={switchMode} />
-            <div className="mx-1 hidden h-7 w-px bg-white/10 sm:block" />
-          </div>
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-amber-400 text-xl shadow-2xl shadow-violet-500/40 transition group-hover:scale-105">
+      <header className="sticky top-0 z-30 border-b border-white/[0.05] bg-[#07070f]/70 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-5 py-3 sm:px-8">
+          <ModeSwitcher mode={mode} onChange={switchMode} />
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-amber-400 text-lg shadow-lg shadow-violet-500/30 transition group-hover:scale-105">
               🎬
             </div>
-            <div>
-              <div className="text-base font-extrabold tracking-tight">MONTIQ</div>
-              <div className="text-[9px] uppercase tracking-[0.28em] text-slate-500">
+            <div className="hidden sm:block">
+              <div className="text-[15px] font-extrabold tracking-tight leading-none">MONTIQ</div>
+              <div className="text-[9px] uppercase tracking-[0.28em] text-slate-500 mt-0.5">
                 AI Production Studio
               </div>
             </div>
           </Link>
 
           <div className="flex items-center gap-2">
-            <span className="hidden rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-slate-400 sm:block">
+            <span className="hidden max-w-[220px] truncate rounded-full border border-white/[0.07] bg-white/[0.02] px-3 py-1.5 text-[11px] font-medium text-slate-400 md:block">
               {project?.title || brief.idea || "Новый проект"}
             </span>
             {stage === "result" && (
               <button
                 onClick={() => void goToEditor()}
-                className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-[11px] font-extrabold text-white shadow-xl shadow-violet-900/30 transition hover:brightness-110"
+                className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-[11px] font-extrabold text-white shadow-lg shadow-violet-900/20 transition hover:brightness-110"
               >
                 Редактор →
               </button>
@@ -656,16 +586,12 @@ export default function DirectorWorkspace({
       <main className="relative z-10 mx-auto max-w-[1400px] px-5 py-8 sm:px-8">
         {mode === "basic" ? (
           <>
-            <div className="mb-6 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-300/80">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-400" /> Этап 01 · Пре-продакшен · Диалоговый режим
-              </div>
+            <div className="mb-6">
               <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
                 <span className="bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 bg-clip-text text-transparent">AI Director</span>
               </h1>
-              <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
-                Режиссёр ведёт вас шаг за шагом и сам собирает весь Production Blueprint —
-                от логлайна и сценария до shot list и плана монтажа.
+              <p className="mt-1 max-w-xl text-sm text-slate-400">
+                Режиссёр ведёт вас через проект и сам собирает Production Blueprint.
               </p>
             </div>
 
@@ -683,75 +609,53 @@ export default function DirectorWorkspace({
             )}
           </>
         ) : (
-          <>
-            <div className="mb-8 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-300/80">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-400" /> Этап 01 · Пре-продакшен
-              </div>
-              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-                <span className="bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 bg-clip-text text-transparent">AI Director</span>
-              </h1>
-              <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
-                Полноценный виртуальный режиссёр и продюсер: от идеи до финального плана съёмок.
-                Все 12 этапов связаны между собой — изменение в одном автоматически отражается на остальных.
-              </p>
-            </div>
+          <div className="grid gap-6 lg:grid-cols-12">
+            <aside className="lg:col-span-4">
+              <div className="lg:sticky lg:top-20 space-y-4">
+                {briefPanel}
 
-            <div className="grid gap-6 lg:grid-cols-12">
-              <aside className="lg:col-span-4">
-                <div className="lg:sticky lg:top-24 space-y-4">
-                  {briefPanel}
-
-                  {stage === "result" && preprod && (
-                    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 backdrop-blur-xl">
-                      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Навигация по этапам</div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {[
-                          ["idea", "💡 Idea"],
-                          ["logline", "🎯 Logline"],
-                          ["treatment", "📖 Treatment"],
-                          ["script", "📜 Script"],
-                          ["vision", "🎬 Vision"],
-                          ["storyboard", "🖼 Storyboard"],
-                          ["shotlist", "📋 Shot List"],
-                          ["planning", "🗓 Planning"],
-                          ["casting", "🎭 Casting"],
-                          ["locations", "📍 Locations"],
-                          ["risks", "⚠️ Risks"],
-                          ["chat", "💬 Chat"],
-                        ].map(([id, label]) => (
-                          <button
-                            key={id}
-                            onClick={() => setActiveStage(id as PreprodStage)}
-                            className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold transition ${
-                              activeStage === id
-                                ? "bg-violet-500/20 text-violet-100"
-                                : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                {stage === "result" && preprod && (
+                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 backdrop-blur-xl">
+                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Разделы</div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {[
+                        ["idea", "💡 Идея"],
+                        ["logline", "🎯 Логлайн"],
+                        ["treatment", "📖 Тритмент"],
+                        ["script", "📜 Сценарий"],
+                        ["vision", "🎬 Видение"],
+                        ["storyboard", "🖼 Раскадровка"],
+                        ["shotlist", "📋 Шот-лист"],
+                        ["planning", "🗓 План"],
+                        ["casting", "🎭 Кастинг"],
+                        ["locations", "📍 Локации"],
+                        ["risks", "⚠️ Риски"],
+                        ["chat", "💬 Режиссёр"],
+                      ].map(([id, label]) => (
+                        <button
+                          key={id}
+                          onClick={() => setActiveStage(id as PreprodStage)}
+                          className={`rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold transition ${
+                            activeStage === id
+                              ? "bg-violet-500/20 text-violet-100"
+                              : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                  )}
-                </div>
-              </aside>
+                  </div>
+                )}
+              </div>
+            </aside>
 
-              <section className="lg:col-span-8">
-                {stage === "generating" ? generating : stage === "result" && preprod ? resultPanel : emptyState}
-              </section>
-            </div>
-          </>
+            <section className="lg:col-span-8">
+              {stage === "generating" ? generating : stage === "result" && preprod ? resultPanel : emptyState}
+            </section>
+          </div>
         )}
       </main>
-
-      <footer className="relative z-10 mt-16 border-t border-white/[0.05] bg-[#07070f]/80 px-8 py-4 text-[10px] text-slate-600 backdrop-blur">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between">
-          <span>MONTIQ · AI Production Studio — от идеи до финального кадра</span>
-          <span>Project {projectId}</span>
-        </div>
-      </footer>
     </div>
   );
 }
@@ -759,7 +663,7 @@ export default function DirectorWorkspace({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</div>
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
       {children}
     </label>
   );
@@ -767,7 +671,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-slate-300">
+    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-300">
       {children}
     </span>
   );

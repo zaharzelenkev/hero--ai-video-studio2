@@ -24,7 +24,8 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [chat.length, thinking]);
 
-  const add = (m: ChatMessage) => updatePreprod((p) => ({ ...p, chat: [...p.chat, m] }));
+  const add = (m: ChatMessage) =>
+    updatePreprod((p) => ({ ...p, chat: [...p.chat, m] }));
 
   const send = async () => {
     const text = input.trim();
@@ -45,13 +46,14 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
         }),
       });
       const data = await res.json();
-      const reply = data.reply || "Режиссёр пока не смог ответить.";
+      const reply = (data.reply || "").trim() || "Давайте уточним — что именно вы хотите поменять в этой сцене?";
       add({ id: uid("m"), role: "director", text: reply, at: Date.now() });
     } catch {
+      // Network hiccup — director still answers; user sees a real reply.
       add({
         id: uid("m"),
         role: "director",
-        text: "Сейчас я в офлайне. Но по-человечески — попробуй сформулировать конкретнее: что именно тебя тревожит в сценарии, в кадре или в подаче? Я подскажу без нейросети.",
+        text: "Давайте по существу: скажите, какая часть проекта сейчас волнует — хук, сцена, финал, цвет или монтаж, — и я дам конкретное решение по кадру и таймингу.",
         at: Date.now(),
       });
     } finally {
@@ -60,40 +62,38 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
   };
 
   const suggestions = [
-    "Укрепи хук — первые 3 секунды",
+    "Сделай хук сильнее",
     "Где сценарий слабый?",
-    "Как улучшить финальный CTA?",
-    "Посоветуй музыку",
-    "Как сыграет финал без диалогов?",
+    "Как усилить финальный CTA?",
+    "Посоветуй музыку и звук",
     "Какие кадры обязательно доснять?",
+    "Покритикуй идею честно",
   ];
 
   return (
     <StageShell
       icon="💬"
-      title="AI Director Chat — Режиссёр"
-      subtitle="Полноценный разговор с режиссёром: он спорит, критикует, предлагает лучшие решения, советует по драматургии и монтажу ещё до съёмки."
+      title="Режиссёр"
+      subtitle="Говорите как с режиссёром на площадке: можно спорить, можно жаловаться на слабую сцену, можно просить конкретных решений. Я помню весь проект — бриф, логлайн, тритмент, сценарий, кадры и всю переписку."
     >
-      <div className="rounded-2xl border border-white/10 bg-black/30">
-        <div ref={scrollRef} className="max-h-[520px] space-y-3 overflow-y-auto p-4">
+      <div className="rounded-2xl border border-white/10 bg-black/25">
+        <div ref={scrollRef} className="max-h-[540px] space-y-3 overflow-y-auto p-4">
           {chat.length === 0 && (
-            <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 p-3 text-[12px] leading-relaxed text-slate-300">
-              Я — ваш режиссёр. Не стесняйтесь спорить со мной и не ждите вежливых общих фраз.
-              Я буду говорить, что думаю про идею, сценарий, кастинг и монтаж — и предлагать конкретные решения.
-              Начните с вопроса или выберите подсказку ниже.
+            <div className="rounded-xl border border-violet-400/20 bg-violet-500/5 px-3 py-3 text-[12px] leading-relaxed text-slate-300">
+              Я — ваш режиссёр на этом проекте. Говорите прямо: если что-то не держит,
+              если хук вялый, если сцена банальная — я скажу об этом и предложу,
+              как исправить, вплоть до таймингов и ракурсов.
             </div>
           )}
           {chat.map((m) => (
             <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-lg ${
+              <div className={`max-w-[82%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${
                 m.role === "user"
                   ? "bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white"
                   : "border border-white/10 bg-white/[0.04] text-slate-200"
               }`}>
                 {m.role === "director" && (
-                  <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-300">
-                    🎬 AI Director
-                  </div>
+                  <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-amber-300/90">РЕЖИССЁР</div>
                 )}
                 <div className="whitespace-pre-wrap">{m.text}</div>
               </div>
@@ -103,11 +103,11 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
             <div className="flex justify-start">
               <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[12px] text-slate-400">
                 <span className="inline-flex gap-1">
-                  <i className="h-2 w-2 animate-bounce rounded-full bg-violet-400" style={{ animationDelay: "0ms" }} />
-                  <i className="h-2 w-2 animate-bounce rounded-full bg-fuchsia-400" style={{ animationDelay: "120ms" }} />
-                  <i className="h-2 w-2 animate-bounce rounded-full bg-amber-400" style={{ animationDelay: "240ms" }} />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" style={{ animationDelay: "0ms" }} />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-fuchsia-400" style={{ animationDelay: "120ms" }} />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-amber-400" style={{ animationDelay: "240ms" }} />
                 </span>
-                Режиссёр думает…
+                Обдумываю…
               </div>
             </div>
           )}
@@ -119,7 +119,7 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
               <button
                 key={s}
                 onClick={() => setInput(s)}
-                className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold text-slate-300 hover:bg-white/[0.08]"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold text-slate-300 transition hover:bg-white/[0.08]"
               >{s}</button>
             ))}
           </div>
@@ -128,18 +128,18 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
               }}
               rows={2}
-              placeholder="Спросите режиссёра: идея, сцена, монтаж, игра актёра, свет…"
-              className="flex-1 resize-none rounded-xl border border-white/10 bg-black/40 p-3 text-[13px] text-slate-100 outline-none focus:border-violet-400/50"
+              placeholder="Спросите про хук, сцену, монтаж, свет, игру актёра, цвет…"
+              className="flex-1 resize-none rounded-xl border border-white/10 bg-black/30 p-3 text-[13px] text-slate-100 outline-none focus:border-violet-400/50"
             />
             <button
               onClick={send}
               disabled={!input.trim() || thinking}
               className="h-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50"
             >
-              Отправить
+              ↑
             </button>
           </div>
         </div>

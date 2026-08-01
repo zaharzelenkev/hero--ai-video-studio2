@@ -38,6 +38,15 @@ export default function GenerationScreenV2() {
       .catch(() => setVideoGenEnabled(false));
   }, []);
 
+  const startDirector = async () => {
+    const { createEmptyProject } = await import("@/lib/factories");
+    const { saveProject } = await import("@/lib/db");
+    const p = createEmptyProject("Новый проект");
+    await saveProject(p);
+    setRecentProjects(await listProjects());
+    router.push(`/director/${p.id}`);
+  };
+
   const canGenerate = (items.length > 0 || prompt.trim().length > 5) && stage !== "generating" && stage !== "reading";
   const productionPlan = createProductionPlan({
     idea: prompt,
@@ -178,6 +187,49 @@ export default function GenerationScreenV2() {
 
 
         </header>
+
+        {/* AI Director — separate production stage */}
+        <div className="mb-10 flex justify-center">
+          <button
+            onClick={startDirector}
+            className="group relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6 text-left shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01] hover:border-violet-400/40 hover:bg-white/[0.04]"
+            aria-label="Открыть AI Director"
+          >
+            <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-violet-600/20 blur-[80px] transition-opacity duration-300 group-hover:bg-violet-600/30" />
+            <div className="pointer-events-none absolute -bottom-24 -left-10 h-52 w-52 rounded-full bg-amber-500/10 blur-[90px]" />
+            <div className="relative flex items-center gap-5">
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400 text-3xl shadow-2xl shadow-violet-900/50 transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3">
+                🎬
+                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] shadow-lg">✦</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="mb-0.5 flex items-center gap-2">
+                  <h2 className="bg-gradient-to-r from-violet-200 via-fuchsia-200 to-amber-200 bg-clip-text text-xl font-black tracking-tight text-transparent">
+                    AI Director
+                  </h2>
+                  <span className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white shadow-lg">
+                    Премиум
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-400">
+                  Начните не с монтажа, а с режиссуры. Виртуальный режиссёр соберёт бриф и подготовит
+                  логлайн, сценарий, раскадровку, shot list и план монтажа — до того, как вы вставите первый кадр.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {["Логлайн", "Сценарий", "Storyboard", "Shot List", "Музыка", "Цвет", "Монтаж"].map((t) => (
+                    <span key={t} className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[9px] font-medium text-slate-400">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3 text-sm font-extrabold text-white shadow-xl shadow-violet-900/40 transition-transform duration-300 group-hover:translate-x-1">
+                Начать
+                <span className="text-base leading-none">→</span>
+              </div>
+            </div>
+          </button>
+        </div>
 
         {/* Main Content */}
         <div className="mb-12 flex justify-center">

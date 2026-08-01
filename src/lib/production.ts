@@ -46,6 +46,51 @@ export interface ProductionPlanInput {
   assets?: Pick<MediaAsset, "kind" | "duration">[];
 }
 
+/**
+ * Production brief — what a client tells a real director before shooting starts.
+ * The AI Director workspace collects exactly these fields from the user.
+ */
+export interface DirectorBrief {
+  idea: string;
+  goal: string;
+  audience: string;
+  platform: string;
+  duration: string;
+  style: string;
+  mood: string;
+  tempo: string;
+  references: string;
+  keyMessage: string;
+  callToAction: string;
+}
+
+/** Every section a director produces for a fully prepped project. */
+export interface DirectorSections {
+  logline?: string;
+  script?: string;
+  concept?: string;
+  structure?: string;
+  hook?: string;
+  drama?: string;
+  storyboard?: string;
+  shotlist?: string;
+  shooting?: string;
+  music?: string;
+  color?: string;
+  edit?: string;
+  titles?: string;
+  transitions?: string;
+}
+
+/** Persisted result of the AI Director session on a Project. */
+export interface DirectorOutput {
+  version: 1;
+  generatedAt: number;
+  status: "draft" | "approved";
+  brief: DirectorBrief;
+  sections: DirectorSections;
+}
+
 const clean = (value: string) => value.replace(/\s+/g, " ").trim();
 const clip = (value: string, length: number) => (clean(value).length > length ? `${clean(value).slice(0, length - 1).trim()}…` : clean(value));
 
@@ -93,5 +138,39 @@ export function createProductionPlan({ idea, templateId, assets = [] }: Producti
     deliverables: settings.deliverables, scenes,
     productionNotes: ["План создан локально и может быть отредактирован до монтажа.", hasAudio ? "В исходниках есть аудио: запланируйте чистку речи и ducking музыки." : "Добавьте музыку или voice-over на этапе звукового дизайна.", totalDurationSec ? `Доступно примерно ${totalDurationSec} сек. исходных материалов.` : "Исходники ещё не добавлены — shot list служит съёмочным ориентиром."],
     sourceSummary: { video: assets.filter((a) => a.kind === "video").length, image: assets.filter((a) => a.kind === "image").length, audio: assets.filter((a) => a.kind === "audio").length, totalDurationSec },
+  };
+}
+
+/** Build an enriched, downstream-ready ProductionPlan from a full DirectorBrief. */
+export function planFromDirector(brief: DirectorBrief, assets: Pick<MediaAsset, "kind" | "duration">[] = []): ProductionPlan {
+  const base = createProductionPlan({ idea: brief.idea, assets });
+  const durationNum = parseInt(brief.duration, 10) || base.targetDurationSec;
+  const platform: ProductionPlatform = /tik.?tok|reel|short|vertical|вертик|сторис|shorts/i.test(brief.platform)
+    ? "short-form"
+    : /youtube|ютуб|video/i.test(brief.platform)
+      ? "youtube"
+      : /film|кино|документ/i.test(brief.platform)
+        ? "film"
+        : /present|презент|обуч|курс|training/i.test(brief.platform)
+          ? "presentation"
+          : base.platform;
+  const settings = platformSettings(platform);
+  return {
+    ...base,
+    status: "approved",
+    workingTitle: brief.idea ? clip(brief.idea.replace(/[.!?].*$/, ""), 58) || "Новый production-проект" : base.workingTitle,
+    objective: brief.goal || base.objective,
+    audience: brief.audience || base.audience,
+    platform,
+    aspectRatio: settings.aspectRatio,
+    targetDurationSec: durationNum,
+    tone: [brief.mood, brief.style].filter(Boolean).join(", ") || base.tone,
+    keyMessage: brief.keyMessage || base.keyMessage,
+    callToAction: brief.callToAction || base.callToAction,
+    deliverables: settings.deliverables,
+    productionNotes: [
+      "План утверждён в AI Director и передан монтажному движку.",
+      ...(brief.references ? [`Референсы: ${brief.references}`] : []),
+    ],
   };
 }

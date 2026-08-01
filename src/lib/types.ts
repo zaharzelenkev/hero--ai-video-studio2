@@ -521,6 +521,14 @@ export interface Project {
   production?: import("./production").ProductionPlan;
 
   /**
+   * Full AI Director output from the standalone /director workspace: the
+   * complete production brief and every generated section (logline, script,
+   * storyboard, shot list, music/color/edit/title/transition recommendations).
+   * Produced BEFORE editing, consumed by the montage engine downstream.
+   */
+  director?: import("./production").DirectorOutput;
+
+  /**
    * Режиссёрский план AI Director: понимание всех материалов (содержание,
    * эмоции, качество, композиция, движение камеры, ритм, музыка, сильные и
    * слабые моменты), драматургическая арка и по-сценовые решения, принятые

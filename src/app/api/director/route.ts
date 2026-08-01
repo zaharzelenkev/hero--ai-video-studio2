@@ -1,230 +1,246 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AI_CONFIG } from "@/config/ai";
-import {
-  flattenSections,
-} from "@/lib/production";
+import { flattenSections } from "@/lib/production";
 import type {
   DirectorBrief,
   DirectorSections,
   PreProduction,
 } from "@/lib/production";
-import { DIRECTOR_SYSTEM_PROMPT } from "@/lib/brain/directorSystemPrompt";
+import {
+  DIRECTOR_SYSTEM_PROMPT,
+  DIRECTOR_VOICE_PROMPT,
+} from "@/lib/brain/directorSystemPrompt";
 import { buildOfflinePreprod } from "@/lib/brain/offlinePreprod";
+import { localDirectorReply } from "@/lib/brain/localDirector";
+import { buildDirectorContext } from "@/lib/brain/directorContext";
+import { callGroq } from "@/lib/ai/groqClient";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
-const DIRECTOR_SYSTEM = DIRECTOR_SYSTEM_PROMPT;
+// ---------------------------------------------------------------------------
+// Prompt builders
+// ---------------------------------------------------------------------------
 
-function briefToPrompt(brief: DirectorBrief, projectTitle: string, existing?: PreProduction | null): string {
-  const fields: Array<[string, string | undefined]> = [
-    ["Идея проекта", brief.idea],
-    ["Цель видео", brief.goal],
-    ["Целевая аудитория", brief.audience],
-    ["Платформа", brief.platform],
-    ["Длительность (сек)", brief.duration],
-    ["Локация действия", brief.location],
-    ["Наличие материалов", brief.materials],
-    ["Стиль ролика", brief.style],
-    ["Настроение", brief.mood],
-    ["Темп", brief.tempo],
-    ["Референсы", brief.references],
-    ["Ключевая мысль", brief.keyMessage],
-    ["CTA", brief.callToAction],
-  ];
-  const filled = fields
-    .filter((pair): pair is [string, string] => !!pair[1] && pair[1].trim().length > 0)
-    .map(([k, v]) => `— ${k}: ${v.trim()}`)
-    .join("\n");
-
-  let head = `Проект: "${projectTitle || "Новый проект"}"\n\nPRODUCTION BRIEF:\n${filled || "— Бриф не заполнен, задай художественные рамки сам."}\n\n`;
-
-  if (existing) {
-    head += `\n=== ТЕКУЩЕЕ СОСТОЯНИЕ ПРЕПРОДАКШЕНА ===\n${JSON.stringify(existing, null, 2)}\n\n`;
-  }
-
-  return head + `\nСгенерируй ПОЛНЫЙ ПАКЕТ ПРЕПРОДАКШЕНА в JSON по описанной схеме. Верни только JSON.`;
+function fullGenerationPrompt(
+  brief: DirectorBrief,
+  projectTitle: string,
+  existing: PreProduction | null
+): string {
+  const ctx = buildDirectorContext({
+    brief,
+    preprod: existing,
+    projectTitle,
+    focus: "full",
+  });
+  return (
+    ctx +
+    `\n\nНа основе контекста выше сгенерируй ПОЛНЫЙ ПАКЕТ ПРЕПРОДАКШЕНА в JSON по схеме из системного промпта. ` +
+    `Верни только JSON — без комментариев и без markdown.`
+  );
 }
 
-function sectionRegenPrompt(
+function stageRegenerationPrompt(
   stage: string,
   brief: DirectorBrief,
   projectTitle: string,
   existing: PreProduction,
   userPatch?: string
 ): string {
-  return `Проект: "${projectTitle}"
-Пользователь хочет ПЕРЕСОЗДАТЬ раздел "${stage}" с учётом последних изменений.
-
-=== ТЕКУЩИЙ BRIEF ===
-${JSON.stringify(brief, null, 2)}
-
-=== ТЕКУЩИЙ ПРЕПРОДАКШЕН ===
-${JSON.stringify(existing, null, 2)}
-
-${userPatch ? `=== КОММЕНТАРИЙ ПОЛЬЗОВАТЕЛЯ ===\n${userPatch}\n\n` : ""}
-
-Верни ТОЛЬКО тот фрагмент JSON, который соответствует разделу "${stage}" — по той же схеме,
-что и в полном ответе (например, если stage === "logline", верни объект logline как в схеме).
-НЕ оборачивай в дополнительный ключ — верни напрямую содержимое раздела.
-
-Рекомендации:
-- Учти все изменения из других разделов (логлайн должен согласовываться с идеей, сценарий — с логлайном, storyboard — со сценарием и т.п.).
-- Сохрани лучшие детали от предыдущей версии если они не противоречат обновлениям.
-- Отвечай строго на русском, только валидный JSON.
-`;
+  const ctx = buildDirectorContext({
+    brief,
+    preprod: existing,
+    projectTitle,
+    focus: "stage",
+    stage,
+    userMessage: userPatch,
+  });
+  return (
+    ctx +
+    `\n\nПользователь хочет ПЕРЕСОЗДАТЬ раздел "${stage}"${userPatch ? ` с комментарием: «${userPatch}»` : ""}.\n` +
+    `Учти все изменения в других разделах (логлайн согласуется с идеей, сценарий с логлайном, storyboard со сценарием и т.д.). ` +
+    `Сохрани лучшие детали от предыдущей версии, если они не противоречат обновлениям.\n` +
+    `Верни ТОЛЬКО JSON фрагмент этого раздела (по той же схеме, что и в полном ответе) — без обёртки в дополнительный ключ, без markdown.`
+  );
 }
 
-function chatPrompt(brief: DirectorBrief, projectTitle: string, preprod: PreProduction, userMessage: string): string {
-  return `Ты — личный режиссёр пользователя в AI Production Studio MONTIQ.
-Ты не безликий ассистент — ты страстно болеешь за проект, споришь, критикуешь,
-советуешь и вытаскиваешь из пользователя лучшие решения.
-
-=== ПРОЕКТ: "${projectTitle}" ===
-
-=== BRIEF ===
-${JSON.stringify(brief, null, 2)}
-
-=== ТЕКУЩАЯ ДОКУМЕНТАЦИЯ ===
-${JSON.stringify(preprod, null, 2)}
-
-Пользователь пишет тебе:
-"""
-${userMessage}
-"""
-
-Ответь ЖИВЫМ ЯЗЫКОМ, как настоящий режиссёр:
-- Можешь спорить, если идея пользователя слабая. Не соглашайся из вежливости.
-- Объясняй, ПОЧЕМУ ты так думаешь (психология зрителя, драматургия, монтаж).
-- Предлагай КОНКРЕТНЫЕ решения, а не общие фразы.
-- Можешь предлагать правки в конкретные разделы препродакшена — укажи, что именно ты бы изменил.
-- Сохраняй тон уверенного профессионала с 20-летним опытом; будь живым и эмоциональным.
-- Отвечай по-русски, абзацы короткие; можно использовать списки и выделения **жирным**.
-- Если пользователь просит пересоздать раздел — ответь по существу, а не шаблоном.
-
-НЕ добавляй JSON в ответ, отвечай обычным текстом.`;
+function chatPrompt(
+  brief: DirectorBrief,
+  projectTitle: string,
+  preprod: PreProduction,
+  userMessage: string
+): string {
+  const ctx = buildDirectorContext({
+    brief,
+    preprod,
+    projectTitle,
+    focus: "chat",
+    userMessage,
+    chatHistory: preprod.chat,
+  });
+  return (
+    ctx +
+    `\n\nОтвечай ЖИВЫМ текстом от лица режиссёра — в стиле системного промпта. ` +
+    `НЕ добавляй JSON. НЕ используй вежливые клише. Давай конкретные режиссёрские решения с таймингами и крупностями, привязанные к этому проекту.`
+  );
 }
+
+// ---------------------------------------------------------------------------
+// JSON helpers
+// ---------------------------------------------------------------------------
+
+function extractJson(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) return fenced[1].trim();
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first >= 0 && last > first) return text.slice(first, last + 1);
+  return text.trim();
+}
+
+function safeArr<T>(v: T[] | undefined | null, d: T[] = []): T[] {
+  return Array.isArray(v) ? v.filter((x) => x != null) : d;
+}
+function safeStr(v: unknown, d = ""): string {
+  return typeof v === "string" && v.trim().length > 0 ? v : d;
+}
+function safeNum(v: unknown, d: number, min = 0, max = 100): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) : d;
+  if (Number.isNaN(n)) return d;
+  return Math.max(min, Math.min(max, n));
+}
+
+// ---------------------------------------------------------------------------
+// POST
+// ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const {
     brief: rawBrief,
     projectTitle,
-    mode = "full", // "full" | "stage" | "chat"
+    mode = "full",
     stage,
     preprod: existingPreprod,
     userMessage,
   } = body;
 
   const brief = normalizeBrief(rawBrief);
+  const projectName = String(projectTitle || brief.idea || "Новый проект");
+  const basePreprod: PreProduction =
+    existingPreprod && Object.keys(existingPreprod).length > 0
+      ? (existingPreprod as PreProduction)
+      : buildOfflinePreprod(brief);
 
   try {
-    let sys: string;
-    let usr: string;
-    let temperature = 0.6;
-    let maxTokens = 8000;
-
     if (mode === "chat") {
-      sys = `Ты — виртуальный кинорежиссёр с 20-летним опытом. Говори живо, уверенно, по делу. Можешь спорить и критиковать. Не будь вежливым ботом. Отвечай на русском.`;
-      usr = chatPrompt(brief, projectTitle, existingPreprod || buildOfflinePreprod(brief), userMessage || "");
-      temperature = 0.85;
-      maxTokens = 1200;
-    } else if (mode === "stage" && stage) {
-      sys = DIRECTOR_SYSTEM;
-      usr = sectionRegenPrompt(stage, brief, projectTitle, existingPreprod || buildOfflinePreprod(brief), userMessage);
-      temperature = 0.7;
-      maxTokens = 4000;
-    } else {
-      sys = DIRECTOR_SYSTEM;
-      usr = briefToPrompt(brief, projectTitle, existingPreprod || null);
-      temperature = 0.6;
-      maxTokens = 12000;
-    }
+      const userText = String(userMessage || "").trim();
+      const sys = DIRECTOR_VOICE_PROMPT;
+      const usr = chatPrompt(brief, projectName, basePreprod, userText);
 
-    const r = await fetch(AI_CONFIG.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AI_CONFIG.groqApiKey}`,
-      },
-      body: JSON.stringify({
-        model: AI_CONFIG.model || "llama-3.3-70b-versatile",
+      const groq = await callGroq({
         messages: [
           { role: "system", content: sys },
           { role: "user", content: usr },
         ],
-        temperature,
-        max_tokens: maxTokens,
-        response_format: mode === "chat" ? undefined : { type: "json_object" },
-      }),
-    });
+        temperature: 0.9,
+        maxTokens: 1400,
+      });
 
-    if (!r.ok) {
-      const err = await r.text().catch(() => "");
-      console.warn("[director] Groq error", r.status, err.slice(0, 300));
-      return fallback(mode, stage, brief, projectTitle, existingPreprod, userMessage);
-    }
+      const reply = groq.ok
+        ? groq.text.trim()
+        : localDirectorReply(userText, brief, basePreprod);
 
-    const data = await r.json();
-    const text: string = data.choices?.[0]?.message?.content || "";
-
-    if (mode === "chat") {
-      return NextResponse.json({ reply: text, fallback: false });
-    }
-
-    // JSON mode: try to parse
-    const jsonText = extractJson(text);
-    let parsed: any;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch {
-      console.warn("[director] JSON parse failed, falling back");
-      return fallback(mode, stage, brief, projectTitle, existingPreprod, userMessage);
+      return NextResponse.json({ reply });
     }
 
     if (mode === "stage" && stage) {
-      return NextResponse.json({ stage, data: parsed, fallback: false });
+      const sys = DIRECTOR_SYSTEM_PROMPT;
+      const usr = stageRegenerationPrompt(
+        String(stage),
+        brief,
+        projectName,
+        basePreprod,
+        userMessage ? String(userMessage) : undefined
+      );
+      const groq = await callGroq({
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: usr },
+        ],
+        temperature: 0.7,
+        maxTokens: 5000,
+        responseFormat: { type: "json_object" },
+      });
+
+      let data: any = null;
+      if (groq.ok) {
+        try {
+          data = JSON.parse(extractJson(groq.text));
+        } catch {
+          data = null;
+        }
+      }
+      if (!data) data = pickStageFromPreprod(basePreprod, String(stage));
+
+      return NextResponse.json({ stage, data });
     }
 
-    // full mode
-    const preprod = normalizePreprod(parsed, brief, null);
-    const sections = flattenToLegacy(preprod);
-    return NextResponse.json({ sections, preprod, brief, fallback: false });
+    // full generation
+    const sys = DIRECTOR_SYSTEM_PROMPT;
+    const usr = fullGenerationPrompt(brief, projectName, existingPreprod || null);
+    const groq = await callGroq({
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: usr },
+      ],
+      temperature: 0.65,
+      maxTokens: 14000,
+      responseFormat: { type: "json_object" },
+    });
+
+    let parsed: any = null;
+    if (groq.ok) {
+      try {
+        parsed = JSON.parse(extractJson(groq.text));
+      } catch {
+        parsed = null;
+      }
+    }
+
+    const preprod: PreProduction = parsed
+      ? normalizePreprod(parsed, brief, basePreprod)
+      : basePreprod;
+    const sections = flattenToLegacy(preprod, brief);
+    return NextResponse.json({ sections, preprod, brief });
   } catch (e: any) {
-    console.warn("[director] exception", e?.message);
-    return fallback(mode, stage, brief, projectTitle, existingPreprod, userMessage);
+    console.warn("[director] error", e?.message);
+    // Total failure — still return a working preprod so the UI keeps working.
+    if (mode === "chat") {
+      return NextResponse.json({
+        reply: localDirectorReply(
+          String(userMessage || ""),
+          brief,
+          basePreprod
+        ),
+      });
+    }
+    if (mode === "stage" && stage) {
+      return NextResponse.json({
+        stage,
+        data: pickStageFromPreprod(basePreprod, String(stage)),
+      });
+    }
+    return NextResponse.json({
+      sections: flattenToLegacy(basePreprod, brief),
+      preprod: basePreprod,
+      brief,
+    });
   }
 }
 
-function fallback(
-  mode: string,
-  stage: string | undefined,
-  brief: DirectorBrief,
-  projectTitle: string,
-  existingPreprod?: PreProduction | null,
-  userMessage?: string
-) {
-  const preprod = existingPreprod && Object.keys(existingPreprod).length > 0
-    ? existingPreprod
-    : buildOfflinePreprod(brief);
-  if (mode === "chat") {
-    return NextResponse.json({
-      reply: `Я — AI Director, сейчас работаю в офлайн-режиме (модель недоступна). Но по поводу «${userMessage || "проекта"}» — скажу так: в проекте «${projectTitle || brief.idea}» важнее всего держать фокус на зрителе. Что именно тебя сейчас волнует — идея, сценарий или съёмка? Подробнее опиши, и я подскашу конкретнее.`,
-      fallback: true,
-    });
-  }
-  if (mode === "stage" && stage) {
-    // Регенерировать нужную секцию из офлайн-данных
-    const data = pickStageFromPreprod(preprod, stage);
-    return NextResponse.json({ stage, data, fallback: true });
-  }
-  return NextResponse.json({
-    result: "[Офлайн-режим] План построен локально.",
-    sections: flattenToLegacy(preprod),
-    preprod,
-    brief,
-    fallback: true,
-  });
-}
+// ---------------------------------------------------------------------------
+// Normalization (brief + preprod)
+// ---------------------------------------------------------------------------
 
 function normalizeBrief(raw: unknown): DirectorBrief {
   if (raw && typeof raw === "object") {
@@ -253,30 +269,11 @@ function normalizeBrief(raw: unknown): DirectorBrief {
   };
 }
 
-function extractJson(text: string): string {
-  // strip ```json ... ``` fences if any
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) return fenced[1].trim();
-  // find first { ... last }
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first >= 0 && last > first) return text.slice(first, last + 1);
-  return text.trim();
-}
-
-function safeArr<T>(v: T[] | undefined | null, d: T[] = []): T[] {
-  return Array.isArray(v) ? v.filter((x) => x != null) : d;
-}
-function safeStr(v: unknown, d = ""): string {
-  return typeof v === "string" && v.trim().length > 0 ? v : d;
-}
-function safeNum(v: unknown, d: number, min = 0, max = 100): number {
-  const n = typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) : d;
-  if (Number.isNaN(n)) return d;
-  return Math.max(min, Math.min(max, n));
-}
-
-function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreProduction | null): PreProduction {
+function normalizePreprod(
+  raw: any,
+  brief: DirectorBrief,
+  existingPreprod: PreProduction
+): PreProduction {
   const base = buildOfflinePreprod(brief);
   const prevChat = existingPreprod?.chat || [];
 
@@ -329,14 +326,18 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
     notes: s?.notes ? String(s.notes) : undefined,
   }));
 
-  const finalText = safeStr(script.finalText, "") || normalizedScenes.map((s) => {
-    const d = s.dialogue.map((x) => `${x.character}: ${x.line}`).join("\n");
-    return `${s.heading}\n${s.action}${d ? "\n" + d : ""}`;
-  }).join("\n\n");
+  const finalText =
+    safeStr(script.finalText, "") ||
+    normalizedScenes
+      .map((s) => {
+        const d = s.dialogue.map((x) => `${x.character}: ${x.line}`).join("\n");
+        return `${s.heading}\n${s.action}${d ? "\n" + d : ""}`;
+      })
+      .join("\n\n");
 
   const normalizedVisionScenes = safeArr(vision.scenes, []).map((v: any, i: number) => {
     const shot = v?.shot && typeof v.shot === "object" ? v.shot : {};
-    const scene = normalizedScenes[i] || normalizedScenes[0];
+    const scene = normalizedScenes[i] || normalizedScenes[0] || base.script.scenes[i];
     return {
       sceneId: scene?.id || `sc-${i}`,
       sceneTitle: safeStr(v?.sceneTitle || scene?.heading, `Сцена ${i + 1}`),
@@ -361,7 +362,7 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
   const normalizedFrames = safeArr(storyboard.frames, []).map((f: any, i: number) => ({
     id: `fr-${Date.now()}-${i}`,
     number: typeof f?.number === "number" ? f.number : i + 1,
-    sceneId: f?.sceneNumber ? `sc-idx-${f.sceneNumber}` : (normalizedScenes[0]?.id || ""),
+    sceneId: f?.sceneNumber ? `sc-idx-${f.sceneNumber}` : normalizedScenes[0]?.id || "",
     description: safeStr(f?.description, ""),
     composition: safeStr(f?.composition, ""),
     cameraMovement: safeStr(f?.cameraMovement, ""),
@@ -384,8 +385,9 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
     equipment: safeArr(s?.equipment, []).map((x: any) => String(x)),
     props: safeArr(s?.props, []).map((x: any) => String(x)),
     duration: safeStr(s?.duration, "3 сек"),
-    priority: (["low", "medium", "high", "critical"].includes(s?.priority) ? s.priority : "medium") as
-      "low" | "medium" | "high" | "critical",
+    priority: (["low", "medium", "high", "critical"].includes(s?.priority)
+      ? s.priority
+      : "medium") as "low" | "medium" | "high" | "critical",
     location: safeStr(s?.location, ""),
     notes: s?.notes ? String(s.notes) : undefined,
   }));
@@ -423,6 +425,7 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
     name: c?.name ? String(c.name) : undefined,
     description: safeStr(c?.description, ""),
     look: safeStr(c?.look, ""),
+    photoDataUrl: undefined as string | undefined,
     notes: c?.notes ? String(c.notes) : undefined,
   }));
 
@@ -435,33 +438,35 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
     pros: safeArr(l?.pros, []).map((x: any) => String(x)),
     cons: safeArr(l?.cons, []).map((x: any) => String(x)),
     suitable: l?.suitable !== false,
+    photoDataUrl: undefined as string | undefined,
     analysis: l?.analysis ? String(l.analysis) : undefined,
   }));
 
   const normalizedRisks = safeArr(risks?.risks, []).map((rk: any, i: number) => ({
     id: `risk-${Date.now()}-${i}`,
     severity: (["low", "medium", "high", "critical"].includes(rk?.severity) ? rk.severity : "medium") as
-      "low" | "medium" | "high" | "critical",
-    category: (["сценарий", "съёмка", "кастинг", "локация", "техника", "время", "бюджет", "другое"].includes(rk?.category)
-      ? rk.category
-      : "другое") as any,
+      | "low" | "medium" | "high" | "critical",
+    category: ([
+      "сценарий", "съёмка", "кастинг", "локация", "техника",
+      "время", "бюджет", "другое",
+    ].includes(rk?.category) ? rk.category : "другое") as any,
     description: safeStr(rk?.description, ""),
     mitigation: safeStr(rk?.mitigation, ""),
     relatedSection: rk?.relatedSection ? String(rk.relatedSection) : undefined,
   }));
 
   return {
-    version: 2,
+    version: 2 as const,
     updatedAt: Date.now(),
     activeStage: existingPreprod?.activeStage || "idea",
     idea: {
       refined: safeStr(idea.refined, base.idea.refined),
       audience: safeStr(idea.audience, brief.audience || base.idea.audience),
       potential: safeNum(idea.potential, base.idea.potential, 1, 10),
-      pros: safeArr(idea.pros, []).map((x: any) => String(x)).length ?
-        safeArr(idea.pros, []).map((x: any) => String(x)) : base.idea.pros,
-      cons: safeArr(idea.cons, []).map((x: any) => String(x)).length ?
-        safeArr(idea.cons, []).map((x: any) => String(x)) : base.idea.cons,
+      pros: safeArr(idea.pros, []).map((x: any) => String(x)).length
+        ? safeArr(idea.pros, []).map((x: any) => String(x)) : base.idea.pros,
+      cons: safeArr(idea.cons, []).map((x: any) => String(x)).length
+        ? safeArr(idea.cons, []).map((x: any) => String(x)) : base.idea.cons,
       variants: normalizedVariants.length ? normalizedVariants : base.idea.variants,
     },
     logline: {
@@ -499,7 +504,9 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
       visualLanguage: safeStr(vision.visualLanguage, base.vision.visualLanguage),
       referenceFilms: safeArr(vision.referenceFilms, []).map((x: any) => String(x)).length
         ? safeArr(vision.referenceFilms, []).map((x: any) => String(x)) : base.vision.referenceFilms,
-      scenes: normalizedVisionScenes.length ? normalizedVisionScenes : buildOfflineVision(normalizedScenes.length ? normalizedScenes : base.script.scenes, brief),
+      scenes: normalizedVisionScenes.length
+        ? normalizedVisionScenes
+        : base.vision.scenes,
     },
     storyboard: {
       aspectRatio: /9:16|vert|тик|reel|shorts/i.test(brief.platform) ? "9:16" : "16:9",
@@ -535,36 +542,16 @@ function normalizePreprod(raw: any, brief: DirectorBrief, existingPreprod?: PreP
       weakScenes: safeArr(risks.weakScenes, []).map((w: any) => ({
         sceneId: safeStr(w?.sceneId || w?.sceneNumber, ""),
         reason: safeStr(w?.reason, ""),
-      })).length ? safeArr(risks.weakScenes, []).map((w: any) => ({
-        sceneId: safeStr(w?.sceneId || w?.sceneNumber, ""),
-        reason: safeStr(w?.reason, ""),
-      })) : base.risks.weakScenes,
+      })).length
+        ? safeArr(risks.weakScenes, []).map((w: any) => ({
+            sceneId: safeStr(w?.sceneId || w?.sceneNumber, ""),
+            reason: safeStr(w?.reason, ""),
+          }))
+        : base.risks.weakScenes,
       risks: normalizedRisks.length ? normalizedRisks : base.risks.risks,
     },
     chat: prevChat,
   };
-}
-
-function buildOfflineVision(scenes: any[], brief: DirectorBrief): PreProduction["vision"]["scenes"] {
-  return scenes.map((s, i) => ({
-    sceneId: s.id || `sc-${i}`,
-    sceneTitle: s.heading || `Сцена ${i + 1}`,
-    shot: {
-      goal: s.notes || "Раскрыть смысл сцены",
-      emotion: brief.mood || "нейтральное",
-      composition: i === 0 ? "Крупный план по правилу третей" : "Средний план, ведущая линия на героя",
-      cameraMovement: i === 0 ? "Статика → лёгкий zoom-in" : "Steadicam, следуем за действием",
-      duration: `${s.durationSec || 5} сек`,
-      transition: i === 0 ? "cut" : "J-cut",
-      pacing: i === scenes.length - 1 ? "замедление" : "средний",
-      sound: "Диалог поверх атмосферы; музыка подстраивается под эмоцию сцены",
-      atmosphere: brief.mood || "камерная",
-      lighting: /день|утро|day/.test(s.timeOfDay || "") ? "Мягкий дневной свет из окна + контровой" : "Low-key, один практический источник",
-      colorPalette: [brief.mood ? "#c76a3a" : "#6d5a8c", "#f0b96b", "#1a1620"],
-      vfx: "без эффектов",
-      dpNotes: `${i === 0 ? "Открываем самым сильным кадром" : "Снимаем несколько дублей с вариациями"}; объектив 35mm, f/2.0.`,
-    },
-  }));
 }
 
 function pickStageFromPreprod(preprod: PreProduction, stage: string): any {
@@ -584,10 +571,6 @@ function pickStageFromPreprod(preprod: PreProduction, stage: string): any {
   }
 }
 
-function flattenToLegacy(p: PreProduction): DirectorSections {
-  const briefStub: DirectorBrief = {
-    idea: p.treatment.title || "", goal: "", audience: p.idea.audience, platform: "",
-    duration: "", style: "", mood: p.treatment.tone, tempo: "", references: "", keyMessage: "", callToAction: "",
-  };
-  return flattenSections(p, briefStub);
+function flattenToLegacy(p: PreProduction, brief: DirectorBrief): DirectorSections {
+  return flattenSections(p, brief);
 }

@@ -48,7 +48,7 @@ export default function StageLocations({ preprod, updatePreprod }: Props) {
           `Оценка локации: ${r.score}/100\nАтмосфера: ${r.mood}\nСвет: ${r.lighting}\n${r.suitable ? "Локация выглядит подходящей." : "Локация требует доработки по свету/композиции."}`,
       });
     } catch (e: any) {
-      setMsg("Не удалось проанализировать фото: " + (e.message || ""));
+      setMsg("Не удалось проанализировать фото, попробуйте другой снимок.");
     } finally {
       setAnalyzing(null);
     }
@@ -57,13 +57,10 @@ export default function StageLocations({ preprod, updatePreprod }: Props) {
   return (
     <StageShell
       icon="📍"
-      title="Locations — Локации"
-      subtitle="Загрузите фото локации — AI локально оценит атмосферу, свет, плюсы и минусы. Все вычисления в браузере."
+      title="Локации"
+      subtitle="Опишите места съёмок и загрузите фото — AI оценит свет, атмосферу и подскажет сильные и слабые стороны каждой локации."
     >
-      {msg && <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-[11px] text-amber-200">{msg}</div>}
-      <div className="mb-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-[11px] text-amber-200">
-        ⓘ Анализ фото — локальный: оценивается яркость, контраст, цветовая температура и палитра. Это позволяет быстро отсеять неподходящие локации до выезда, но не заменяет рекогносцировку.
-      </div>
+      {msg && <div className="mb-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-[11px] text-rose-200">{msg}</div>}
       <div className="grid gap-4 md:grid-cols-2">
         {locs.map((l) => (
           <div key={l.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">

@@ -19,7 +19,6 @@ const SHOT_SIZES = ["ECU", "CU", "MCU", "MS", "WS", "ELS", "POV", "OTS", "INSERT
 export default function StageStoryboard({ preprod, updatePreprod, onRegenerate, busy }: Props) {
   const sb = preprod.storyboard;
   const [generatingImg, setGeneratingImg] = useState<string | null>(null);
-  const [externalMsg, setExternalMsg] = useState<string>("");
 
   const set = (patch: Partial<typeof sb>) =>
     updatePreprod((p) => ({ ...p, storyboard: { ...p.storyboard, ...patch } }));
@@ -119,7 +118,6 @@ export default function StageStoryboard({ preprod, updatePreprod, onRegenerate, 
     const f = sb.frames.find((x) => x.id === id);
     if (!f) return;
     setGeneratingImg(id);
-    setExternalMsg("");
     try {
       const prompt = f.imagePrompt || `cinematic storyboard sketch, ${f.shotSize} shot, ${f.description}, ${f.lighting}, ${f.mood} mood, black and white with accent color, storyboard pro style, --ar 16:9`;
       const res = await fetch("/api/director/generate-frame", {
@@ -130,9 +128,10 @@ export default function StageStoryboard({ preprod, updatePreprod, onRegenerate, 
       if (!res.ok) throw new Error("generator error");
       const data = await res.json();
       if (data.imageUrl) updateFrame(id, { imageDataUrl: data.imageUrl });
-      if (data.fallback) setExternalMsg("Бесплатный генератор изображений недоступен — используем локальный SVG-эскиз.");
+      // If the remote generator is unavailable the SVG sketch is already there —
+      // no need to surface technical details to the user.
     } catch {
-      setExternalMsg("Не удалось подключиться к бесплатному генератору изображений (Pollinations). Оставлен локальный эскиз.");
+      // Silently keep the local SVG sketch.
     } finally {
       setGeneratingImg(null);
     }
@@ -171,18 +170,6 @@ export default function StageStoryboard({ preprod, updatePreprod, onRegenerate, 
             <option value="1:1" className="bg-[#0c0c16]">1:1 (квадрат)</option>
           </select>
         </div>
-      </div>
-
-      {externalMsg && (
-        <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-[11px] text-amber-200">
-          {externalMsg}
-        </div>
-      )}
-
-      <div className="mb-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-[11px] text-amber-200">
-        ⓘ В MONTIQ раскадровка создаётся в двух режимах:
-        (1) <b>локальные SVG-эскизы</b> — мгновенные, 100% бесплатные, не требуют сети и ключа;
-        (2) <b>Pollinations.ai</b> — бесплатная нейросетевая генерация, работает через публичный API без ключа, но зависит от доступности сервиса и интернета. Нажмите «Сгенерировать AI-кадр», чтобы попробовать Pollinations — если сервис недоступен, останется рабочий локальный эскиз.
       </div>
 
       <div className="space-y-4">

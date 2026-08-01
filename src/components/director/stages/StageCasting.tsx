@@ -51,7 +51,8 @@ export default function StageCasting({ preprod, updatePreprod }: Props) {
           result.notes,
       });
     } catch (e: any) {
-      setMsg("Не удалось проанализировать фото локально: " + (e.message || ""));
+      // Swallow technical errors — the user can still upload and try again.
+      setMsg("Не удалось проанализировать фото, попробуйте другой снимок.");
     } finally {
       setAnalyzing(null);
     }
@@ -60,13 +61,10 @@ export default function StageCasting({ preprod, updatePreprod }: Props) {
   return (
     <StageShell
       icon="🎭"
-      title="Casting — Кастинг"
-      subtitle="AI помогает подобрать актеров. Загрузите фотографию или видеовизитку — локально в браузере (без отправки в облако) будет проанализирована экспозиция, контраст, цветовая температура и наличие лица в кадре. Финальное решение — за читкой."
+      title="Кастинг"
+      subtitle="Рекомендации по ролям и внешнему виду актёров. Загрузите фотографию претендента — AI оценит экспозицию, контраст, цвет и наличие лица в кадре и даст короткое заключение. Финальное решение всегда за вами."
     >
-      {msg && <div className="mb-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-[11px] text-amber-200">{msg}</div>}
-      <div className="mb-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-[11px] text-amber-200">
-        ⓘ Анализ фото происходит 100% локально в вашем браузере — файлы не отправляются на внешние серверы. Это не замена живого кастинга: алгоритм оценивает только технические параметры кадра и наличие лица, а не актёрское мастерство. Для видеовизиток пока доступен анализ первого кадра как фото.
-      </div>
+      {msg && <div className="mb-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-[11px] text-rose-200">{msg}</div>}
       <div className="grid gap-4 md:grid-cols-2">
         {cast.map((c) => (
           <div key={c.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">

@@ -46,7 +46,7 @@ export default function TimelineV2() {
   const getTimeFromX = (clientX: number) => {
     if (!containerRef.current) return 0;
     const rect = containerRef.current.getBoundingClientRect();
-    const x = clientX - rect.left - 80; // timeline offset
+    const x = clientX - rect.left - 112; // timeline offset
     return Math.max(0, Math.min(duration, x / pxPerSecond));
   };
 
@@ -120,7 +120,7 @@ export default function TimelineV2() {
     <div ref={containerRef} className="h-full flex flex-col bg-[#0a0a12] select-none overflow-hidden" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
       {/* Timeline ruler */}
       <div className="flex h-6 border-b border-white/10 bg-[#0d0d16] relative overflow-hidden">
-        <div className="w-20 shrink-0 bg-gradient-to-r from-[#0d0d16] to-[#0a0a12] border-r border-white/10 flex items-center justify-center text-[10px] text-slate-400 font-mono">TRK</div>
+        <div className="w-28 shrink-0 bg-gradient-to-r from-[#0d0d16] to-[#0a0a12] border-r border-white/10 flex items-center justify-center text-[10px] text-slate-400 font-mono">TRK</div>
         <div className="flex-1 relative" style={{ width: totalWidth }}>
           {Array.from({ length: Math.ceil(duration / 10) + 1 }).map((_, i) => {
             const t = i * 10;
@@ -131,7 +131,7 @@ export default function TimelineV2() {
           {/* Big draggable playhead */}
           <div
             className="absolute top-0 bottom-0 z-30 cursor-col-resize group"
-            style={{ left: `calc(${playhead * pxPerSecond + 80}px - 8px)`, width: 16 }}
+            style={{ left: `calc(${playhead * pxPerSecond}px - 8px)`, width: 16 }}
             onMouseDown={(e) => {
               e.preventDefault();
               const rect = (e.currentTarget.parentElement as HTMLElement)?.getBoundingClientRect();
@@ -160,11 +160,11 @@ export default function TimelineV2() {
       </div>
 
       <div ref={scrollRef} onScroll={updateScroll} className="flex-1 overflow-auto custom-scrollbar">
-        <div className="relative flex" style={{ minWidth: totalWidth + 80 }}>
+        <div className="relative flex" style={{ minWidth: totalWidth + 112 }}>
           {/* Track headers */}
-          <div className="w-20 shrink-0 bg-[#0d0d16] border-r border-white/10 flex flex-col">
+          <div className="w-28 shrink-0 bg-[#0d0d16] border-r border-white/10 flex flex-col">
             {tracks.map((track: Track) => (
-              <div key={track.id} className={`h-16 border-b border-white/5 flex items-center justify-center text-[10px] font-bold text-slate-300 ${track.muted ? "opacity-50" : ""} ${track.hidden ? "text-slate-600" : ""}`} title={track.name}>
+              <div key={track.id} className={`h-20 border-b border-white/5 flex items-center justify-center text-[10px] font-bold text-slate-300 ${track.muted ? "opacity-50" : ""} ${track.hidden ? "text-slate-600" : ""}`} title={track.name}>
                 <button onClick={() => { const s = useProjectStore.getState(); s.toggleTrackProp(track.id, "hidden"); }} className="truncate px-1">{track.type === "video" ? "🎥" : track.type === "audio" ? "🎵" : track.type === "text" ? "📝" : "•"} <span className="truncate">{track.name}</span></button>
               </div>
             ))}
@@ -182,7 +182,7 @@ export default function TimelineV2() {
               <div className="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-gradient-to-b from-amber-300 via-violet-400 to-cyan-300 shadow-[0_0_10px_rgba(129,140,248,0.9)]" />
             </div>
             {tracks.map((track: Track) => (
-              <div key={track.id} className="h-16 border-b border-white/5 relative flex items-center" style={{ height: 64 }}>
+              <div key={track.id} className="h-20 border-b border-white/5 relative flex items-center" style={{ height: 80 }}>
                 {track.clips.map((clip: Clip) => {
                   const c = clip as VideoClip;
                   const left = clip.start * pxPerSecond;
@@ -197,8 +197,8 @@ export default function TimelineV2() {
                         setDragInfo({ trackId: track.id, clipId: clip.id, startX: e.clientX, originalStart: clip.start });
                       }}
                       onDoubleClick={() => splitClipAt(clip.id, playhead)}
-                      className={`absolute h-12 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-violet-400 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : track.type === "audio" ? "bg-gradient-to-br from-amber-900/60 to-yellow-800/60 border-amber-400/30 text-slate-100" : track.type === "text" || track.type === "subtitle" ? "bg-gradient-to-br from-emerald-900/60 to-teal-800/60 border-emerald-400/30 text-slate-100" : "bg-gradient-to-br from-blue-900/60 to-sky-800/60 border-blue-400/30 text-slate-100"}`}
-                      style={{ left: left + 80, width, top: 4 }}
+                      className={`absolute h-16 rounded-lg shadow-lg text-[9px] font-medium border transition-all overflow-hidden text-left px-1 py-0.5 ${isSelected ? "ring-2 ring-violet-400 z-10" : "hover:ring-1 hover:ring-violet-300/60"} ${c.reversed ? "bg-rose-900/60 border-rose-500/40 text-rose-100" : track.type === "audio" ? "bg-gradient-to-br from-amber-900/60 to-yellow-800/60 border-amber-400/30 text-slate-100" : track.type === "text" || track.type === "subtitle" ? "bg-gradient-to-br from-emerald-900/60 to-teal-800/60 border-emerald-400/30 text-slate-100" : "bg-gradient-to-br from-blue-900/60 to-sky-800/60 border-blue-400/30 text-slate-100"}`}
+                      style={{ left: left + 112, width, top: 4 }}
                       title={`${clip.name}\nСтарт: ${clip.start.toFixed(2)}\nДлительность: ${clip.duration.toFixed(2)}\nДвойной клик - разделить`}
                       aria-label={`Клип ${clip.name}, начало ${clip.start.toFixed(1)}`}
                     >

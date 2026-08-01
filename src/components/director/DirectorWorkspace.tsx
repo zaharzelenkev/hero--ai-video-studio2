@@ -262,7 +262,6 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
     <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[1.75rem] border border-dashed border-white/[0.12] bg-white/[0.02] p-10 text-center">
       <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/20 via-fuchsia-500/10 to-amber-400/20 shadow-2xl shadow-violet-900/30">
         <span className="text-4xl">🎬</span>
-        <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] shadow-lg">✦</span>
       </div>
       <h3 className="mb-2 text-xl font-bold tracking-tight text-slate-100">Виртуальный режиссёр ждёт брифа</h3>
       <p className="mb-6 max-w-md text-sm leading-relaxed text-slate-400">
@@ -426,8 +425,8 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
       <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#07070f]/70 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-5 py-3.5 sm:px-8">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-amber-400 text-base font-black shadow-2xl shadow-violet-500/40 transition group-hover:scale-105">
-              M
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-amber-400 text-xl shadow-2xl shadow-violet-500/40 transition group-hover:scale-105">
+              🎬
             </div>
             <div>
               <div className="text-base font-extrabold tracking-tight">MONTIQ</div>

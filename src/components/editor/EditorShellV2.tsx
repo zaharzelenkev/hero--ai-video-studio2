@@ -14,7 +14,7 @@ import EffectsPanelV2 from "./panels/EffectsPanelV2";
 import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
-import AIDirector from "./AIDirector";
+import DirectorRedirectPanel from "./DirectorRedirectPanel";
 import KeyframeEditor from "./KeyframeEditor";
 
 const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
@@ -24,7 +24,7 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "sound", label: "Звук", icon: "🎵", desc: "Микш, шумоподавление" },
   { id: "text", label: "Текст", icon: "📝", desc: "Анимация, keyframes" },
   { id: "animation", label: "Анимация", icon: "🎬", desc: "Motion, keyframes" },
-  { id: "ai", label: "AI Director", icon: "🤖", desc: "Чат с режиссёром" },
+  { id: "ai", label: "AI Director", icon: "🎬", desc: "Этап пре-продакшена" },
   { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
 ];
 
@@ -132,7 +132,7 @@ export default function EditorShellV2() {
       case "sound": return <SoundPanelV2 />;
       case "text": return <TextPanelV2 />;
       case "animation": return <EffectsPanelV2 />;
-      case "ai": return <AIDirector />;
+      case "ai": return <DirectorRedirectPanel />;
       case "export": return <ExportPanelV2 />;
       default: return <MontagePanelV2 />;
     }

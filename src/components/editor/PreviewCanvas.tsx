@@ -2,11 +2,77 @@
 
 import { useRef, useEffect, useCallback, useState } from "react";
 import { useProjectStore } from "@/store/projectStore";
-import type { Clip, VideoClip, Track } from "@/lib/types";
+import type { Clip, MediaAsset, VideoClip, Track } from "@/lib/types";
+import { loadBlob } from "@/lib/db";
 
-function getAssetUrl(_assetId: string) {
-  // In a real app, lookup from mediaCache / assets DB; here return placeholder
-  return `https://placehold.co/640x360/1e1b2e/violet.png?text=Clip`;
+/**
+ * Строит HTMLImageElement для ассета. Если у ассета уже есть готовая миниатюра
+ * (data-URL) — используем её; иначе достаём исходный Blob из IndexedDB и
+ * вырезаем кадр (для видео) или декодируем картинку. Так в редакторе вместо
+ * заглушки «Clip» показывается реальный кадр материала.
+ */
+function buildAssetThumbnail(asset: MediaAsset): Promise<HTMLImageElement | null> {
+  return (async () => {
+    if (asset.kind === "audio") return null;
+    if (asset.thumbnail) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = asset.thumbnail;
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res();
+        img.onerror = () => rej(new Error("thumb"));
+      });
+      return img;
+    }
+
+    const blob = await loadBlob(asset.blobKey);
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    try {
+      if (asset.kind === "video") {
+        const video = document.createElement("video");
+        video.src = url;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        await new Promise<void>((res) => {
+          video.onloadeddata = () => res();
+          video.onerror = () => res();
+          setTimeout(res, 5000);
+        });
+        video.currentTime = 0.2;
+        await new Promise<void>((res) => {
+          video.onseeked = () => res();
+          video.onerror = () => res();
+          setTimeout(res, 5000);
+        });
+        if (!video.videoWidth) return null;
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img = new Image();
+        img.src = canvas.toDataURL("image/jpeg", 0.6);
+        await new Promise<void>((res, rej) => {
+          img.onload = () => res();
+          img.onerror = () => rej(new Error("frame"));
+        });
+        return img;
+      }
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = url;
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res();
+        img.onerror = () => rej(new Error("image"));
+      });
+      return img;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  })().catch(() => null);
 }
 
 export default function PreviewCanvas() {
@@ -19,19 +85,25 @@ export default function PreviewCanvas() {
 
   const [imgCache, setImgCache] = useState<Record<string, HTMLImageElement>>({});
 
-  // Load asset thumbnails
+  // Load asset thumbnails (precomputed data-URL or real frame cut from the blob)
   useEffect(() => {
     if (!project) return;
     const assets = project.assets || [];
-    const newCache: Record<string, HTMLImageElement> = { ...imgCache };
-    assets.forEach((a) => {
-      if (!newCache[a.id]) {
-        const img = new Image();
-        img.src = a.thumbnail || getAssetUrl(a.id);
-        img.crossOrigin = "anonymous";
-        img.onload = () => setImgCache((prev) => ({ ...prev, [a.id]: img }));
+    let cancelled = false;
+    (async () => {
+      const result: Record<string, HTMLImageElement> = {};
+      for (const a of assets) {
+        if (cancelled) break;
+        const img = await buildAssetThumbnail(a);
+        if (img && !cancelled) result[a.id] = img;
       }
-    });
+      if (!cancelled && Object.keys(result).length > 0) {
+        setImgCache((prev) => ({ ...prev, ...result }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [project]);
 
   const draw = useCallback(() => {

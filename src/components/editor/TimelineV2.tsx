@@ -16,10 +16,32 @@ export default function TimelineV2() {
   const tracks = project ? project.tracks : [];
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [dragInfo, setDragInfo] = useState<{ trackId: string; clipId: string; startX: number; originalStart: number } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
 
+  // Custom horizontal scrollbar state
+  const [scrollInfo, setScrollInfo] = useState({ left: 0, viewport: 0, max: 0, canScroll: false });
+
   const totalWidth = Math.max(600, duration * pxPerSecond + 200);
+
+  const updateScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setScrollInfo({
+      left: el.scrollLeft,
+      viewport: el.clientWidth,
+      max: max > 0 ? max : 0,
+      canScroll: max > 1,
+    });
+  }, []);
+
+  useEffect(() => {
+    updateScroll();
+    window.addEventListener("resize", updateScroll);
+    return () => window.removeEventListener("resize", updateScroll);
+  }, [updateScroll, project, tracks.length, duration, pxPerSecond]);
 
   const getTimeFromX = (clientX: number) => {
     if (!containerRef.current) return 0;
@@ -54,6 +76,41 @@ export default function TimelineV2() {
     };
   }, [dragInfo, handleMouseMove, handleMouseUp]);
 
+  // --- Custom horizontal scrollbar handlers ---
+  const thumbWidthPct = scrollInfo.max > 0 && scrollInfo.viewport > 0
+    ? Math.max(12, (scrollInfo.viewport / (scrollInfo.viewport + scrollInfo.max)) * 100)
+    : 100;
+  const thumbLeftPct = scrollInfo.max > 0
+    ? (scrollInfo.left / scrollInfo.max) * (100 - thumbWidthPct)
+    : 0;
+
+  const onThumbMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = scrollRef.current;
+    if (!el) return;
+    const startX = e.clientX;
+    const startScroll = el.scrollLeft;
+    const ratio = scrollInfo.max / scrollInfo.viewport;
+    const onMove = (ev: MouseEvent) => {
+      el.scrollLeft = startScroll + (ev.clientX - startX) * ratio;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const onTrackMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("[data-scroll-thumb]")) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
+    el.scrollLeft = rel * (el.scrollWidth - el.clientWidth);
+  };
 
   if (!project) return (
     <div className="h-full flex items-center justify-center text-slate-500 text-sm">Загрузка проекта...</div>
@@ -97,12 +154,12 @@ export default function TimelineV2() {
             {/* Thick bar */}
             <div className="absolute top-0 bottom-0 w-1.5 bg-gradient-to-b from-amber-400 via-blue-400 to-cyan-300 shadow-lg shadow-blue-500/60 rounded-full mx-auto" />
             {/* Big handle at top */}
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-blue-500 border-2 border-white shadow-xl flex items-center justify-center text-[10px] font-bold text-white">◈</div>
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-blue-500 border-2 border-white shadow-xl flex items-center justify-center text-[10px] font-bold text-white">▲</div>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollRef} onScroll={updateScroll} className="flex-1 overflow-auto custom-scrollbar">
         <div className="flex" style={{ minWidth: totalWidth + 80 }}>
           {/* Track headers */}
           <div className="w-20 shrink-0 bg-[#0d0d16] border-r border-white/10 flex flex-col">
@@ -150,6 +207,24 @@ export default function TimelineV2() {
           </div>
         </div>
       </div>
+
+      {/* Custom horizontal scrollbar — большая, человеческая полоса */}
+      {scrollInfo.canScroll && (
+        <div className="shrink-0 px-3 pb-2 pt-1.5 bg-[#0d0d16] border-t border-white/10">
+          <div
+            className="relative h-4 rounded-full bg-white/10 hover:bg-white/15 cursor-pointer"
+            onMouseDown={onTrackMouseDown}
+            title="Прокрутка таймлайна"
+          >
+            <div
+              data-scroll-thumb="true"
+              onMouseDown={onThumbMouseDown}
+              className="absolute top-0 h-4 rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 shadow-lg shadow-violet-900/50 cursor-grab active:cursor-grabbing"
+              style={{ width: `${thumbWidthPct}%`, left: `${thumbLeftPct}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Bottom info bar */}
       <div className="h-6 bg-[#0d0d16] border-t border-white/10 flex items-center px-3 gap-3 text-[10px] text-slate-400 font-mono shrink-0">

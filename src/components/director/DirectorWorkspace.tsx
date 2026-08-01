@@ -313,7 +313,7 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
       items: [
         { key: "script", title: "Сценарий", icon: "📜", accent: "#a78bfa" },
         { key: "concept", title: "Режиссёрская концепция", icon: "🎬", accent: "#fbbf24" },
-        { key: "structure", title: "Структура ролика", icon: "⏱", accent: "#e879f9" },
+        { key: "structure", title: "Структура ролика", icon: "🕐", accent: "#e879f9" },
       ],
     },
     {
@@ -347,7 +347,7 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {sections.logline && (
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-medium text-slate-300">{"✦ Готов к монтажу"}</span>
+              <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-medium text-slate-300">{"● Готов к монтажу"}</span>
             )}
             {saved && <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold text-emerald-300">✓ Сохранено</span>}
           </div>

@@ -13,6 +13,7 @@ import { saveBlob, saveProject, listProjects, deleteProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import type { MediaAsset, Project } from "@/lib/types";
 import { createProductionPlan } from "@/lib/production";
+import { ensureMinDuration } from "@/lib/minDuration";
 
 type Stage = "idle" | "reading" | "generating" | "error";
 
@@ -119,8 +120,16 @@ export default function GenerationScreenV2() {
       // Keep the creative brief with the timeline: production decisions survive
       // the hand-off from planning to auto-edit, editorial and export.
       project.production = productionPlan;
-      await saveProject(project);
-      setRecentProjects(await listProjects());
+
+      // Гарантируем, что ролик длится не меньше 10 секунд (слишком короткие
+      // монтажи из 3–5 секунд выглядят обрывком, а не видео).
+      ensureMinDuration(project, 10);
+
+      // НЕ сохраняем проект здесь: иначе незавершённое видео сразу попадало бы
+      // в «Ваши проекты», и клик по нему во время рендера прерывал генерацию и
+      // открывал редактор с пустыми «Clip»-заглушками. Сохраняем проект только
+      // ПОСЛЕ рендера — когда видео готово и пользователь видит экран «Ваше
+      // видео создано».
 
       setProgressLabel("Подготовка видеодвижка...");
       const blob = await renderProject(

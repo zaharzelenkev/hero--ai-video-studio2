@@ -68,7 +68,11 @@ function buildVideoClipChain(
   if (clip.type === "image") {
     inputs.push({ pre: ["-loop", "1", "-t", String(Math.max(0.1, clip.duration))], path: fileNameFor(clip) });
   } else {
-    inputs.push({ pre: [], path: fileNameFor(clip) });
+    // Автомонтаж открывает один исходник на каждый фрагмент. Файлы с телефона
+    // нередко содержат единичный повреждённый кадр; без этих input-флагов
+    // декодер останавливает весь экспорт на таком фрагменте (например #11:0).
+    // Пропускаем только повреждённые пакеты и продолжаем монтаж из валидных кадров.
+    inputs.push({ pre: ["-fflags", "+discardcorrupt", "-err_detect", "ignore_err"], path: fileNameFor(clip) });
   }
 
   const tag = clip.id.replace(/[^a-zA-Z0-9]/g, "");

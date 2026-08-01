@@ -1,102 +1,360 @@
 "use client";
 
-import { useProjectStore } from "@/store/projectStore";
-import { uid } from "@/lib/id";
-import type { Track, Clip } from "@/lib/types";
+import { useProjectStore, findClip, assetOf } from "@/store/projectStore";
+import { param } from "@/lib/types";
+import type { AnimParam, AudioClip, CameraMotion, Clip, TextClip, TransitionType, VideoClip } from "@/lib/types";
+import { TRANSITIONS } from "@/lib/presets";
+import ParamControl from "../ParamControl";
+import { PanelSection, NumberField, SelectField, ToggleButton, EmptyHint } from "./ui";
+
+const CAMERA_MOTIONS: { id: CameraMotion; label: string }[] = [
+  { id: "none", label: "Статика" },
+  { id: "zoom-in", label: "Наезд" },
+  { id: "zoom-out", label: "Отъезд" },
+  { id: "pan-left", label: "Панорама ←" },
+  { id: "pan-right", label: "Панорама →" },
+  { id: "pan-up", label: "Панорама ↑" },
+  { id: "pan-down", label: "Панорама ↓" },
+];
 
 export default function MontagePanelV2() {
   const project = useProjectStore((s) => s.project);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
-  const addTrack = useProjectStore((s) => s.addTrack);
-  const removeTrack = useProjectStore((s) => s.removeTrack);
-  const duplicateClip = useProjectStore((s) => s.duplicateClip);
-  const detachAudio = useProjectStore((s) => s.detachAudio);
-  const splitClipAt = useProjectStore((s) => s.splitClipAt);
-  const selectClip = useProjectStore((s) => s.selectClip);
-  const setActivePage = useProjectStore((s) => s.setActivePage);
   const playhead = useProjectStore((s) => s.playhead);
-  const setPlayhead = useProjectStore((s) => s.setPlayhead);
+  const updateClip = useProjectStore((s) => s.updateClip);
+  const removeClip = useProjectStore((s) => s.removeClip);
+  const duplicateClip = useProjectStore((s) => s.duplicateClip);
+  const splitClipAt = useProjectStore((s) => s.splitClipAt);
+  const detachAudio = useProjectStore((s) => s.detachAudio);
+  const setClipSpeed = useProjectStore((s) => s.setClipSpeed);
+  const alignSelectedToPlayhead = useProjectStore((s) => s.alignSelectedToPlayhead);
+  const trimClip = useProjectStore((s) => s.trimClip);
+  const setActivePage = useProjectStore((s) => s.setActivePage);
 
-  if (!project) return <div className="text-sm text-slate-400">Нет проекта.</div>;
+  const found = findClip(project, selectedClipId);
+  if (!project) return <EmptyHint>Проект не загружен.</EmptyHint>;
+  if (!found) return <EmptyHint>Выберите клип на таймлайне — здесь появятся его параметры.</EmptyHint>;
 
-  const selectedClip = project.tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
+  const { clip, track } = found;
+  const localTime = Math.max(0, playhead - clip.start);
+  const asset = assetOf(project, clip);
+  const isVisual = clip.type === "video" || clip.type === "image";
+  const media = clip as VideoClip;
+  const audio = clip as AudioClip;
 
-  const handleAddVideoTrack = () => {
-    addTrack({ id: uid("track"), type: "video", name: `Видео ${project.tracks.filter(t => t.type === "video").length + 1}`, clips: [], hidden: false, muted: false, locked: false });
-  };
-  const handleAddAudioTrack = () => {
-    addTrack({ id: uid("track"), type: "audio", name: `Аудио ${project.tracks.filter(t => t.type === "audio").length + 1}`, clips: [], hidden: false, muted: false, locked: false });
-  };
+  const patch = (fn: (c: Clip) => Clip) => updateClip(clip.id, fn);
+  const setParam = (key: keyof VideoClip, value: AnimParam) =>
+    patch((c) => ({ ...(c as VideoClip), [key]: value }) as Clip);
 
   return (
     <div className="space-y-3">
-      <section className="rounded-xl bg-gradient-to-r from-violet-900/30 to-fuchsia-900/30 border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Монтаж</h3>
-        <div className="flex gap-2 mb-2">
-          <button onClick={handleAddVideoTrack} className="rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg">+ Видео трек</button>
-          <button onClick={handleAddAudioTrack} className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg">+ Аудио трек</button>
+      <PanelSection title="Клип" subtitle={track.name}>
+        <input
+          value={clip.name}
+          onChange={(e) => patch((c) => ({ ...c, name: e.target.value }))}
+          className="mb-2 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-violet-400/50"
+          aria-label="Название клипа"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label="Начало, с"
+            value={clip.start}
+            step={0.01}
+            onChange={(v) => patch((c) => ({ ...c, start: Math.max(0, v) }))}
+          />
+          <NumberField
+            label="Длительность, с"
+            value={clip.duration}
+            step={0.01}
+            min={0.08}
+            onChange={(v) => trimClip(clip.id, "out", clip.start + Math.max(0.08, v))}
+          />
         </div>
-        <div className="flex gap-2">
-          {selectedClipId && selectedClip ? (
-            <>
-              {(selectedClip.type === "text" || selectedClip.type === "subtitle") && (
-                <button
-                  onClick={() => setActivePage("text")}
-                  className="rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg hover:brightness-110"
-                  title="Изменить текст или субтитры"
-                >
-                  ✏️ Редактировать текст
-                </button>
-              )}
-              <button onClick={() => duplicateClip(selectedClipId)} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-white/10">Дублировать</button>
-              <button onClick={() => detachAudio(selectedClipId)} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-white/10">Отделить звук</button>
-              <button onClick={() => splitClipAt(selectedClipId, playhead)} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-rose-300 hover:bg-white/10">Разделить (S)</button>
-            </>
-          ) : (
-            <span className="text-xs text-slate-500">Выберите клип для действий.</span>
-          )}
-        </div>
-      </section>
-
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Треки</h3>
-        <div className="space-y-2">
-          {project.tracks.map((track: Track) => (
-            <div key={track.id} className={`rounded-lg border p-2 ${track.hidden ? "opacity-50" : "border-white/10 bg-[#0a0a12]"} ${track.muted ? "border-amber-500/30" : ""}`}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-xs font-bold text-slate-200">{track.type === "video" ? "🎥" : track.type === "audio" ? "🎵" : "•"} {track.name}</div>
-                <div className="flex gap-1">
-                  <button onClick={() => useProjectStore.getState().toggleTrackProp(track.id, "hidden")} className="text-[10px] bg-white/5 rounded px-1 hover:bg-white/10">{track.hidden ? "Показать" : "Скрыть"}</button>
-                  <button onClick={() => useProjectStore.getState().toggleTrackProp(track.id, "muted")} className="text-[10px] bg-white/5 rounded px-1 hover:bg-white/10">{track.muted ? "Включить" : "Заглушить"}</button>
-                  <button onClick={() => removeTrack(track.id)} className="text-[10px] bg-rose-900/40 text-rose-300 rounded px-1 hover:bg-rose-900/60">Удалить</button>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {track.clips.map((c: Clip) => (
-                  <button key={c.id} onClick={() => { selectClip(c.id); setPlayhead(c.start); }} className={`text-[10px] rounded-md px-2 py-0.5 border transition ${selectedClipId === c.id ? "bg-violet-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"}`}>{c.name}</button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Информация о клипе</h3>
-        {selectedClip ? (
-          <div className="text-xs text-slate-300 space-y-1">
-            <div><span className="text-slate-500">Имя:</span> {selectedClip.name}</div>
-            <div><span className="text-slate-500">Старт:</span> {selectedClip.start.toFixed(2)}с</div>
-            <div><span className="text-slate-500">Длительность:</span> {selectedClip.duration.toFixed(2)}с</div>
-            <div><span className="text-slate-500">Тип:</span> {selectedClip.type}</div>
-            <div><span className="text-slate-500">Трек:</span> {project.tracks.find(t => t.clips.some(c => c.id === selectedClip.id))?.name}</div>
-            <div><span className="text-slate-500">Скорость:</span> {(selectedClip as any).speed ?? 1}x</div>
-            <div><span className="text-slate-500">Перевернут:</span> {(selectedClip as any).reversed ? "Да" : "Нет"}</div>
+        {(clip.type === "video" || clip.type === "audio") && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <NumberField
+              label="In (источник)"
+              value={(clip as VideoClip).inPoint}
+              step={0.01}
+              onChange={(v) => patch((c) => ({ ...(c as VideoClip), inPoint: Math.max(0, v) }) as Clip)}
+            />
+            <NumberField
+              label="Out (источник)"
+              value={(clip as VideoClip).outPoint}
+              step={0.01}
+              onChange={(v) => patch((c) => ({ ...(c as VideoClip), outPoint: Math.max(0, v) }) as Clip)}
+            />
           </div>
-        ) : (
-          <div className="text-xs text-slate-500">Клип не выбран.</div>
         )}
-      </section>
+        {asset && (
+          <div className="mt-2 text-[10px] text-slate-500">
+            Источник: <span className="text-slate-300">{asset.name}</span>
+            {asset.width ? ` · ${asset.width}×${asset.height}` : ""}
+            {asset.duration ? ` · ${asset.duration.toFixed(1)}с` : ""}
+          </div>
+        )}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <ToggleButton onClick={() => splitClipAt(clip.id, playhead)}>✂ Разрезать</ToggleButton>
+          <ToggleButton onClick={() => duplicateClip(clip.id)}>⧉ Дублировать</ToggleButton>
+          <ToggleButton onClick={alignSelectedToPlayhead}>⇥ К плейхеду</ToggleButton>
+          {clip.type === "video" && <ToggleButton onClick={() => detachAudio(clip.id)}>🎚 Отделить звук</ToggleButton>}
+          <ToggleButton tone="danger" onClick={() => removeClip(clip.id)}>
+            🗑 Удалить
+          </ToggleButton>
+        </div>
+      </PanelSection>
+
+      {(clip.type === "video" || clip.type === "audio") && (
+        <PanelSection title="Скорость и направление">
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {[0.25, 0.5, 1, 1.5, 2, 4].map((s) => (
+              <ToggleButton key={s} active={Math.abs(((clip as VideoClip).speed ?? 1) - s) < 0.001} onClick={() => setClipSpeed(clip.id, s)}>
+                {s}×
+              </ToggleButton>
+            ))}
+          </div>
+          <NumberField
+            label="Точная скорость"
+            value={(clip as VideoClip).speed ?? 1}
+            step={0.05}
+            min={0.1}
+            max={8}
+            onChange={(v) => setClipSpeed(clip.id, v)}
+          />
+          {clip.type === "video" && (
+            <div className="mt-2 flex gap-1.5">
+              <ToggleButton active={!!media.reversed} onClick={() => patch((c) => ({ ...(c as VideoClip), reversed: !(c as VideoClip).reversed }) as Clip)}>
+                ⏪ Реверс
+              </ToggleButton>
+              <ToggleButton
+                active={!!media.motionBlur?.enabled}
+                onClick={() =>
+                  patch((c) => {
+                    const v = c as VideoClip;
+                    return {
+                      ...v,
+                      motionBlur: { enabled: !v.motionBlur?.enabled, samples: v.motionBlur?.samples ?? 8, shutterAngle: v.motionBlur?.shutterAngle ?? 180 },
+                    } as Clip;
+                  })
+                }
+              >
+                ✷ Motion blur
+              </ToggleButton>
+            </div>
+          )}
+        </PanelSection>
+      )}
+
+      {isVisual && (
+        <>
+          <PanelSection title="Трансформация" subtitle="◆ — ключевой кадр на плейхеде">
+            <ParamControl
+              label="Позиция X"
+              param={media.x ?? param(0)}
+              localTime={localTime}
+              clipDuration={clip.duration}
+              min={-1}
+              max={1}
+              onChange={(p) => setParam("x", p)}
+            />
+            <ParamControl
+              label="Позиция Y"
+              param={media.y ?? param(0)}
+              localTime={localTime}
+              clipDuration={clip.duration}
+              min={-1}
+              max={1}
+              onChange={(p) => setParam("y", p)}
+            />
+            <ParamControl
+              label="Масштаб"
+              param={media.scale ?? param(1)}
+              localTime={localTime}
+              clipDuration={clip.duration}
+              min={0.1}
+              max={4}
+              onChange={(p) => setParam("scale", p)}
+            />
+            <ParamControl
+              label="Поворот, °"
+              param={media.rotation ?? param(0)}
+              localTime={localTime}
+              clipDuration={clip.duration}
+              min={-180}
+              max={180}
+              step={0.5}
+              onChange={(p) => setParam("rotation", p)}
+            />
+            <ParamControl
+              label="Прозрачность"
+              param={media.opacity ?? param(1)}
+              localTime={localTime}
+              clipDuration={clip.duration}
+              min={0}
+              max={1}
+              onChange={(p) => setParam("opacity", p)}
+            />
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <ToggleButton active={!!media.flipH} onClick={() => patch((c) => ({ ...(c as VideoClip), flipH: !(c as VideoClip).flipH }) as Clip)}>
+                ⇋ Отразить H
+              </ToggleButton>
+              <ToggleButton active={!!media.flipV} onClick={() => patch((c) => ({ ...(c as VideoClip), flipV: !(c as VideoClip).flipV }) as Clip)}>
+                ⇵ Отразить V
+              </ToggleButton>
+              <ToggleButton
+                onClick={() =>
+                  patch((c) => ({ ...(c as VideoClip), x: param(0), y: param(0), scale: param(1), rotation: param(0), opacity: param(1) }) as Clip)
+                }
+              >
+                ↺ Сброс
+              </ToggleButton>
+            </div>
+          </PanelSection>
+
+          <PanelSection title="Кадрирование и вписывание">
+            <SelectField
+              label="Вписывание"
+              value={media.fitMode ?? "cover"}
+              options={[
+                { value: "cover", label: "Заполнить кадр (cover)" },
+                { value: "contain", label: "Вписать целиком (contain)" },
+              ]}
+              onChange={(v) => patch((c) => ({ ...(c as VideoClip), fitMode: v as "cover" | "contain" }) as Clip)}
+            />
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <ToggleButton active={!!media.blurPad} onClick={() => patch((c) => ({ ...(c as VideoClip), blurPad: !(c as VideoClip).blurPad }) as Clip)}>
+                ⬛ Размытые поля
+              </ToggleButton>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["cropLeft", "Кроп слева"],
+                  ["cropRight", "Кроп справа"],
+                  ["cropTop", "Кроп сверху"],
+                  ["cropBottom", "Кроп снизу"],
+                ] as [keyof VideoClip, string][]
+              ).map(([key, label]) => (
+                <NumberField
+                  key={String(key)}
+                  label={label}
+                  value={((media[key] as AnimParam | undefined)?.value ?? 0) * 100}
+                  step={1}
+                  min={0}
+                  max={90}
+                  suffix="%"
+                  onChange={(v) => setParam(key, param(Math.max(0, Math.min(0.9, v / 100))))}
+                />
+              ))}
+            </div>
+            <div className="mt-2">
+              <SelectField
+                label="Движение камеры (Ken Burns)"
+                value={media.cameraMotion ?? "none"}
+                options={CAMERA_MOTIONS.map((m) => ({ value: m.id, label: m.label }))}
+                onChange={(v) => patch((c) => ({ ...(c as VideoClip), cameraMotion: v as CameraMotion }) as Clip)}
+              />
+            </div>
+          </PanelSection>
+
+          <PanelSection title="Переходы">
+            <SelectField
+              label="Вход"
+              value={media.transitionIn?.type ?? "cut"}
+              options={TRANSITIONS.map((t) => ({ value: t.type, label: `${t.icon} ${t.label}` }))}
+              onChange={(v) =>
+                patch((c) => {
+                  const vc = c as VideoClip;
+                  return { ...vc, transitionIn: { type: v as TransitionType, duration: vc.transitionIn?.duration || 0.5 } } as Clip;
+                })
+              }
+            />
+            <NumberField
+              label="Длительность входа, с"
+              value={media.transitionIn?.duration ?? 0}
+              step={0.05}
+              min={0}
+              max={5}
+              onChange={(v) =>
+                patch((c) => {
+                  const vc = c as VideoClip;
+                  return { ...vc, transitionIn: { type: vc.transitionIn?.type ?? "crossfade", duration: v } } as Clip;
+                })
+              }
+            />
+            <SelectField
+              label="Выход"
+              value={media.transitionOut?.type ?? "cut"}
+              options={TRANSITIONS.map((t) => ({ value: t.type, label: `${t.icon} ${t.label}` }))}
+              onChange={(v) =>
+                patch((c) => {
+                  const vc = c as VideoClip;
+                  return { ...vc, transitionOut: { type: v as TransitionType, duration: vc.transitionOut?.duration || 0.5 } } as Clip;
+                })
+              }
+            />
+            <NumberField
+              label="Длительность выхода, с"
+              value={media.transitionOut?.duration ?? 0}
+              step={0.05}
+              min={0}
+              max={5}
+              onChange={(v) =>
+                patch((c) => {
+                  const vc = c as VideoClip;
+                  return { ...vc, transitionOut: { type: vc.transitionOut?.type ?? "crossfade", duration: v } } as Clip;
+                })
+              }
+            />
+          </PanelSection>
+
+          {clip.type === "video" && (
+            <PanelSection title="Звук клипа">
+              <ParamControl
+                label="Громкость"
+                param={media.volume ?? param(1)}
+                localTime={localTime}
+                clipDuration={clip.duration}
+                min={0}
+                max={2}
+                onChange={(p) => setParam("volume", p)}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <NumberField label="Fade in, с" value={media.fadeIn ?? 0} step={0.05} min={0} onChange={(v) => patch((c) => ({ ...(c as VideoClip), fadeIn: v }) as Clip)} />
+                <NumberField label="Fade out, с" value={media.fadeOut ?? 0} step={0.05} min={0} onChange={(v) => patch((c) => ({ ...(c as VideoClip), fadeOut: v }) as Clip)} />
+              </div>
+              <div className="mt-2">
+                <ToggleButton active={!!media.muted} onClick={() => patch((c) => ({ ...(c as VideoClip), muted: !(c as VideoClip).muted }) as Clip)}>
+                  {media.muted ? "🔇 Звук выключен" : "🔊 Звук включён"}
+                </ToggleButton>
+              </div>
+            </PanelSection>
+          )}
+        </>
+      )}
+
+      {clip.type === "audio" && (
+        <PanelSection title="Аудиоклип">
+          <div className="mb-2 text-[11px] text-slate-400">
+            Громкость {(audio.volume?.value ?? 1).toFixed(2)} · fade {audio.fadeIn?.toFixed(2)}/{audio.fadeOut?.toFixed(2)}с
+          </div>
+          <ToggleButton onClick={() => setActivePage("sound")}>🎵 Открыть микшер</ToggleButton>
+        </PanelSection>
+      )}
+
+      {(clip.type === "text" || clip.type === "subtitle") && (
+        <PanelSection title="Текст">
+          <textarea
+            value={(clip as TextClip).text}
+            onChange={(e) => patch((c) => ({ ...(c as TextClip), text: e.target.value }) as Clip)}
+            rows={3}
+            className="w-full resize-none rounded-lg border border-white/10 bg-black/40 p-2 text-xs text-slate-100 outline-none focus:border-violet-400/50"
+          />
+          <div className="mt-2">
+            <ToggleButton onClick={() => setActivePage("text")}>📝 Открыть редактор титров</ToggleButton>
+          </div>
+        </PanelSection>
+      )}
     </div>
   );
 }

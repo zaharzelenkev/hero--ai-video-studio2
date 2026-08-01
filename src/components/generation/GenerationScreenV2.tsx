@@ -173,41 +173,37 @@ export default function GenerationScreenV2() {
     <main className="min-h-screen bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12] text-slate-100">
       {/* Central pre-production control bar ABOVE the logo */}
       <div className="w-full border-b border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3">
-          <div className="flex shrink-0 items-center gap-2 pr-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-amber-400 text-sm shadow-lg">🎬</div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400">Pre-Production</div>
-              <div className="-mt-0.5 text-[11px] font-semibold text-slate-200">AI Production Studio</div>
+        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-3">
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+            {/* Бренд — сразу перед кнопками режимов */}
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-amber-400 text-sm shadow-lg">🎬</div>
+              <div className="text-left">
+                <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-200">MONTIQ</div>
+                <div className="-mt-0.5 text-[10px] font-semibold text-slate-400">AI Production Studio</div>
+              </div>
+            </div>
+            <div className="hidden h-6 w-px bg-white/10 sm:block" />
+            <div className="flex items-center gap-2">
+              <span className="hidden text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 lg:inline">
+                AI Director
+              </span>
+              <button
+                onClick={() => startDirector("basic")}
+                className="shrink-0 rounded-full border border-violet-400/30 bg-violet-500/10 px-3.5 py-1.5 text-[11px] font-extrabold text-violet-100 transition hover:bg-violet-500/20 hover:brightness-110"
+                title="Режиссёр сам ведёт вас вопросами в чате"
+              >
+                🧭 Базовый режим
+              </button>
+              <button
+                onClick={() => startDirector("pro")}
+                className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.02] px-3.5 py-1.5 text-[11px] font-extrabold text-slate-300 transition hover:bg-white/[0.06] hover:text-slate-100"
+                title="Полный Production Workspace со всеми разделами"
+              >
+                🎬 Профессиональный режим
+              </button>
             </div>
           </div>
-          <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-            <span className="hidden text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 lg:inline">
-              AI Director
-            </span>
-            <button
-              onClick={() => startDirector("basic")}
-              className="shrink-0 rounded-full border border-violet-400/30 bg-violet-500/10 px-3.5 py-1.5 text-[11px] font-extrabold text-violet-100 transition hover:bg-violet-500/20 hover:brightness-110"
-              title="Режиссёр сам ведёт вас вопросами в чате"
-            >
-              🧭 Базовый режим
-            </button>
-            <button
-              onClick={() => startDirector("pro")}
-              className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.02] px-3.5 py-1.5 text-[11px] font-extrabold text-slate-300 transition hover:bg-white/[0.06] hover:text-slate-100"
-              title="Полный Production Workspace со всеми разделами"
-            >
-              🎬 Профессиональный режим
-            </button>
-          </div>
-          <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
-          <button
-            onClick={() => startDirector("basic")}
-            className="shrink-0 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-[11px] font-extrabold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110"
-          >
-            Запустить AI Director →
-          </button>
         </div>
       </div>
 
@@ -238,7 +234,7 @@ export default function GenerationScreenV2() {
         <div className="mb-10 flex justify-center">
           <button
             onClick={() => startDirector("basic")}
-            className="group relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6 text-left shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01] hover:border-violet-400/40 hover:bg-white/[0.04]"
+            className="group relative w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6 text-left shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01] hover:border-violet-400/40 hover:bg-white/[0.04]"
             aria-label="Открыть AI Director"
           >
             <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-violet-600/20 blur-[80px] transition-opacity duration-300 group-hover:bg-violet-600/30" />
@@ -270,8 +266,8 @@ export default function GenerationScreenV2() {
         {/* Main Content */}
         <div className="mb-12 flex justify-center">
           {/* Upload Section */}
-          <div className="w-full max-w-2xl">
-            <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 shadow-2xl backdrop-blur-sm">
+          <div className="w-full max-w-5xl">
+            <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 shadow-2xl backdrop-blur-sm sm:p-8">
               <UploadZone items={items} onAdd={onAdd} onRemove={onRemove} />
               <div className="mt-6">
                 <PromptForm prompt={prompt} onChange={setPrompt} templateId={templateId} onTemplateChange={setTemplateId} />

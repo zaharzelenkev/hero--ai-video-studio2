@@ -1,75 +1,186 @@
 "use client";
 
-import { useProjectStore } from "@/store/projectStore";
-import type { VideoClip } from "@/lib/types";
+import { useState } from "react";
+import { useProjectStore, findClip } from "@/store/projectStore";
+import { param } from "@/lib/types";
+import type { BlendMode, Clip, Mask, VideoClip } from "@/lib/types";
+import { EFFECT_PRESETS } from "@/lib/presets";
+import { renderFrame } from "@/lib/editor/compositor";
+import { PanelSection, ToggleButton, EmptyHint, SliderField, SelectField, ColorField, CheckboxField } from "./ui";
+
+const BLEND_MODES: BlendMode[] = [
+  "normal",
+  "multiply",
+  "screen",
+  "overlay",
+  "darken",
+  "lighten",
+  "colorDodge",
+  "colorBurn",
+  "hardLight",
+  "softLight",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+];
+
+function defaultMask(): Mask {
+  return { enabled: true, shape: "rect", x: param(0.1), y: param(0.1), width: param(0.8), height: param(0.8), feather: 12, inverted: false };
+}
 
 export default function EffectsPanelV2() {
   const project = useProjectStore((s) => s.project);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
+  const playhead = useProjectStore((s) => s.playhead);
   const updateClip = useProjectStore((s) => s.updateClip);
+  const [note, setNote] = useState("");
 
-  if (!project || !selectedClipId) return <div className="text-sm text-slate-400">Выберите клип для эффектов.</div>;
-  const clip = project.tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
-  if (!clip || (clip.type !== "video" && clip.type !== "image")) return <div className="text-sm text-slate-400">Клип не поддерживает эффекты.</div>;
-  const v = clip as VideoClip;
+  const found = findClip(project, selectedClipId);
+  if (!project) return <EmptyHint>Проект не загружен.</EmptyHint>;
+  if (!found || (found.clip.type !== "video" && found.clip.type !== "image")) {
+    return <EmptyHint>Выберите видео- или фото-клип, чтобы добавить эффекты, хромакей или маску.</EmptyHint>;
+  }
 
-  const setVideo = (fn: (c: VideoClip) => VideoClip) => updateClip(selectedClipId, (c: any) => fn({ ...(c as VideoClip) }));
+  const clip = found.clip as VideoClip;
+  const patch = (fn: (c: VideoClip) => VideoClip) => updateClip(clip.id, (c) => fn(c as VideoClip) as Clip);
 
-  const Slider = ({ label, value, min, max, step, unit, onChange }: any) => (
-    <div className="mb-2">
-      <div className="flex justify-between text-[10px] font-medium text-slate-300 mb-0.5"><span>{label}</span><span className="text-violet-300">{value}{unit || ""}</span></div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} className="w-full h-1.5 rounded-full bg-gradient-to-r from-violet-800 to-fuchsia-800 appearance-none cursor-pointer accent-violet-400" aria-label={label} />
-    </div>
-  );
+  const toggleEffect = (id: string) =>
+    patch((c) => {
+      const effects = c.effects ?? [];
+      return { ...c, effects: effects.includes(id) ? effects.filter((e) => e !== id) : [...effects, id] };
+    });
+
+  /** Берём цвет фона прямо из текущего кадра — как пипетка в NLE. */
+  const pickKeyColor = () => {
+    const offscreen = document.createElement("canvas");
+    offscreen.width = 160;
+    offscreen.height = 90;
+    const ctx = offscreen.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    renderFrame(ctx, project, playhead);
+    const { data } = ctx.getImageData(2, 2, 6, 6);
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    const pixels = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+    }
+    const hex = `#${[r / pixels, g / pixels, b / pixels]
+      .map((v) => Math.round(v).toString(16).padStart(2, "0"))
+      .join("")}`;
+    patch((c) => ({ ...c, chroma: { ...c.chroma, enabled: true, color: hex } }));
+    setNote(`Ключевой цвет: ${hex} (взят из левого верхнего угла кадра)`);
+    setTimeout(() => setNote(""), 2600);
+  };
+
+  const mask = clip.mask;
 
   return (
     <div className="space-y-3">
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Маски и Размытие</h3>
-        <div className="flex gap-2 mb-2">
-          <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={v.mask?.enabled} onChange={() => setVideo(c => ({ ...c, mask: { ...c.mask!, enabled: !c.mask!.enabled } }))} aria-label="Включить маску" /> Маска</label>
-          <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={v.chroma?.enabled} onChange={() => setVideo(c => ({ ...c, chroma: { ...c.chroma!, enabled: !c.chroma!.enabled } }))} aria-label="Хромакей" /> Хромакей</label>
-        </div>
-        <Slider label="Мягкость маски (Feather)" value={v.mask?.feather ?? 0} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, mask: { ...c.mask!, feather: v } }))} />
-        <Slider label="Хрома Similarity" value={v.chroma?.similarity ?? 0.3} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, chroma: { ...c.chroma!, similarity: v } }))} />
-        <Slider label="Хрома Blend" value={v.chroma?.blend ?? 0.5} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, chroma: { ...c.chroma!, blend: v } }))} />
-      </section>
-
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Трансформ и Движение</h3>
-        <Slider label="X (смещение)" value={v.x?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, x: { value: v, keyframes: [] } }))} pct />
-        <Slider label="Y (смещение)" value={v.y?.value ?? 0} min={-1} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, y: { value: v, keyframes: [] } }))} pct />
-        <Slider label="Масштаб" value={v.scale?.value ?? 1} min={0.1} max={3} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, scale: { value: v, keyframes: [] } }))} />
-        <Slider label="Поворот (°)" value={v.rotation?.value ?? 0} min={-180} max={180} step={1} onChange={(v: number) => setVideo(c => ({ ...c, rotation: { value: v, keyframes: [] } }))} />
-        <Slider label="Прозрачность" value={v.opacity?.value ?? 1} min={0} max={1} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, opacity: { value: v, keyframes: [] } }))} />
-      </section>
-
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Crop (Кадрирование)</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <Slider label="Слева" value={v.cropLeft?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropLeft: { value: v, keyframes: [] } }))} pct />
-          <Slider label="Справа" value={v.cropRight?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropRight: { value: v, keyframes: [] } }))} pct />
-          <Slider label="Сверху" value={v.cropTop?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropTop: { value: v, keyframes: [] } }))} pct />
-          <Slider label="Снизу" value={v.cropBottom?.value ?? 0} min={0} max={0.5} step={0.01} onChange={(v: number) => setVideo(c => ({ ...c, cropBottom: { value: v, keyframes: [] } }))} pct />
-        </div>
-      </section>
-
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Blur / Sharpen / Motion</h3>
-        <Slider label="Размытие" value={(v as any).blurAmount ?? 0} min={0} max={10} step={0.1} onChange={() => {}} />
-        <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={v.motionBlur?.enabled} onChange={() => setVideo(c => ({ ...c, motionBlur: { ...c.motionBlur!, enabled: !c.motionBlur!.enabled } }))} aria-label="Motion Blur" /> Движение (Motion Blur)</label>
-        <Slider label="Shutter Angle" value={v.motionBlur?.shutterAngle ?? 180} min={0} max={360} step={1} onChange={(v: number) => setVideo(c => ({ ...c, motionBlur: { ...c.motionBlur!, shutterAngle: v } }))} />
-      </section>
-
-      <section className="rounded-xl bg-[#0d0d16] border border-white/10 p-3 shadow-inner">
-        <h3 className="text-xs font-bold text-violet-300 mb-2">Blend Mode и Переходы</h3>
-        <div className="flex flex-wrap gap-1 mb-2">
-          {["normal","multiply","screen","overlay","darken","lighten","hardLight","softLight","difference","hue","color"].map(b => (
-            <button key={b} onClick={() => setVideo(c => ({ ...c, blendMode: b as any }))} className={`rounded-lg px-2 py-0.5 text-[10px] border transition ${v.blendMode === b ? "bg-violet-600 text-white border-violet-400" : "bg-white/5 text-slate-300 border-white/10"}`}>{b}</button>
+      <PanelSection title="Эффекты" subtitle="применяются и в превью, и при экспорте">
+        <div className="flex flex-wrap gap-1.5">
+          {EFFECT_PRESETS.map((preset) => (
+            <ToggleButton key={preset.id} active={clip.effects?.includes(preset.id)} onClick={() => toggleEffect(preset.id)}>
+              {preset.label}
+            </ToggleButton>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={!!v.transitionIn?.duration} onChange={() => setVideo(c => ({ ...c, transitionIn: { type: "crossfade", duration: 0.3 } }))} aria-label="Переход" /> Переход на вход (Crossfade 0.3с)</label>
-      </section>
+      </PanelSection>
+
+      <PanelSection title="Хромакей">
+        <CheckboxField
+          label="Включить удаление фона"
+          checked={!!clip.chroma?.enabled}
+          onChange={(v) => patch((c) => ({ ...c, chroma: { ...c.chroma, enabled: v } }))}
+        />
+        <ColorField label="Ключевой цвет" value={clip.chroma?.color ?? "#00ff00"} onChange={(v) => patch((c) => ({ ...c, chroma: { ...c.chroma, color: v } }))} />
+        <SliderField
+          label="Схожесть"
+          value={clip.chroma?.similarity ?? 0.22}
+          min={0.01}
+          max={0.9}
+          step={0.01}
+          onChange={(v) => patch((c) => ({ ...c, chroma: { ...c.chroma, similarity: v } }))}
+        />
+        <SliderField
+          label="Смешивание края"
+          value={clip.chroma?.blend ?? 0.12}
+          min={0.01}
+          max={0.6}
+          step={0.01}
+          onChange={(v) => patch((c) => ({ ...c, chroma: { ...c.chroma, blend: v } }))}
+        />
+        <ToggleButton onClick={pickKeyColor}>💧 Взять цвет из кадра</ToggleButton>
+        {note && <div className="mt-1 text-[10px] text-emerald-400">{note}</div>}
+      </PanelSection>
+
+      <PanelSection title="Маска">
+        <CheckboxField
+          label="Включить маску"
+          checked={!!mask?.enabled}
+          onChange={(v) => patch((c) => ({ ...c, mask: c.mask ? { ...c.mask, enabled: v } : { ...defaultMask(), enabled: v } }))}
+        />
+        {mask?.enabled && (
+          <>
+            <SelectField
+              label="Форма"
+              value={mask.shape}
+              options={[
+                { value: "rect", label: "Прямоугольник" },
+                { value: "ellipse", label: "Эллипс" },
+              ]}
+              onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, shape: v as Mask["shape"] } }))}
+            />
+            <div className="mt-2">
+              <SliderField label="X" value={mask.x.value} min={0} max={1} onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, x: param(v) } }))} />
+              <SliderField label="Y" value={mask.y.value} min={0} max={1} onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, y: param(v) } }))} />
+              <SliderField label="Ширина" value={mask.width.value} min={0.02} max={1} onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, width: param(v) } }))} />
+              <SliderField label="Высота" value={mask.height.value} min={0.02} max={1} onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, height: param(v) } }))} />
+              <SliderField label="Растушёвка, px" value={mask.feather} min={0} max={80} step={1} onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, feather: v } }))} />
+              <CheckboxField label="Инвертировать" checked={mask.inverted} onChange={(v) => patch((c) => ({ ...c, mask: { ...c.mask, inverted: v } }))} />
+            </div>
+          </>
+        )}
+      </PanelSection>
+
+      <PanelSection title="Композитинг">
+        <SelectField
+          label="Режим наложения"
+          value={clip.blendMode ?? "normal"}
+          options={BLEND_MODES.map((m) => ({ value: m, label: m }))}
+          onChange={(v) => patch((c) => ({ ...c, blendMode: v as BlendMode }))}
+        />
+        <div className="mt-2">
+          <CheckboxField
+            label="Motion blur"
+            checked={!!clip.motionBlur?.enabled}
+            onChange={(v) =>
+              patch((c) => ({
+                ...c,
+                motionBlur: { enabled: v, samples: c.motionBlur?.samples ?? 8, shutterAngle: c.motionBlur?.shutterAngle ?? 180 },
+              }))
+            }
+          />
+          {clip.motionBlur?.enabled && (
+            <SliderField
+              label="Сила"
+              value={clip.motionBlur.samples}
+              min={2}
+              max={32}
+              step={1}
+              onChange={(v) =>
+                patch((c) => ({ ...c, motionBlur: { enabled: true, samples: v, shutterAngle: c.motionBlur?.shutterAngle ?? 180 } }))
+              }
+            />
+          )}
+        </div>
+      </PanelSection>
     </div>
   );
 }

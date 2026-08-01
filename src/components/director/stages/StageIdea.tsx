@@ -1,6 +1,6 @@
 "use client";
 
-import StageShell, { SectionTitle, TextArea, NumberSlider, ScoreBadge, BulletList } from "./StageShell";
+import StageShell, { SectionTitle, TextArea } from "./StageShell";
 import type { DirectorBrief, PreProduction, PreprodStage, IdeaVariant } from "@/lib/production";
 import { uid } from "@/lib/id";
 
@@ -37,7 +37,7 @@ export default function StageIdea({ preprod, updatePreprod, onRegenerate, busy }
     <StageShell
       icon="💡"
       title="Idea — Замысел"
-      subtitle="AI помогает сформулировать тему, определить целевую аудиторию, предложить варианты, улучшить идею и оценить её потенциал."
+      subtitle="AI помогает сформулировать тему, определить целевую аудиторию, предложить варианты и улучшить идею."
       onRegenerate={() => onRegenerate("idea")}
       busy={busy}
       actions={
@@ -57,23 +57,6 @@ export default function StageIdea({ preprod, updatePreprod, onRegenerate, busy }
         <div>
           <SectionTitle>Целевая аудитория</SectionTitle>
           <TextArea value={idea.audience} onChange={(v) => set({ audience: v })} rows={5} />
-          <div className="mt-4">
-            <NumberSlider label="Потенциал" value={idea.potential} onChange={(v) => set({ potential: v })} min={1} max={10} />
-            <div className="mt-1 text-right">
-              <ScoreBadge value={idea.potential} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div>
-          <SectionTitle>Сильные стороны</SectionTitle>
-          <BulletList items={idea.pros} onChange={(v) => set({ pros: v })} />
-        </div>
-        <div>
-          <SectionTitle>Слабые стороны</SectionTitle>
-          <BulletList items={idea.cons} onChange={(v) => set({ cons: v })} />
         </div>
       </div>
 
@@ -90,7 +73,6 @@ export default function StageIdea({ preprod, updatePreprod, onRegenerate, busy }
                 }}
                 className="w-full rounded bg-transparent text-sm font-bold text-slate-100 outline-none"
               />
-              <ScoreBadge value={v.potential} />
             </div>
             <textarea
               value={v.concept}
@@ -124,19 +106,8 @@ export default function StageIdea({ preprod, updatePreprod, onRegenerate, busy }
                 className="w-full rounded bg-transparent text-[12px] text-slate-300 outline-none"
               />
             </div>
-            <div className="mt-2 flex items-center justify-between">
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={v.potential}
-                onChange={(e) => {
-                  const variants = idea.variants.map((x) => x.id === v.id ? { ...x, potential: Number(e.target.value) } : x);
-                  set({ variants });
-                }}
-                className="flex-1 accent-violet-500"
-              />
-              <button onClick={() => selectVariant(v)} className="ml-2 rounded-full bg-violet-500/20 px-2 py-1 text-[10px] font-bold text-violet-100 hover:bg-violet-500/30">
+            <div className="mt-3 flex items-center justify-end">
+              <button onClick={() => selectVariant(v)} className="rounded-full bg-violet-500/20 px-3 py-1 text-[10px] font-bold text-violet-100 hover:bg-violet-500/30">
                 Взять за основу
               </button>
             </div>

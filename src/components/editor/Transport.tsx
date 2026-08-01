@@ -1,95 +1,216 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useProjectStore } from "@/store/projectStore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useProjectStore, timelineDuration } from "@/store/projectStore";
+import { audioMixer } from "@/lib/editor/audioMixer";
 
-function fmt(t: number) {
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  const ms = Math.floor((t % 1) * 1000);
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(ms).padStart(3, "0")}`;
+export function formatTimecode(time: number, fps = 30): string {
+  const safe = Math.max(0, time);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = Math.floor(safe % 60);
+  const frames = Math.floor((safe % 1) * fps);
+  const pad = (n: number, size = 2) => String(n).padStart(size, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}:${pad(frames)}`;
+}
+
+function TransportButton({
+  label,
+  title,
+  onClick,
+  active,
+  wide,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  wide?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`flex h-8 items-center justify-center rounded-lg border text-[11px] font-bold transition ${
+        wide ? "w-12" : "w-8"
+      } ${
+        active
+          ? "border-violet-400/50 bg-violet-500/25 text-violet-100"
+          : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white"
+      }`}
+    >
+      {label}
+    </button>
+  );
 }
 
 export default function Transport() {
+  const project = useProjectStore((s) => s.project);
   const playhead = useProjectStore((s) => s.playhead);
   const isPlaying = useProjectStore((s) => s.isPlaying);
   const setPlaying = useProjectStore((s) => s.setPlaying);
   const setPlayhead = useProjectStore((s) => s.setPlayhead);
-  const duration = useProjectStore((s) => s.project ? s.project.duration : 0);
+  const loop = useProjectStore((s) => s.loop);
+  const setLoop = useProjectStore((s) => s.setLoop);
+  const rate = useProjectStore((s) => s.playbackRate);
+  const setPlaybackRate = useProjectStore((s) => s.setPlaybackRate);
+  const inPoint = useProjectStore((s) => s.inPoint);
+  const outPoint = useProjectStore((s) => s.outPoint);
+  const setInPoint = useProjectStore((s) => s.setInPoint);
+  const setOutPoint = useProjectStore((s) => s.setOutPoint);
+  const clearRange = useProjectStore((s) => s.clearRange);
+  const volume = useProjectStore((s) => s.volume);
+  const setVolume = useProjectStore((s) => s.setVolume);
+  const addMarker = useProjectStore((s) => s.addMarker);
 
-  const [loop, setLoop] = useState(false);
-  const [draggable, setDraggable] = useState(false);
-
-  const tick = useCallback(() => {
-    if (!isPlaying) return;
-    const next = playhead + 1 / 60;
-    if (next >= duration) {
-      if (loop) setPlayhead(0);
-      else { setPlayhead(duration); setPlaying(false); }
-    } else {
-      setPlayhead(next);
-    }
-  }, [isPlaying, playhead, duration, loop, setPlayhead, setPlaying]);
+  const fps = project?.fps || 30;
+  const duration = timelineDuration(project);
+  const [level, setLevel] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const meterRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!isPlaying) return;
-    let frame = 0;
-    const id = setInterval(() => {
-      tick();
-      frame++;
-    }, 1000 / 60);
-    return () => clearInterval(id);
-  }, [isPlaying, tick]);
+    const id = window.setInterval(() => {
+      const next = audioMixer.isPlaying() ? audioMixer.level() : 0;
+      meterRef.current = meterRef.current * 0.6 + next * 0.4;
+      setLevel(meterRef.current);
+    }, 80);
+    return () => window.clearInterval(id);
+  }, []);
 
-  const goStart = () => setPlayhead(0);
-  const goEnd = () => setPlayhead(Math.max(0, duration - 0.1));
-  const stepBack = () => setPlayhead(Math.max(0, playhead - 1));
-  const stepForward = () => setPlayhead(Math.min(duration - 0.01, playhead + 1));
+  const editPoints = useMemo(() => {
+    if (!project) return [] as number[];
+    const points = new Set<number>([0]);
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        points.add(Number(clip.start.toFixed(3)));
+        points.add(Number((clip.start + clip.duration).toFixed(3)));
+      }
+    }
+    for (const marker of project.markers) points.add(Number(marker.time.toFixed(3)));
+    return [...points].sort((a, b) => a - b);
+  }, [project]);
+
+  const goPrevEdit = () => {
+    const prev = [...editPoints].reverse().find((p) => p < playhead - 0.02);
+    setPlayhead(prev ?? 0);
+  };
+  const goNextEdit = () => {
+    const next = editPoints.find((p) => p > playhead + 0.02);
+    setPlayhead(next ?? duration);
+  };
+
+  const commitTimecode = () => {
+    setEditing(false);
+    const parts = draft.split(":").map((p) => parseInt(p, 10));
+    if (parts.some((p) => Number.isNaN(p))) return;
+    const [h = 0, m = 0, s = 0, f = 0] = parts.length === 4 ? parts : [0, ...parts];
+    setPlayhead(h * 3600 + m * 60 + s + f / fps);
+  };
 
   return (
-    <div className="flex items-center gap-2 border-t border-white/10 bg-gradient-to-r from-[#0d0d16] to-[#0a0a12] px-3 py-2 shadow-2xl shrink-0 z-30 select-none" aria-label="Транспорт">
-      <button onClick={goStart} title="В начало" className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-xs font-bold text-slate-200 hover:bg-white/10 transition" aria-label="В начало">⏮</button>
-      <button onClick={stepBack} title="Назад 1 сек" className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-xs font-bold text-slate-200 hover:bg-white/10 transition" aria-label="Назад">◀◀</button>
-      
-      <button
-        onClick={() => setPlaying(!isPlaying)}
-        aria-label={isPlaying ? "Пауза" : "Воспроизведение"}
-        title={isPlaying ? "Пауза" : "Воспроизведение"}
-        className={`flex h-9 w-14 items-center justify-center rounded-xl text-sm font-bold shadow-lg transition-all ${isPlaying ? "bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-rose-500/30" : "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-violet-500/30 hover:brightness-110"}`}
-      >
-        {isPlaying ? "⏸" : "▶"}
-      </button>
-
-      <button onClick={stepForward} title="Вперед 1 сек" className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-xs font-bold text-slate-200 hover:bg-white/10 transition" aria-label="Вперед">▶▶</button>
-      <button onClick={goEnd} title="В конец" className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-xs font-bold text-slate-200 hover:bg-white/10 transition" aria-label="В конец">⏭</button>
-
-      <div className="mx-2 h-6 w-px bg-white/10" />
-
-      <div className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-2.5 py-1 min-w-[130px] justify-center font-mono text-xs tabular-nums text-slate-200" aria-live="polite" aria-atomic="true">
-        <span title="Текущее время">{fmt(playhead)}</span>
-        <span className="text-slate-500">/</span>
-        <span title="Общая длительность" className="text-slate-400">{fmt(duration)}</span>
+    <div className="flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#0b0b13] px-3 py-2">
+      <div className="flex items-center gap-1">
+        <TransportButton label="⏮" title="В начало (Home)" onClick={() => setPlayhead(inPoint ?? 0)} />
+        <TransportButton label="⏪" title="Предыдущая склейка (↑)" onClick={goPrevEdit} />
+        <TransportButton label="◀|" title="Кадр назад (←)" onClick={() => setPlayhead(Math.max(0, playhead - 1 / fps))} />
+        <button
+          onClick={() => setPlaying(!isPlaying)}
+          title={isPlaying ? "Пауза (Space)" : "Воспроизведение (Space)"}
+          aria-label={isPlaying ? "Пауза" : "Воспроизведение"}
+          className={`flex h-8 w-14 items-center justify-center rounded-lg text-sm font-black shadow-lg transition ${
+            isPlaying
+              ? "bg-gradient-to-r from-rose-500 to-orange-500 text-white"
+              : "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:brightness-110"
+          }`}
+        >
+          {isPlaying ? "⏸" : "▶"}
+        </button>
+        <TransportButton label="|▶" title="Кадр вперёд (→)" onClick={() => setPlayhead(Math.min(duration, playhead + 1 / fps))} />
+        <TransportButton label="⏩" title="Следующая склейка (↓)" onClick={goNextEdit} />
+        <TransportButton label="⏭" title="В конец (End)" onClick={() => setPlayhead(outPoint ?? duration)} />
       </div>
 
-      <div className="flex-1" />
+      <div className="mx-1 h-6 w-px bg-white/10" />
 
-      <div className="flex items-center gap-2">
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitTimecode}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitTimecode();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          className="w-[132px] rounded-lg border border-violet-400/40 bg-black/60 px-2 py-1 text-center font-mono text-xs text-violet-100 outline-none"
+          aria-label="Ввести таймкод"
+        />
+      ) : (
         <button
-          onClick={() => setLoop(!loop)}
-          aria-pressed={loop}
-          className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold border transition ${loop ? "bg-amber-500/20 border-amber-400/40 text-violet-300" : "bg-white/5 border-white/10 text-slate-400 hover:text-slate-200"}`}
-          title={loop ? "Отключить зацикливание" : "Зациклить"}
+          onClick={() => {
+            setDraft(formatTimecode(playhead, fps));
+            setEditing(true);
+          }}
+          title="Кликните, чтобы ввести таймкод"
+          className="rounded-lg border border-white/10 bg-black/40 px-3 py-1 font-mono text-xs tabular-nums text-violet-200 hover:border-violet-400/40"
         >
-          🔄 {loop ? "Loop ON" : "Loop"}
+          {formatTimecode(playhead, fps)}
+          <span className="mx-1 text-slate-600">/</span>
+          <span className="text-slate-400">{formatTimecode(duration, fps)}</span>
         </button>
-        <button
-          onClick={() => setDraggable(d => !d)}
-          aria-label="Перетаскивание"
-          className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold border transition ${draggable ? "bg-violet-500/20 border-violet-400/40 text-violet-300" : "bg-white/5 border-white/10 text-slate-400 hover:text-slate-200"}`}
-          title="Точное перетаскивание на таймлайне"
+      )}
+
+      <div className="mx-1 h-6 w-px bg-white/10" />
+
+      <div className="flex items-center gap-1">
+        <TransportButton label="[" title="Отметить начало диапазона (I)" onClick={() => setInPoint(playhead)} active={inPoint !== null} />
+        <TransportButton label="]" title="Отметить конец диапазона (O)" onClick={() => setOutPoint(playhead)} active={outPoint !== null} />
+        <TransportButton label="✕" title="Сбросить диапазон" onClick={clearRange} />
+        <TransportButton label="⚑" title="Поставить маркер (M)" onClick={() => addMarker(playhead)} />
+        <TransportButton label="⟳" title="Зациклить воспроизведение (L)" onClick={() => setLoop(!loop)} active={loop} />
+      </div>
+
+      <div className="mx-1 h-6 w-px bg-white/10" />
+
+      <label className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
+        Скорость
+        <select
+          value={rate}
+          onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+          className="rounded-lg border border-white/10 bg-black/40 px-1.5 py-1 text-[11px] text-slate-200 outline-none"
+          aria-label="Скорость воспроизведения"
         >
-          ✋ {draggable ? "Drag" : "Drag"}
-        </button>
+          {[0.25, 0.5, 1, 1.5, 2].map((r) => (
+            <option key={r} value={r}>
+              {r}×
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="ml-auto flex items-center gap-2">
+        <div className="flex h-3 w-24 overflow-hidden rounded-full border border-white/10 bg-black/60" title="Уровень звука">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 transition-[width] duration-75"
+            style={{ width: `${Math.min(100, level * 130)}%` }}
+          />
+        </div>
+        <span className="text-sm" aria-hidden>
+          🔊
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={volume}
+          onChange={(e) => setVolume(parseFloat(e.target.value))}
+          className="h-1 w-24 accent-violet-500"
+          aria-label="Громкость предпросмотра"
+        />
       </div>
     </div>
   );

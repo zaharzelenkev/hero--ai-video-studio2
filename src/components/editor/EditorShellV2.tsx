@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ComponentType } from "react";
 import Link from "next/link";
 import { useProjectStore, type EditorPage } from "@/store/projectStore";
 import { clearMediaCache } from "./mediaCache";
@@ -24,9 +24,26 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "sound", label: "Звук", icon: "🎵", desc: "Микш, шумоподавление" },
   { id: "text", label: "Текст", icon: "📝", desc: "Анимация, keyframes" },
   { id: "animation", label: "Анимация", icon: "🎬", desc: "Motion, keyframes" },
-  { id: "ai", label: "AI Director", icon: "🎬", desc: "Этап пре-продакшена" },
   { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
 ];
+
+/**
+ * Стабильные ссылки на компоненты панелей (не inline-функции!).
+ * Если объявить панель внутри рендера, на каждом обновлении стора React
+ * создаёт новый тип компонента → панель размонтируется/монтируется заново,
+ * и фокус теряется после КАЖДОГО символа в textarea (правка субтитров/текста
+ * была невозможна).
+ */
+const PANEL_COMPONENTS: Record<EditorPage, ComponentType> = {
+  montage: MontagePanelV2,
+  color: ColorPanelV2,
+  effects: EffectsPanelV2,
+  sound: SoundPanelV2,
+  text: TextPanelV2,
+  animation: EffectsPanelV2,
+  ai: DirectorRedirectPanel,
+  export: ExportPanelV2,
+};
 
 export default function EditorShellV2() {
   const project = useProjectStore((s) => s.project);
@@ -124,19 +141,7 @@ export default function EditorShellV2() {
     </div>
   );
 
-  const PanelContent = () => {
-    switch (activePage) {
-      case "montage": return <MontagePanelV2 />;
-      case "color": return <ColorPanelV2 />;
-      case "effects": return <EffectsPanelV2 />;
-      case "sound": return <SoundPanelV2 />;
-      case "text": return <TextPanelV2 />;
-      case "animation": return <EffectsPanelV2 />;
-      case "ai": return <DirectorRedirectPanel />;
-      case "export": return <ExportPanelV2 />;
-      default: return <MontagePanelV2 />;
-    }
-  };
+  const Panel = PANEL_COMPONENTS[activePage] ?? MontagePanelV2;
 
   return (
     <div className="flex h-screen flex-col bg-[#0a0a12] text-slate-100 overflow-hidden" onTouchMove={onTouchMove}>
@@ -234,7 +239,7 @@ export default function EditorShellV2() {
             <span className="text-[10px] text-slate-500">{PAGES.find(p => p.id === activePage)?.desc}</span>
           </div>
           <div className="p-3">
-            <PanelContent />
+            <Panel />
             {selectedClipId && (
               <div className="mt-3 border-t border-white/10 pt-3">
                 <h4 className="text-xs font-bold text-violet-300 mb-1">Keyframes</h4>
@@ -264,7 +269,7 @@ export default function EditorShellV2() {
         </div>
         {mobilePanelOpen && (
           <div className="h-[45vh] overflow-y-auto border-t border-white/10 p-3 bg-[#0d0d16]">
-            <PanelContent />
+            <Panel />
           </div>
         )}
       </div>

@@ -64,7 +64,227 @@ export interface DirectorBrief {
   callToAction: string;
 }
 
-/** Every section a director produces for a fully prepped project. */
+/**
+ * ===== Полноценная Препродакшн-документация (12 этапов) =====
+ * Каждый раздел — это объект со структурированными полями, а не просто строка.
+ * Это позволяет редактировать, связывать между собой и передавать монтажному движку.
+ */
+
+export interface IdeaVariant {
+  id: string;
+  title: string;
+  concept: string;
+  audience: string;
+  hook: string;
+  potential: number; // 1–10
+  reasoning: string;
+}
+
+export interface IdeaSection {
+  refined: string;
+  audience: string;
+  potential: number;
+  pros: string[];
+  cons: string[];
+  variants: IdeaVariant[];
+}
+
+export interface LoglineVariant {
+  id: string;
+  text: string;
+  strengths: string[];
+  weaknesses: string[];
+}
+
+export interface LoglineSection {
+  primary: string;
+  variants: LoglineVariant[];
+  hero: string;
+  goal: string;
+  conflict: string;
+  stakes: string;
+}
+
+export interface TreatmentSection {
+  title: string;
+  logline: string;
+  genre: string;
+  tone: string;
+  themes: string[];
+  synopsisLong: string;
+  act1: string;
+  act2: string;
+  act3: string;
+  characters: Array<{ name: string; role: string; description: string }>;
+  keyMoments: string[];
+  ending: string;
+}
+
+export interface ScriptScene {
+  id: string;
+  number: number;
+  heading: string; // INT./EXT. ЛОКАЦИЯ — ВРЕМЯ
+  location: string;
+  timeOfDay: string;
+  action: string;
+  dialogue: Array<{ character: string; line: string; direction?: string }>;
+  durationSec: number;
+  notes?: string;
+}
+
+export interface ScriptSection {
+  concept: string;
+  synopsis: string;
+  scenes: ScriptScene[];
+  finalText: string;
+}
+
+export interface VisionShot {
+  goal: string;
+  emotion: string;
+  composition: string;
+  cameraMovement: string;
+  duration: string;
+  transition: string;
+  pacing: string;
+  sound: string;
+  atmosphere: string;
+  lighting: string;
+  colorPalette: string[];
+  vfx: string;
+  dpNotes: string;
+}
+
+export interface VisionSection {
+  overallStyle: string;
+  visualLanguage: string;
+  referenceFilms: string[];
+  scenes: Array<{ sceneId: string; sceneTitle: string; shot: VisionShot }>;
+}
+
+export interface StoryboardFrame {
+  id: string;
+  number: number;
+  sceneId?: string;
+  description: string;
+  composition: string;
+  cameraMovement: string;
+  objectPlacement: string;
+  lighting: string;
+  color: string;
+  shotSize: string; // ECU, CU, MS, WS, ELS...
+  mood: string;
+  imageDataUrl?: string; // локальная SVG-зарисовка или сгенерированное изображение
+  imagePrompt?: string;
+  notes?: string;
+}
+
+export interface StoryboardSection {
+  aspectRatio: string;
+  style: string;
+  frames: StoryboardFrame[];
+}
+
+export interface ShotItem {
+  number: number;
+  description: string;
+  shotType: string;
+  camera: string;
+  lens: string;
+  movement: string;
+  equipment: string[];
+  props: string[];
+  duration: string;
+  priority: "low" | "medium" | "high" | "critical";
+  location: string;
+  notes?: string;
+}
+
+export interface ShotlistSection {
+  totalShots: number;
+  estimatedTime: string;
+  shots: ShotItem[];
+}
+
+export interface ShootingDay {
+  day: number;
+  date?: string;
+  location: string;
+  scenes: string[];
+  shots: number[];
+  callTime: string;
+  wrapTime: string;
+  notes: string[];
+}
+
+export interface Checklist {
+  id: string;
+  category: string;
+  items: Array<{ text: string; done: boolean }>;
+}
+
+export interface CastMember {
+  id: string;
+  role: string;
+  name?: string;
+  description: string;
+  look: string;
+  notes?: string;
+  photoDataUrl?: string;
+  suitability?: number; // AI-оценка 0–100 (локальный анализ)
+  analysis?: string;
+}
+
+export interface LocationItem {
+  id: string;
+  name: string;
+  description: string;
+  mood: string;
+  lighting: string;
+  pros: string[];
+  cons: string[];
+  suitable: boolean;
+  photoDataUrl?: string;
+  analysis?: string;
+  score?: number; // 0–100
+}
+
+export interface PlanningSection {
+  schedule: ShootingDay[];
+  sceneOrder: string[];
+  checklists: Checklist[];
+  props: string[];
+  equipment: string[];
+  cast: CastMember[];
+  locations: LocationItem[];
+  directorNotes: string[];
+  teamTasks: Array<{ assignee: string; task: string; dueBy: string; done: boolean }>;
+}
+
+export interface RiskItem {
+  id: string;
+  severity: "low" | "medium" | "high" | "critical";
+  category: "сценарий" | "съёмка" | "кастинг" | "локация" | "техника" | "время" | "бюджет" | "другое";
+  description: string;
+  mitigation: string;
+  relatedSection?: string;
+}
+
+export interface RisksSection {
+  readiness: number; // 0–100
+  missingItems: string[];
+  weakScenes: Array<{ sceneId: string; reason: string }>;
+  risks: RiskItem[];
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "director";
+  text: string;
+  at: number;
+}
+
+/** Legacy flat string sections — kept for backward compatibility with the editor */
 export interface DirectorSections {
   logline?: string;
   script?: string;
@@ -82,13 +302,67 @@ export interface DirectorSections {
   transitions?: string;
 }
 
+/**
+ * Новый расширенный формат — всё препродакшн-ядро.
+ * Содержит как структурированные 12 блоков, так и плоские строки
+ * для обратной совместимости с монтажным движком.
+ */
+export interface PreProduction {
+  version: 2;
+  updatedAt: number;
+  activeStage: PreprodStage;
+  idea: IdeaSection;
+  logline: LoglineSection;
+  treatment: TreatmentSection;
+  script: ScriptSection;
+  vision: VisionSection;
+  storyboard: StoryboardSection;
+  shotlist: ShotlistSection;
+  planning: PlanningSection;
+  casting: CastMember[];
+  locations: LocationItem[];
+  risks: RisksSection;
+  chat: ChatMessage[];
+}
+
+export type PreprodStage =
+  | "idea"
+  | "logline"
+  | "treatment"
+  | "script"
+  | "vision"
+  | "storyboard"
+  | "shotlist"
+  | "planning"
+  | "casting"
+  | "locations"
+  | "risks"
+  | "chat";
+
+export const PREPROD_STAGES: Array<{ id: PreprodStage; label: string; icon: string; short: string }> = [
+  { id: "idea",       label: "Idea",                  icon: "💡", short: "Замысел" },
+  { id: "logline",    label: "Logline",               icon: "🎯", short: "Логлайн" },
+  { id: "treatment",  label: "Treatment",             icon: "📖", short: "Тритмент" },
+  { id: "script",     label: "Script",                icon: "📜", short: "Сценарий" },
+  { id: "vision",     label: "Director's Vision",     icon: "🎬", short: "Видение" },
+  { id: "storyboard", label: "Storyboard",            icon: "🖼",  short: "Раскадровка" },
+  { id: "shotlist",   label: "Shot List",             icon: "📋", short: "Шот-лист" },
+  { id: "planning",   label: "Production Planning",   icon: "🗓",  short: "План съёмок" },
+  { id: "casting",    label: "Casting",               icon: "🎭", short: "Кастинг" },
+  { id: "locations",  label: "Locations",             icon: "📍", short: "Локации" },
+  { id: "risks",      label: "Production Risks",      icon: "⚠️", short: "Риски" },
+  { id: "chat",       label: "AI Director Chat",      icon: "💬", short: "Режиссёр" },
+];
+
 /** Persisted result of the AI Director session on a Project. */
 export interface DirectorOutput {
-  version: 1;
+  version: 2;
   generatedAt: number;
+  updatedAt: number;
   status: "draft" | "approved";
   brief: DirectorBrief;
-  sections: DirectorSections;
+  sections: DirectorSections; // legacy flat strings
+  preprod?: PreProduction;     // new structured pre-prod
 }
 
 const clean = (value: string) => value.replace(/\s+/g, " ").trim();
@@ -96,7 +370,7 @@ const clip = (value: string, length: number) => (clean(value).length > length ? 
 
 function detectPlatform(text: string, templateId?: string): ProductionPlatform {
   const value = `${text} ${templateId ?? ""}`.toLowerCase();
-  if (/short|reel|tiktok|тик.?ток|вертик|сторис/.test(value)) return "short-form";
+  if (/short|reel|tiktok|тик.?ток|вертик|сторис|shorts/.test(value)) return "short-form";
   if (/youtube|ютуб|vlog|влог|podcast|подкаст/.test(value)) return "youtube";
   if (/presentation|презентац|обучени|tutorial|курс/.test(value)) return "presentation";
   if (/film|cinematic|кино|документ/.test(value)) return "film";
@@ -172,5 +446,125 @@ export function planFromDirector(brief: DirectorBrief, assets: Pick<MediaAsset, 
       "План утверждён в AI Director и передан монтажному движку.",
       ...(brief.references ? [`Референсы: ${brief.references}`] : []),
     ],
+  };
+}
+
+/**
+ * Создаёт пустую структуру PreProduction для заполнения по стадиям.
+ */
+export function emptyPreProduction(): PreProduction {
+  return {
+    version: 2,
+    updatedAt: Date.now(),
+    activeStage: "idea",
+    idea: {
+      refined: "",
+      audience: "",
+      potential: 5,
+      pros: [],
+      cons: [],
+      variants: [],
+    },
+    logline: {
+      primary: "",
+      variants: [],
+      hero: "",
+      goal: "",
+      conflict: "",
+      stakes: "",
+    },
+    treatment: {
+      title: "",
+      logline: "",
+      genre: "",
+      tone: "",
+      themes: [],
+      synopsisLong: "",
+      act1: "",
+      act2: "",
+      act3: "",
+      characters: [],
+      keyMoments: [],
+      ending: "",
+    },
+    script: {
+      concept: "",
+      synopsis: "",
+      scenes: [],
+      finalText: "",
+    },
+    vision: {
+      overallStyle: "",
+      visualLanguage: "",
+      referenceFilms: [],
+      scenes: [],
+    },
+    storyboard: {
+      aspectRatio: "16:9",
+      style: "",
+      frames: [],
+    },
+    shotlist: {
+      totalShots: 0,
+      estimatedTime: "",
+      shots: [],
+    },
+    planning: {
+      schedule: [],
+      sceneOrder: [],
+      checklists: [],
+      props: [],
+      equipment: [],
+      cast: [],
+      locations: [],
+      directorNotes: [],
+      teamTasks: [],
+    },
+    casting: [],
+    locations: [],
+    risks: {
+      readiness: 0,
+      missingItems: [],
+      weakScenes: [],
+      risks: [],
+    },
+    chat: [],
+  };
+}
+
+/**
+ * Разворачивает структурированную PreProduction в плоский DirectorSections,
+ * который ожидает существующий монтажный движок и редактор.
+ */
+export function flattenSections(p: PreProduction, brief: DirectorBrief): DirectorSections {
+  const scriptText = p.script.finalText || p.script.scenes.map((s) => {
+    const dialogues = s.dialogue.map((d) => `${d.character.toUpperCase()}: ${d.line}`).join("\n");
+    return `${s.number}. ${s.heading}\n${s.action}${dialogues ? "\n" + dialogues : ""}`;
+  }).join("\n\n");
+
+  const storyboardText = p.storyboard.frames.map((f) =>
+    `Кадр ${f.number} [${f.shotSize}] — ${f.description}\nКомпозиция: ${f.composition}\nКамера: ${f.cameraMovement}\nСвет: ${f.lighting}\nЦвет: ${f.color}\nНастроение: ${f.mood}`
+  ).join("\n\n");
+
+  const shotlistText = p.shotlist.shots.map((s) =>
+    `#${s.number} | ${s.shotType} | ${s.camera} (${s.lens}) | ${s.movement} | ${s.duration}\n${s.description}\nОборудование: ${s.equipment.join(", ") || "—"}\nРеквизит: ${s.props.join(", ") || "—"}\nПриоритет: ${s.priority}`
+  ).join("\n\n");
+
+  return {
+    logline: p.logline.primary,
+    hook: p.script.scenes[0]?.action || brief.idea,
+    script: scriptText,
+    concept: p.vision.overallStyle + (p.treatment.tone ? "\nТон: " + p.treatment.tone : ""),
+    structure: p.planning.schedule.map((d) => `День ${d.day} · ${d.location}: ${d.scenes.join(", ")}`).join("\n") ||
+               p.script.scenes.map((s) => `Сцена ${s.number} · ${s.heading} — ~${s.durationSec} сек`).join("\n"),
+    drama: p.treatment.synopsisLong,
+    storyboard: storyboardText,
+    shotlist: shotlistText,
+    shooting: p.vision.scenes.map((v) => `${v.sceneTitle}: ${v.shot.dpNotes}`).join("\n\n"),
+    music: p.vision.scenes.map((v) => `${v.sceneTitle}: ${v.shot.sound}`).join("\n\n"),
+    color: p.vision.scenes.map((v) => `${v.sceneTitle}: ${v.shot.colorPalette.join(", ")}; свет: ${v.shot.lighting}`).join("\n\n"),
+    edit: p.vision.scenes.map((v) => `${v.sceneTitle}: темп ${v.shot.pacing}; переход ${v.shot.transition}`).join("\n\n"),
+    titles: "Ключевые мысли в 1/3 сверху в safe area; CTA в финальном кадре.",
+    transitions: p.vision.scenes.map((v) => `${v.sceneTitle}: ${v.shot.transition}`).join("\n"),
   };
 }

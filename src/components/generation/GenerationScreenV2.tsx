@@ -165,8 +165,41 @@ export default function GenerationScreenV2() {
   const busy = stage === "generating";
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12] px-4 py-8 text-slate-100">
-      <div className="mx-auto max-w-7xl">
+    <main className="min-h-screen bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12] text-slate-100">
+      {/* Central pre-production control bar ABOVE the logo */}
+      <div className="w-full border-b border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3">
+          <div className="flex shrink-0 items-center gap-2 pr-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-amber-400 text-sm shadow-lg">🎬</div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400">Pre-Production</div>
+              <div className="-mt-0.5 text-[11px] font-semibold text-slate-200">AI Production Studio</div>
+            </div>
+          </div>
+          <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+            {[
+              ["💡", "Idea"], ["🎯", "Logline"], ["📖", "Treatment"], ["📜", "Script"], ["🎬", "Vision"],
+              ["🖼", "Storyboard"], ["📋", "Shot List"], ["🗓", "Planning"], ["🎭", "Casting"], ["📍", "Locations"],
+              ["⚠️", "Risks"], ["💬", "Chat"],
+            ].map(([icon, label]) => (
+              <div key={label} className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-[10px] font-semibold text-slate-400">
+                <span className="text-xs leading-none">{icon}</span>
+                <span className="hidden md:inline">{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
+          <button
+            onClick={startDirector}
+            className="shrink-0 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-[11px] font-extrabold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110"
+          >
+            Запустить AI Director →
+          </button>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-7xl px-4 py-8">
         {/* Header */}
         <header className="mb-12 text-center">
           <div className="mb-4 flex items-center justify-center gap-3">
@@ -183,8 +216,7 @@ export default function GenerationScreenV2() {
           </p>
           
           <p className="mx-auto max-w-2xl text-sm text-slate-400 sm:text-base">
-            Загрузите материалы — искусственный интеллект создаст профессиональный монтаж.<br />
-            Доработайте результат в редакторе с продвинутыми инструментами.
+            От идеи и сценария — до финального экспорта. Пройдите все 12 этапов препродакшена с AI Director, затем монтируйте в профессиональном редакторе.
           </p>
 
 

@@ -1,277 +1,232 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState } from "react";
-import { useProjectStore } from "@/store/projectStore";
-import type { Clip, MediaAsset, VideoClip, Track } from "@/lib/types";
-import { loadBlob } from "@/lib/db";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useProjectStore, timelineDuration } from "@/store/projectStore";
+import { renderFrame, syncVideoElements } from "@/lib/editor/compositor";
+import { audioMixer } from "@/lib/editor/audioMixer";
+import { mediaPool } from "@/lib/editor/resourcePool";
 
-/**
- * Строит HTMLImageElement для ассета. Если у ассета уже есть готовая миниатюра
- * (data-URL) — используем её; иначе достаём исходный Blob из IndexedDB и
- * вырезаем кадр (для видео) или декодируем картинку. Так в редакторе вместо
- * заглушки «Clip» показывается реальный кадр материала.
- */
-function buildAssetThumbnail(asset: MediaAsset): Promise<HTMLImageElement | null> {
-  return (async () => {
-    if (asset.kind === "audio") return null;
-    if (asset.thumbnail) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = asset.thumbnail;
-      await new Promise<void>((res, rej) => {
-        img.onload = () => res();
-        img.onerror = () => rej(new Error("thumb"));
-      });
-      return img;
-    }
+const MAX_PREVIEW_WIDTH = 1280;
 
-    const blob = await loadBlob(asset.blobKey);
-    if (!blob) return null;
-    const url = URL.createObjectURL(blob);
-    try {
-      if (asset.kind === "video") {
-        const video = document.createElement("video");
-        video.src = url;
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = "auto";
-        await new Promise<void>((res) => {
-          video.onloadeddata = () => res();
-          video.onerror = () => res();
-          setTimeout(res, 5000);
-        });
-        video.currentTime = 0.2;
-        await new Promise<void>((res) => {
-          video.onseeked = () => res();
-          video.onerror = () => res();
-          setTimeout(res, 5000);
-        });
-        if (!video.videoWidth) return null;
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return null;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const img = new Image();
-        img.src = canvas.toDataURL("image/jpeg", 0.6);
-        await new Promise<void>((res, rej) => {
-          img.onload = () => res();
-          img.onerror = () => rej(new Error("frame"));
-        });
-        return img;
-      }
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = url;
-      await new Promise<void>((res, rej) => {
-        img.onload = () => res();
-        img.onerror = () => rej(new Error("image"));
-      });
-      return img;
-    } finally {
-      URL.revokeObjectURL(url);
+function audioSignature(): string {
+  const project = useProjectStore.getState().project;
+  if (!project) return "";
+  const parts: string[] = [];
+  for (const track of project.tracks) {
+    if (track.type !== "audio") continue;
+    parts.push(`${track.id}:${track.muted ? 1 : 0}${track.solo ? 1 : 0}`);
+    for (const clip of track.clips) {
+      if (clip.type !== "audio") continue;
+      parts.push(
+        [
+          clip.id,
+          clip.start.toFixed(3),
+          clip.duration.toFixed(3),
+          clip.inPoint.toFixed(3),
+          clip.volume?.value ?? 1,
+          clip.fadeIn ?? 0,
+          clip.fadeOut ?? 0,
+          clip.eqLow ?? 0,
+          clip.eqMid ?? 0,
+          clip.eqHigh ?? 0,
+          clip.muted ? 1 : 0,
+          clip.loop ? 1 : 0,
+          clip.speed ?? 1,
+          clip.denoise ? 1 : 0,
+          clip.compressor?.enabled ? 1 : 0,
+          clip.pan?.value ?? 0,
+        ].join("|"),
+      );
     }
-  })().catch(() => null);
+  }
+  return parts.join(";");
 }
 
 export default function PreviewCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const project = useProjectStore((s) => s.project);
-  const playhead = useProjectStore((s) => s.playhead);
-  const selectedClipId = useProjectStore((s) => s.selectedClipId);
-  const resolution = project?.resolution || { width: 1920, height: 1080 };
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<number>(0);
+  const lastTickRef = useRef<number>(0);
+  const expectedPlayheadRef = useRef<number>(0);
+  const audioSigRef = useRef<string>("");
 
-  const [imgCache, setImgCache] = useState<Record<string, HTMLImageElement>>({});
+  const resolution = useProjectStore((s) => s.project?.resolution);
+  const projectId = useProjectStore((s) => s.project?.id);
+  const isPlaying = useProjectStore((s) => s.isPlaying);
+  const [guides, setGuides] = useState(false);
+  const [fit, setFit] = useState<{ width: number; height: number }>({ width: 640, height: 360 });
 
-  // Load asset thumbnails (precomputed data-URL or real frame cut from the blob)
+  /* --------------------------- render loop --------------------------- */
   useEffect(() => {
-    if (!project) return;
-    const assets = project.assets || [];
-    let cancelled = false;
-    (async () => {
-      const result: Record<string, HTMLImageElement> = {};
-      for (const a of assets) {
-        if (cancelled) break;
-        const img = await buildAssetThumbnail(a);
-        if (img && !cancelled) result[a.id] = img;
-      }
-      if (!cancelled && Object.keys(result).length > 0) {
-        setImgCache((prev) => ({ ...prev, ...result }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [project]);
-
-  const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !project) return;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const w = resolution.width || 1280;
-    const h = resolution.height || 720;
-    canvas.width = w;
-    canvas.height = h;
+    const tick = (now: number) => {
+      frameRef.current = requestAnimationFrame(tick);
+      const state = useProjectStore.getState();
+      const project = state.project;
+      if (!project) return;
 
-    // Black background
-    ctx.fillStyle = "#06060a";
-    ctx.fillRect(0, 0, w, h);
+      const last = lastTickRef.current || now;
+      lastTickRef.current = now;
+      const delta = Math.min(0.25, (now - last) / 1000);
 
-    // Find clips active at playhead
-    const activeClips: { clip: Clip; track: Track }[] = [];
-    for (const track of project.tracks) {
-      for (const clip of track.clips) {
-        if (playhead >= clip.start && playhead < clip.start + clip.duration) {
-          activeClips.push({ clip, track });
-        }
-      }
-    }
-
-    // Draw in track order (bottom tracks first for overlay logic)
-    activeClips.forEach(({ clip, track: _track }) => {
-      const video = clip as VideoClip;
-      if (video.type === "video" || video.type === "image") {
-        const img = imgCache[video.assetId];
-        if (img) {
-          // Apply basic transforms
-          ctx.save();
-          const cx = w / 2;
-          const cy = h / 2;
-          const scale = video.scale?.value ?? 1;
-          const rot = video.rotation?.value ?? 0;
-          const xOff = (video.x?.value ?? 0) * w;
-          const yOff = (video.y?.value ?? 0) * h;
-          const opacity = video.opacity?.value ?? 1;
-
-          ctx.translate(cx + xOff, cy + yOff);
-          ctx.rotate((rot * Math.PI) / 180);
-          ctx.scale(scale, scale);
-          ctx.globalAlpha = opacity;
-
-          // Crop
-          const cropL = video.cropLeft?.value ?? 0;
-          const cropR = video.cropRight?.value ?? 0;
-          const cropT = video.cropTop?.value ?? 0;
-          const cropB = video.cropBottom?.value ?? 0;
-
-          // Draw with cover or contain logic
-          const ar = w / h;
-          const imgAr = img.width / img.height;
-          let drawW = w, drawH = h;
-          if (video.fitMode === "contain") {
-            if (imgAr > ar) { drawW = w; drawH = w / imgAr; } else { drawH = h; drawW = h * imgAr; }
+      let time = state.playhead;
+      if (state.isPlaying) {
+        const total = timelineDuration(project);
+        const rangeStart = state.inPoint ?? 0;
+        const rangeEnd = state.outPoint ?? total;
+        time = state.playhead + delta * state.playbackRate;
+        if (time >= rangeEnd - 1e-4) {
+          if (state.loop) {
+            time = rangeStart;
+            audioMixer.play(project, time, state.playbackRate, state.volume);
           } else {
-            // cover
-            if (imgAr > ar) { drawH = h; drawW = h * imgAr; } else { drawW = w; drawH = w / imgAr; }
+            time = Math.max(0, rangeEnd);
+            state.setPlaying(false);
           }
-
-          // Blur / sharpen
-          if (video.motionBlur?.enabled) {
-            // simulated blur via low-res draw
-            ctx.filter = `blur(${video.motionBlur.samples}px)`;
-          }
-
-          // Color grade approximation using canvas filter
-          const color = video.color || { lut: "none", brightness: { value: 0 }, contrast: { value: 0 } };
-          const bright = (color.brightness?.value ?? 0) * 100;
-          const contrast = (color.contrast?.value ?? 0) * 100;
-          const sat = (color.saturation?.value ?? 0) * 100;
-          const hue = color.hue?.value ?? 0;
-          ctx.filter = `brightness(${100 + bright}%) contrast(${100 + contrast}%) saturate(${100 + sat}%) hue-rotate(${hue}deg)`;
-
-          // Draw image
-          ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-          ctx.filter = "none";
-          ctx.restore();
-          // If crop active, draw crop rectangle overlay
-          if ((cropL + cropR + cropT + cropB) > 0.01) {
-            ctx.save();
-            ctx.strokeStyle = "rgba(255,100,200,0.7)";
-            ctx.lineWidth = 2;
-            ctx.strokeRect(-drawW / 2 + cropL * drawW, -drawH / 2 + cropT * drawH, drawW * (1 - cropL - cropR), drawH * (1 - cropT - cropB));
-            ctx.restore();
-          }
-        } else {
-          // Fallback gradient
-          ctx.save();
-          ctx.fillStyle = `linear-gradient(135deg, #3b0764 0%, #881337 100%)`;
-          ctx.fillRect(-w / 2, -h / 2, w, h);
-          ctx.fillStyle = "rgba(255,255,255,0.1)";
-          ctx.font = "bold 24px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(video.name || "Clip", 0, 8);
-          ctx.restore();
         }
-      } else if (clip.type === "text") {
-        // Draw text clip
-        const txt = clip as any;
-        ctx.save();
-        const cx = w / 2 + (txt.x?.value ?? 0) * w;
-        const cy = h / 2 + (txt.y?.value ?? 0) * h;
-        const scale = txt.scale?.value ?? 1;
-        const rot = txt.rotation?.value ?? 0;
-        const opacity = txt.opacity?.value ?? 1;
-        ctx.translate(cx, cy);
-        ctx.rotate((rot * Math.PI) / 180);
-        ctx.scale(scale, scale);
-        ctx.globalAlpha = opacity;
-        ctx.fillStyle = txt.color || "#ffffff";
-        ctx.font = `${txt.fontWeight || 700} ${txt.fontSize || 48}px "${txt.fontFamily || "Inter"}", sans-serif`;
-        ctx.textAlign = txt.align || "center";
-        ctx.textBaseline = "middle";
-        // Animation: fade in based on clip time
-        const localPlay = (playhead - txt.start) / (txt.duration || 1);
-        let alpha = 1;
-        if (txt.animationIn === "fade" && localPlay < 0.2) alpha = localPlay / 0.2;
-        else if (txt.animationIn === "slide-up" && localPlay < 0.2) { ctx.translate(0, 40 * (1 - localPlay / 0.2)); }
-        else if (txt.animationIn === "scale-in" && localPlay < 0.2) { ctx.scale(localPlay / 0.2, localPlay / 0.2); }
-        ctx.globalAlpha = opacity * alpha;
-        ctx.fillText(txt.text || "Текст", 0, 0);
-        // Stroke if set
-        if (txt.strokeColor && txt.strokeWidth) {
-          ctx.strokeStyle = txt.strokeColor;
-          ctx.lineWidth = txt.strokeWidth;
-          ctx.strokeText(txt.text || "Текст", 0, 0);
-        }
-        ctx.restore();
+        state.setPlayhead(time);
+        expectedPlayheadRef.current = time;
+      } else {
+        expectedPlayheadRef.current = time;
+      }
+
+      const width = Math.min(MAX_PREVIEW_WIDTH, project.resolution.width || 1280);
+      const height = Math.round((width / (project.resolution.width || 1280)) * (project.resolution.height || 720));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      syncVideoElements(project, time, {
+        isPlaying: state.isPlaying,
+        rate: state.playbackRate,
+        masterVolume: state.volume,
+      });
+      renderFrame(ctx, project, time, { guides });
+    };
+
+    frameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [guides]);
+
+  /* --------------------------- audio engine -------------------------- */
+  useEffect(() => {
+    const state = useProjectStore.getState();
+    if (isPlaying && state.project) {
+      audioSigRef.current = audioSignature();
+      audioMixer.play(state.project, state.playhead, state.playbackRate, state.volume);
+    } else {
+      audioMixer.stop();
+    }
+    return () => {
+      if (!useProjectStore.getState().isPlaying) audioMixer.stop();
+    };
+  }, [isPlaying]);
+
+  // Пересобираем аудио-граф при seek или правках во время воспроизведения.
+  useEffect(() => {
+    const unsubscribe = useProjectStore.subscribe((state) => {
+      if (!state.isPlaying || !state.project) return;
+      const drift = Math.abs(state.playhead - expectedPlayheadRef.current);
+      const signature = audioSignature();
+      if (drift > 0.22 || signature !== audioSigRef.current) {
+        audioSigRef.current = signature;
+        expectedPlayheadRef.current = state.playhead;
+        audioMixer.play(state.project, state.playhead, state.playbackRate, state.volume);
       }
     });
+    return unsubscribe;
+  }, []);
 
-    // Draw selected clip info overlay
-    if (selectedClipId) {
-      const sel = activeClips.find(c => c.clip.id === selectedClipId);
-      if (sel) {
-        const v = sel.clip as VideoClip;
-        ctx.save();
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(10, 10, 220, 70);
-        ctx.fillStyle = "#fff";
-        ctx.font = "bold 14px sans-serif";
-        ctx.fillText(v.name || "Клип", 20, 30);
-        ctx.font = "11px sans-serif";
-        ctx.fillStyle = "#ddd";
-        ctx.fillText(`Старт: ${v.start.toFixed(2)}с`, 20, 46);
-        ctx.fillText(`Длительность: ${v.duration.toFixed(2)}с`, 20, 60);
-        if (v.color?.lut && v.color.lut !== "none") ctx.fillText(`LUT: ${v.color.lut}`, 20, 73);
-        ctx.restore();
-      }
+  // Мастер-громкость.
+  useEffect(() => {
+    const unsubscribe = useProjectStore.subscribe((state) => audioMixer.setMasterVolume(state.volume));
+    return unsubscribe;
+  }, []);
+
+  // Освобождаем ресурсы клипов, которых больше нет.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const project = useProjectStore.getState().project;
+      if (!project) return;
+      const ids = new Set<string>();
+      for (const track of project.tracks) for (const clip of track.clips) ids.add(clip.id);
+      mediaPool.retainClips(ids);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  /* --------------------------- viewport fit -------------------------- */
+  const recomputeFit = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !resolution) return;
+    const rect = wrap.getBoundingClientRect();
+    const padding = 24;
+    const availableW = Math.max(120, rect.width - padding);
+    const availableH = Math.max(80, rect.height - padding);
+    const aspect = (resolution.width || 16) / (resolution.height || 9);
+    let width = availableW;
+    let height = width / aspect;
+    if (height > availableH) {
+      height = availableH;
+      width = height * aspect;
     }
-  }, [canvasRef, project, playhead, imgCache, selectedClipId, resolution]);
+    setFit({ width, height });
+  }, [resolution]);
 
   useEffect(() => {
-    draw();
-  }, [draw]);
+    recomputeFit();
+    const observer = new ResizeObserver(recomputeFit);
+    if (wrapRef.current) observer.observe(wrapRef.current);
+    window.addEventListener("resize", recomputeFit);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", recomputeFit);
+    };
+  }, [recomputeFit, projectId]);
+
+  const toggleFullscreen = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen?.();
+  };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-gradient-to-br from-[#08060c] to-[#120925] overflow-hidden shadow-inner rounded-xl m-1 border border-white/5 flex items-center justify-center">
-      <canvas ref={canvasRef} className="shadow-2xl rounded-xl border border-white/10 max-w-full max-h-full object-contain" style={{ width: "100%", height: "100%", maxHeight: "70vh" }} aria-label="Предпросмотр проекта" />
-      {/* Playback overlay */}
-      <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur rounded-lg px-2 py-1 text-[10px] font-mono text-violet-300 border border-white/10" aria-live="polite" aria-atomic="true">
-        {project?.resolution ? `${resolution.width}×${resolution.height}` : "HD"} @ {project?.fps || 30}fps
+    <div ref={wrapRef} className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black/60">
+      <canvas
+        ref={canvasRef}
+        style={{ width: fit.width, height: fit.height }}
+        className="rounded-lg bg-black shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
+        aria-label="Окно предпросмотра"
+      />
+
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2">
+        <div className="pointer-events-auto rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-mono text-slate-300 backdrop-blur">
+          {resolution ? `${resolution.width}×${resolution.height}` : "—"}
+        </div>
+        <div className="pointer-events-auto flex items-center gap-1">
+          <button
+            onClick={() => setGuides((g) => !g)}
+            className={`rounded-lg border px-2 py-1 text-[10px] font-bold backdrop-blur transition ${
+              guides ? "border-violet-400/50 bg-violet-500/25 text-violet-100" : "border-white/10 bg-black/60 text-slate-300 hover:text-white"
+            }`}
+            title="Безопасные зоны и сетка третей"
+          >
+            ⊞ Сетка
+          </button>
+          <button
+            onClick={toggleFullscreen}
+            className="rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-slate-300 backdrop-blur transition hover:text-white"
+            title="Полный экран"
+          >
+            ⛶
+          </button>
+        </div>
       </div>
     </div>
   );

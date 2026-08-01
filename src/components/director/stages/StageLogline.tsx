@@ -1,6 +1,6 @@
 "use client";
 
-import StageShell, { SectionTitle, TextArea, BulletList } from "./StageShell";
+import StageShell, { SectionTitle, TextArea } from "./StageShell";
 import type { DirectorBrief, PreProduction, PreprodStage } from "@/lib/production";
 import { uid } from "@/lib/id";
 
@@ -22,7 +22,7 @@ export default function StageLogline({ preprod, updatePreprod, onRegenerate, bus
     <StageShell
       icon="🎯"
       title="Logline — Логлайн"
-      subtitle="Одна фраза: герой, желание, препятствие и ставки. AI предлагает несколько вариантов с указанием сильных и слабых сторон."
+      subtitle="Одна фраза: герой, желание, препятствие и ставки. AI предлагает несколько вариантов на выбор."
       onRegenerate={() => onRegenerate("logline")}
       busy={busy}
     >
@@ -63,22 +63,6 @@ export default function StageLogline({ preprod, updatePreprod, onRegenerate, bus
               const variants = ll.variants.map((x) => x.id === v.id ? { ...x, text: t } : x);
               set({ variants });
             }} rows={2} />
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300">Сильные стороны</div>
-                <BulletList items={v.strengths} onChange={(items) => {
-                  const variants = ll.variants.map((x) => x.id === v.id ? { ...x, strengths: items } : x);
-                  set({ variants });
-                }} />
-              </div>
-              <div>
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-rose-300">Слабые стороны</div>
-                <BulletList items={v.weaknesses} onChange={(items) => {
-                  const variants = ll.variants.map((x) => x.id === v.id ? { ...x, weaknesses: items } : x);
-                  set({ variants });
-                }} />
-              </div>
-            </div>
           </div>
         ))}
         <button

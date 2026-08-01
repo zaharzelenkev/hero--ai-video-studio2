@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useProjectStore } from "@/store/projectStore";
 
 function ImageCard({ prompt, label }: { prompt: string; label: string }) {
@@ -17,6 +17,15 @@ function ImageCard({ prompt, label }: { prompt: string; label: string }) {
       />
       <div className="p-2 text-[10px] text-slate-300 font-medium">{label}</div>
     </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl bg-gradient-to-b from-[#0d0d16] to-[#0a0a12] border border-white/10 p-3 shadow-inner mb-3">
+      <h3 className="text-xs font-bold text-violet-300 mb-2 flex items-center gap-2">{title}</h3>
+      {children}
+    </section>
   );
 }
 
@@ -61,13 +70,6 @@ export default function PreProductionPanelV2() {
   ];
 
   if (!project) return <div className="text-sm text-slate-400">Проект не загружен.</div>;
-
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <section className="rounded-xl bg-gradient-to-b from-[#0d0d16] to-[#0a0a12] border border-white/10 p-3 shadow-inner mb-3">
-      <h3 className="text-xs font-bold text-violet-300 mb-2 flex items-center gap-2">{title}</h3>
-      {children}
-    </section>
-  );
 
   return (
     <div className="space-y-3">

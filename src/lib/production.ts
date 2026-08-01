@@ -62,6 +62,10 @@ export interface DirectorBrief {
   references: string;
   keyMessage: string;
   callToAction: string;
+  /** Локация действия — собирается в диалоговом режиме AI Director. */
+  location?: string;
+  /** Наличие материалов (уже есть съёмка / сниму сам / стоки и т.п.). */
+  materials?: string;
 }
 
 /**

@@ -15,6 +15,8 @@ import type {
 } from "@/lib/production";
 import { buildOfflinePreprod } from "@/lib/brain/offlinePreprod";
 import PreprodControlBar from "./PreprodControlBar";
+import DirectorWizard from "./DirectorWizard";
+import ModeSwitcher, { type DirectorMode } from "./ModeSwitcher";
 import StageIdea from "./stages/StageIdea";
 import StageLogline from "./stages/StageLogline";
 import StageTreatment from "./stages/StageTreatment";
@@ -59,12 +61,31 @@ const emptyBrief = (): DirectorBrief => ({
 const inputCls =
   "w-full rounded-xl border border-white/[0.09] bg-black/30 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-violet-400/60 focus:bg-black/40 focus:ring-2 focus:ring-violet-500/20";
 
-export default function DirectorWorkspace({ projectId }: { projectId: string }) {
+export default function DirectorWorkspace({
+  projectId,
+  initialMode,
+}: {
+  projectId: string;
+  initialMode?: string;
+}) {
   const router = useRouter();
   const project = useProjectStore((s) => s.project);
   const loadProjectStore = useProjectStore((s) => s.loadProject);
   const updateProject = useProjectStore((s) => s.updateProject);
 
+  const [mode, setMode] = useState<DirectorMode>(() => {
+    if (initialMode === "pro" || initialMode === "basic") return initialMode;
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`montiq.director.mode.${projectId}`);
+        if (saved === "pro" || saved === "basic") return saved;
+      } catch {
+        /* ignore */
+      }
+    }
+    return "basic";
+  });
+  const [loaded, setLoaded] = useState(false);
   const [brief, setBrief] = useState<DirectorBrief>(emptyBrief());
   const [preprod, setPreprod] = useState<PreProduction | null>(null);
   const [sections, setSections] = useState<DirectorSections | null>(null);
@@ -75,6 +96,15 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [isFallback, setIsFallback] = useState(false);
+
+  // Сохраняем выбранный режим для этого проекта (Базовый / Профессиональный).
+  useEffect(() => {
+    try {
+      localStorage.setItem(`montiq.director.mode.${projectId}`, mode);
+    } catch {
+      /* ignore */
+    }
+  }, [mode, projectId]);
 
   // Load existing project on mount
   useEffect(() => {
@@ -96,6 +126,8 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
         }
       } catch {
         /* ignore */
+      } finally {
+        if (mounted) setLoaded(true);
       }
     })();
     return () => {
@@ -277,6 +309,33 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preprod, activeStage, brief]);
+
+  /** Результат диалогового режима: режиссёр передаёт готовый Production Blueprint. */
+  const handleBlueprint = (
+    nextPreprod: PreProduction,
+    nextSections: DirectorSections,
+    nextBrief: DirectorBrief,
+    fallback: boolean
+  ) => {
+    setPreprod(nextPreprod);
+    setSections(nextSections);
+    setBrief(nextBrief);
+    setStage("result");
+    setActiveStage("idea");
+    setIsFallback(fallback);
+  };
+
+  /** «Перейти к монтажу»: сохранить план и передать его монтажному движку. */
+  const goToEditor = async () => {
+    try {
+      if (preprod && sections) await persistPlan();
+    } catch {
+      /* persistPlan уже показывает ошибку */
+    }
+    router.push(`/editor/${projectId}`);
+  };
+
+  const switchMode = (m: DirectorMode) => setMode(m);
 
   const StageComponent = useMemo(() => {
     switch (activeStage) {
@@ -529,7 +588,7 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
           </button>
         </div>
         <button
-          onClick={() => router.push(`/editor/${projectId}`)}
+          onClick={() => void goToEditor()}
           className="rounded-full bg-gradient-to-r from-amber-500 to-orange-400 px-5 py-2.5 text-xs font-extrabold text-black shadow-xl transition hover:brightness-110"
         >
           Перейти в редактор →
@@ -549,8 +608,8 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
         <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
       </div>
 
-      {/* Control panel ABOVE the logo */}
-      {stage === "result" && preprod && (
+      {/* Control panel ABOVE the logo (только в профессиональном режиме) */}
+      {mode === "pro" && stage === "result" && preprod && (
         <PreprodControlBar
           projectId={projectId}
           activeStage={activeStage}
@@ -562,6 +621,10 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
       {/* Header with logo */}
       <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#07070f]/70 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-5 py-3.5 sm:px-8">
+          <div className="flex items-center gap-3">
+            <ModeSwitcher mode={mode} onChange={switchMode} />
+            <div className="mx-1 hidden h-7 w-px bg-white/10 sm:block" />
+          </div>
           <Link href="/" className="flex items-center gap-3 group">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-amber-400 text-xl shadow-2xl shadow-violet-500/40 transition group-hover:scale-105">
               🎬
@@ -580,7 +643,7 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
             </span>
             {stage === "result" && (
               <button
-                onClick={() => router.push(`/editor/${projectId}`)}
+                onClick={() => void goToEditor()}
                 className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-[11px] font-extrabold text-white shadow-xl shadow-violet-900/30 transition hover:brightness-110"
               >
                 Редактор →
@@ -591,64 +654,96 @@ export default function DirectorWorkspace({ projectId }: { projectId: string }) 
       </header>
 
       <main className="relative z-10 mx-auto max-w-[1400px] px-5 py-8 sm:px-8">
-        <div className="mb-8 flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-300/80">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-400" /> Этап 01 · Пре-продакшен
-          </div>
-          <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-            <span className="bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 bg-clip-text text-transparent">AI Director</span>
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
-            Полноценный виртуальный режиссёр и продюсер: от идеи до финального плана съёмок.
-            Все 12 этапов связаны между собой — изменение в одном автоматически отражается на остальных.
-          </p>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-12">
-          <aside className="lg:col-span-4">
-            <div className="lg:sticky lg:top-24 space-y-4">
-              {briefPanel}
-
-              {stage === "result" && preprod && (
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 backdrop-blur-xl">
-                  <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Навигация по этапам</div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      ["idea", "💡 Idea"],
-                      ["logline", "🎯 Logline"],
-                      ["treatment", "📖 Treatment"],
-                      ["script", "📜 Script"],
-                      ["vision", "🎬 Vision"],
-                      ["storyboard", "🖼 Storyboard"],
-                      ["shotlist", "📋 Shot List"],
-                      ["planning", "🗓 Planning"],
-                      ["casting", "🎭 Casting"],
-                      ["locations", "📍 Locations"],
-                      ["risks", "⚠️ Risks"],
-                      ["chat", "💬 Chat"],
-                    ].map(([id, label]) => (
-                      <button
-                        key={id}
-                        onClick={() => setActiveStage(id as PreprodStage)}
-                        className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold transition ${
-                          activeStage === id
-                            ? "bg-violet-500/20 text-violet-100"
-                            : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+        {mode === "basic" ? (
+          <>
+            <div className="mb-6 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-300/80">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-400" /> Этап 01 · Пре-продакшен · Диалоговый режим
+              </div>
+              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
+                <span className="bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 bg-clip-text text-transparent">AI Director</span>
+              </h1>
+              <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
+                Режиссёр ведёт вас шаг за шагом и сам собирает весь Production Blueprint —
+                от логлайна и сценария до shot list и плана монтажа.
+              </p>
             </div>
-          </aside>
 
-          <section className="lg:col-span-8">
-            {stage === "generating" ? generating : stage === "result" && preprod ? resultPanel : emptyState}
-          </section>
-        </div>
+            {!loaded ? (
+              <div className="flex h-64 items-center justify-center text-sm text-slate-500">Загружаем проект…</div>
+            ) : (
+              <DirectorWizard
+                projectTitle={project?.title || brief.idea || "Новый проект"}
+                initialBrief={brief}
+                initialPreprod={preprod}
+                onBlueprint={handleBlueprint}
+                onGoToEditor={goToEditor}
+                onOpenPro={() => switchMode("pro")}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <div className="mb-8 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-300/80">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-400" /> Этап 01 · Пре-продакшен
+              </div>
+              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
+                <span className="bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 bg-clip-text text-transparent">AI Director</span>
+              </h1>
+              <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
+                Полноценный виртуальный режиссёр и продюсер: от идеи до финального плана съёмок.
+                Все 12 этапов связаны между собой — изменение в одном автоматически отражается на остальных.
+              </p>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-12">
+              <aside className="lg:col-span-4">
+                <div className="lg:sticky lg:top-24 space-y-4">
+                  {briefPanel}
+
+                  {stage === "result" && preprod && (
+                    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 backdrop-blur-xl">
+                      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Навигация по этапам</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {[
+                          ["idea", "💡 Idea"],
+                          ["logline", "🎯 Logline"],
+                          ["treatment", "📖 Treatment"],
+                          ["script", "📜 Script"],
+                          ["vision", "🎬 Vision"],
+                          ["storyboard", "🖼 Storyboard"],
+                          ["shotlist", "📋 Shot List"],
+                          ["planning", "🗓 Planning"],
+                          ["casting", "🎭 Casting"],
+                          ["locations", "📍 Locations"],
+                          ["risks", "⚠️ Risks"],
+                          ["chat", "💬 Chat"],
+                        ].map(([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => setActiveStage(id as PreprodStage)}
+                            className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold transition ${
+                              activeStage === id
+                                ? "bg-violet-500/20 text-violet-100"
+                                : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </aside>
+
+              <section className="lg:col-span-8">
+                {stage === "generating" ? generating : stage === "result" && preprod ? resultPanel : emptyState}
+              </section>
+            </div>
+          </>
+        )}
       </main>
 
       <footer className="relative z-10 mt-16 border-t border-white/[0.05] bg-[#07070f]/80 px-8 py-4 text-[10px] text-slate-600 backdrop-blur">

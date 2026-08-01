@@ -16,12 +16,14 @@ export const runtime = "nodejs";
 const DIRECTOR_SYSTEM = DIRECTOR_SYSTEM_PROMPT;
 
 function briefToPrompt(brief: DirectorBrief, projectTitle: string, existing?: PreProduction | null): string {
-  const fields: Array<[string, string]> = [
+  const fields: Array<[string, string | undefined]> = [
     ["Идея проекта", brief.idea],
     ["Цель видео", brief.goal],
     ["Целевая аудитория", brief.audience],
     ["Платформа", brief.platform],
     ["Длительность (сек)", brief.duration],
+    ["Локация действия", brief.location],
+    ["Наличие материалов", brief.materials],
     ["Стиль ролика", brief.style],
     ["Настроение", brief.mood],
     ["Темп", brief.tempo],
@@ -30,7 +32,7 @@ function briefToPrompt(brief: DirectorBrief, projectTitle: string, existing?: Pr
     ["CTA", brief.callToAction],
   ];
   const filled = fields
-    .filter(([, v]) => v && v.trim())
+    .filter((pair): pair is [string, string] => !!pair[1] && pair[1].trim().length > 0)
     .map(([k, v]) => `— ${k}: ${v.trim()}`)
     .join("\n");
 
@@ -239,12 +241,15 @@ function normalizeBrief(raw: unknown): DirectorBrief {
       references: String(b.references || ""),
       keyMessage: String(b.keyMessage || ""),
       callToAction: String(b.callToAction || ""),
+      location: b.location ? String(b.location) : undefined,
+      materials: b.materials ? String(b.materials) : undefined,
     };
   }
   const t = String(raw || "");
   return {
     idea: t, goal: "", audience: "", platform: "", duration: "", style: "", mood: "",
     tempo: "", references: "", keyMessage: "", callToAction: "",
+    location: undefined, materials: undefined,
   };
 }
 

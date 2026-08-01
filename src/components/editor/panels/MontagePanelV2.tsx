@@ -13,6 +13,7 @@ export default function MontagePanelV2() {
   const detachAudio = useProjectStore((s) => s.detachAudio);
   const splitClipAt = useProjectStore((s) => s.splitClipAt);
   const selectClip = useProjectStore((s) => s.selectClip);
+  const setActivePage = useProjectStore((s) => s.setActivePage);
   const playhead = useProjectStore((s) => s.playhead);
   const setPlayhead = useProjectStore((s) => s.setPlayhead);
 
@@ -36,8 +37,17 @@ export default function MontagePanelV2() {
           <button onClick={handleAddAudioTrack} className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg">+ Аудио трек</button>
         </div>
         <div className="flex gap-2">
-          {selectedClipId ? (
+          {selectedClipId && selectedClip ? (
             <>
+              {(selectedClip.type === "text" || selectedClip.type === "subtitle") && (
+                <button
+                  onClick={() => setActivePage("text")}
+                  className="rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg hover:brightness-110"
+                  title="Изменить текст или субтитры"
+                >
+                  ✏️ Редактировать текст
+                </button>
+              )}
               <button onClick={() => duplicateClip(selectedClipId)} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-white/10">Дублировать</button>
               <button onClick={() => detachAudio(selectedClipId)} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-white/10">Отделить звук</button>
               <button onClick={() => splitClipAt(selectedClipId, playhead)} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-rose-300 hover:bg-white/10">Разделить (S)</button>

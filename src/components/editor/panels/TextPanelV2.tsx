@@ -13,7 +13,9 @@ export default function TextPanelV2() {
 
   if (!project || !selectedClipId) return <div className="text-sm text-slate-400">Выберите текстовый клип.</div>;
   const clip = project.tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
-  if (!clip || clip.type !== "text") return <div className="text-sm text-slate-400">Выберите текстовый клип для анимации.</div>;
+  // Текстовые клипы И автосубтитры (subtitle) можно редактировать здесь.
+  // Спрейд-обновление сохраняет реальный тип клипа (text/subtitle) на рантайме.
+  if (!clip || (clip.type !== "text" && clip.type !== "subtitle")) return <div className="text-sm text-slate-400">Выберите текстовый клип для анимации.</div>;
   const t = clip as TextClip;
 
   const setText = (fn: (c: TextClip) => TextClip) => updateClip(selectedClipId, (c: any) => fn({ ...(c as TextClip) }));

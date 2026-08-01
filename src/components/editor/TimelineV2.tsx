@@ -128,7 +128,7 @@ export default function TimelineV2() {
               <div key={i} className="absolute top-0 bottom-0 border-l border-white/10 text-[9px] text-slate-500 pl-1 font-mono leading-6" style={{ left: t * pxPerSecond }}>{t}s</div>
             );
           })}
-          {/* Big draggable playhead */}
+          {/* Draggable playhead — одна ровная линия, без градиента и ручки */}
           <div
             className="absolute top-0 bottom-0 z-30 cursor-col-resize group"
             style={{ left: `calc(${playhead * pxPerSecond}px - 8px)`, width: 16 }}
@@ -151,10 +151,7 @@ export default function TimelineV2() {
               window.addEventListener("mouseup", onUp);
             }}
           >
-            {/* Thick bar */}
-            <div className="absolute top-0 bottom-0 w-1.5 bg-gradient-to-b from-amber-400 via-blue-400 to-cyan-300 shadow-lg shadow-blue-500/60 rounded-full mx-auto" />
-            {/* Big handle at top */}
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-blue-500 border-2 border-white shadow-xl flex items-center justify-center text-[10px] font-bold text-white">▲</div>
+            <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[3px] bg-violet-400" />
           </div>
         </div>
       </div>
@@ -172,14 +169,14 @@ export default function TimelineV2() {
 
           {/* Timeline area */}
           <div className="flex-1 relative bg-gradient-to-b from-[#08080f] to-[#0a0a12]">
-            {/* The playhead continues through every track, not just the ruler.  A wide,
-                high-contrast hit area keeps it easy to see and grab while editing. */}
+            {/* The playhead continues through every track with the same flat color and
+                width as the ruler — визуально это одна сплошная линия. */}
             <div
               aria-hidden="true"
               className="pointer-events-none absolute top-0 bottom-0 z-20 w-4 -translate-x-1/2"
               style={{ left: playhead * pxPerSecond }}
             >
-              <div className="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-gradient-to-b from-amber-300 via-violet-400 to-cyan-300 shadow-[0_0_10px_rgba(129,140,248,0.9)]" />
+              <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-violet-400" />
             </div>
             {tracks.map((track: Track) => (
               <div key={track.id} className="h-20 border-b border-white/5 relative flex items-center" style={{ height: 80 }}>

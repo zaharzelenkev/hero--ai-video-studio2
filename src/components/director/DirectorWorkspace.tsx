@@ -315,18 +315,6 @@ export default function DirectorWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preprod, activeStage, brief]);
 
-  const handleBlueprint = (
-    nextPreprod: PreProduction,
-    nextSections: DirectorSections,
-    nextBrief: DirectorBrief
-  ) => {
-    setPreprod(nextPreprod);
-    setSections(nextSections);
-    setBrief(nextBrief);
-    setStage("result");
-    setActiveStage("idea");
-  };
-
   const goToEditor = async () => {
     try {
       if (preprod && sections) await persistPlan();
@@ -629,14 +617,7 @@ export default function DirectorWorkspace({
             {!loaded ? (
               <div className="flex h-64 items-center justify-center text-sm text-slate-500">Загружаем проект…</div>
             ) : (
-              <DirectorWizard
-                projectTitle={project?.title || brief.idea || "Новый проект"}
-                initialBrief={brief}
-                initialPreprod={preprod}
-                onBlueprint={handleBlueprint}
-                onGoToEditor={goToEditor}
-                onOpenPro={() => switchMode("pro")}
-              />
+              <DirectorWizard />
             )}
           </>
         ) : (

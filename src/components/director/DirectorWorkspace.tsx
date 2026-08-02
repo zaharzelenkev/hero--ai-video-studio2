@@ -111,8 +111,13 @@ export default function DirectorWorkspace({
   const [activeStage, setActiveStage] = useState<PreprodStage>("idea");
   const [progressMsg, setProgressMsg] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
+  // true — предыдущий полный запуск не удался: при повторе отправляем серверу
+  // текущий preprod, чтобы он переиспользовал уже сгенерированные Groq блоки
+  // и догенерировал только недостающие. Сбрасывается при любом изменении брифа.
+  const [resumeAfterFailure, setResumeAfterFailure] = useState(false);
   // NOTE: model selection (remote vs local) is internal and NEVER shown to the user.
 
   useEffect(() => {
@@ -168,6 +173,9 @@ export default function DirectorWorkspace({
   const set = (key: keyof DirectorBrief, value: string) => {
     setBrief((b) => ({ ...b, [key]: value }));
     setSaved(false);
+    // Бриф изменился — сохранённые блоки больше не соответствуют заданию,
+    // повторный запуск должен генерировать всё заново.
+    setResumeAfterFailure(false);
   };
 
   const filledCount = useMemo(
@@ -210,6 +218,7 @@ export default function DirectorWorkspace({
 
   const generate = async (stg: PreprodStage | "full" = "full") => {
     setError("");
+    setNotice("");
     if (stg === "full") setStage("generating");
     setBusyStage(stg);
     const steps = [
@@ -225,31 +234,49 @@ export default function DirectorWorkspace({
 
     try {
       const currentPreprod = preprod || buildOfflinePreprod(brief);
+      // После неудачного запуска передаём серверу текущий preprod + resume:
+      // он переиспользует блоки, которые Groq уже успела сгенерировать,
+      // и догоняет только недостающие — повторный запуск быстрый.
+      const isFull = stg === "full";
       const res = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           brief,
           projectTitle: project?.title || brief.idea || "Новый проект",
-          mode: stg === "full" ? "full" : "stage",
-          stage: stg === "full" ? undefined : stg,
-          preprod: stg === "full" ? null : currentPreprod,
+          mode: isFull ? "full" : "stage",
+          stage: isFull ? undefined : stg,
+          preprod: isFull ? (resumeAfterFailure ? currentPreprod : null) : currentPreprod,
+          resume: isFull && resumeAfterFailure,
         }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
         setError(data.error || "Не удалось получить ответ.");
-        if (stg === "full") setStage("brief");
+        if (isFull) {
+          setStage("brief");
+          // Сохраняем всё, что удалось собрать, и разрешаем догенерацию при повторе.
+          setResumeAfterFailure(true);
+        }
         return;
       }
 
-      if (stg === "full") {
+      if (isFull) {
         const nextPreprod: PreProduction = data.preprod || buildOfflinePreprod(brief);
         nextPreprod.activeStage = "idea";
         setPreprod(nextPreprod);
         setSections(data.sections || flattenSections(nextPreprod, brief));
         setStage("result");
         setActiveStage("idea");
+        // После частичной сборки (что-то Groq не успела) оставляем resume
+        // включённым: «Перегенерировать» догонит только недостающие разделы.
+        // Частичная сборка — не ошибка, но сказать о ней надо.
+        if (data.partial && Array.isArray(data.warnings) && data.warnings.length > 0) {
+          setResumeAfterFailure(true);
+          setNotice(data.warnings.join(" "));
+        } else {
+          setResumeAfterFailure(false);
+        }
       } else {
         setPreprod((prev) => {
           if (!prev) return prev;
@@ -265,7 +292,10 @@ export default function DirectorWorkspace({
       // пользователь должен либо получить персональный результат Groq, либо
       // увидеть ошибку и повторить запрос с заполненным брифом.
       setError("Не удалось связаться с AI Director. Проверьте ключ Groq и попробуйте ещё раз.");
-      if (stg === "full") setStage("brief");
+      if (stg === "full") {
+        setStage("brief");
+        setResumeAfterFailure(true);
+      }
     } finally {
       timers.forEach(clearTimeout);
       setBusyStage(null);
@@ -444,6 +474,10 @@ export default function DirectorWorkspace({
         <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-200">{error}</div>
       )}
 
+      {notice && (
+        <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">{notice}</div>
+      )}
+
       <button
         onClick={() => generate("full")}
         disabled={!canGenerate}
@@ -525,6 +559,12 @@ export default function DirectorWorkspace({
       {busyStage && (
         <div className="rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-[11px] text-violet-100">
           Перестраиваю раздел «{busyStage}» с учётом правок…
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
+          {notice}
         </div>
       )}
 

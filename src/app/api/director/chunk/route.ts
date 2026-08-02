@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGroq } from "@/lib/ai/groqClient";
 
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -17,7 +20,7 @@ export async function POST(req: NextRequest) {
       ],
       temperature: 0.4,
       maxTokens: 800,
-      timeoutMs: 60000,
+      timeoutMs: 0, // без лимита времени — Groq отвечает столько, сколько нужно
       maxRetries: 2,
       responseFormat: { type: "text" },
     });

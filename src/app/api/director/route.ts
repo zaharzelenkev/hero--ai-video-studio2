@@ -18,8 +18,12 @@ import { hasGroqKey } from "@/config/ai";
 
 export const runtime = "nodejs";
 // Полная сборка всех 12 разделов + озвучка длинного сценария может занимать
-// до 1-2 минут на Groq (с учётом ретраев). 300с даёт запас на платформах,
-// поддерживающих длинные функции (Vercel Pro). 
+// несколько минут на Groq (с учётом ретраев и лимитов TPM). 300с — максимум,
+// который поддерживают все планы Vercel (Hobby и Pro); маршрут сам следит за
+// этим бюджетом (FULL_RUN_DEADLINE_MS) и при его исходе ВОЗВРАЩАЕТ УЖЕ
+// СОБРАННОЕ, а не падает с ошибкой: неудавшиеся разделы добираются из
+// локального пакета, запуск помечается partial, пользователь всегда получает
+// ответ (см. generateChunk + цикл ниже).
 export const maxDuration = 300;
 
 // ---------------------------------------------------------------------------
@@ -27,7 +31,7 @@ export const maxDuration = 300;
 //
 // Полный пакет из 12 разделов НЕ помещается в один ответ Groq: он упирается в
 // max_tokens (finish_reason="length"), JSON обрезается на середине, парсинг
-// падает, и весь запуск возвращает 502 «не получил полный ответ». Один гигантский
+// падает, и весь запуск возвращал 502 «не получил полный ответ». Один гигантский
 // вызов также легко упирается в поминутные лимиты Groq (TPM) — и ретраи не
 // помогают, пока не подождать окно Retry-After.
 //
@@ -39,10 +43,36 @@ export const maxDuration = 300;
 //   • ретраится сам по себе при обрезании/невалидности/сбое сети.
 // Последующие блоки получают в контексте уже сгенерированные, поэтому пакет
 // остаётся связным (сценарий → vision → шот-лист → риски).
+//
+// Два правила, которые гарантируют, что запуск ВСЕГДА заканчивается ответом:
+//   1. НИКАКИХ клиентских таймаутов у вызовов Groq (timeoutMs: 0) — модель
+//      получает столько времени, сколько нужно (потолок — maxDuration).
+//   2. Если блок всё-таки не получился (закончился общий бюджет времени,
+//      Groq молчит, лимиты TPM не отпускают) — блок НЕ роняет весь запуск:
+//      он добирается из локального базового пакета, а в ответе появляется
+//      partial + warnings. Пользователь получает полный препродакшен, а не 502.
+//   3. Повторный запуск после неудачи (resume=true) переиспользует блоки,
+//      которые Groq УЖЕ сгенерировала в прошлый раз, и догоняет только
+//      недостающие — так «Повторите запуск» занимает секунды, а не минуты.
 // ---------------------------------------------------------------------------
 
-const FULL_GENERATION_ERROR =
-  "AI Director не получил полный ответ от Groq. Повторите запуск — бриф сохранён.";
+// Общий бюджет времени на полный запуск. 265с = 300с (maxDuration на Vercel
+// Hobby/Pro) минус запас ~35с на накладные расходы платформы и финализацию.
+// Когда бюджет исчерпан, маршрут перестаёт дёргать Groq и собирает ответ из
+// уже готового + локальных заготовок (никогда не 502).
+// Управление: DIRECTOR_DEADLINE_MS (мс) или DIRECTOR_NO_DEADLINE=1 для
+// self-hosted без потолка времени.
+const DEFAULT_FULL_RUN_DEADLINE_MS = 265_000;
+const ATTEMPT_FLOOR_MS = 25_000; // не начинаем попытку, если на неё не хватит времени
+
+function fullRunDeadlineMs(): number {
+  if (process.env.DIRECTOR_NO_DEADLINE === "1" || process.env.DIRECTOR_NO_DEADLINE === "true") {
+    return Number.POSITIVE_INFINITY;
+  }
+  const configured = Number(process.env.DIRECTOR_DEADLINE_MS || 0);
+  if (Number.isFinite(configured) && configured >= 60_000) return configured;
+  return DEFAULT_FULL_RUN_DEADLINE_MS;
+}
 
 interface ChunkSpec {
   key: "core" | "script" | "visual" | "production" | "wrap";
@@ -52,7 +82,6 @@ interface ChunkSpec {
   /** Russian schema of the chunk's fields, appended to the user message */
   schema: string;
   maxTokens: number;
-  timeoutMs: number;
   /** shape validation — chunk is accepted only if it returns true */
   validate: (d: any) => boolean;
 }
@@ -90,7 +119,6 @@ const FULL_CHUNKS: ChunkSpec[] = [
   "ending": "послевкусие и что должен сделать зритель"
 }`,
     maxTokens: 14000,
-    timeoutMs: 240_000,
     validate: (d) =>
       Boolean(
         d?.idea && typeof d.idea === "object" && (d.idea.refined || d.idea.audience) &&
@@ -125,7 +153,6 @@ const FULL_CHUNKS: ChunkSpec[] = [
 Сценарий — конкретная сюжетная линия под ТЕМУ проекта (герои, локации, диалоги
 из темы), а не универсальный шаблон. Учитывай логлайн и treatment из контекста.`,
     maxTokens: 22000,
-    timeoutMs: 300_000,
     validate: (d) =>
       Boolean(d?.script && typeof d.script === "object") &&
       Array.isArray(d.script.scenes) &&
@@ -168,7 +195,6 @@ const FULL_CHUNKS: ChunkSpec[] = [
   ]
 }`,
     maxTokens: 18000,
-    timeoutMs: 240_000,
     validate: (d) =>
       Array.isArray(d?.vision?.scenes) && d.vision.scenes.length > 0 &&
       Array.isArray(d?.storyboard?.frames) && d.storyboard.frames.length > 0,
@@ -214,7 +240,6 @@ const FULL_CHUNKS: ChunkSpec[] = [
 ВАЖНО: шот-лист и план опираются на сценарий, vision и storyboard из контекста
 (те же номера сцен, локации, персонажи, CTA, хронометраж).`,
     maxTokens: 16000,
-    timeoutMs: 240_000,
     validate: (d) =>
       Array.isArray(d?.shotlist?.shots) && d.shotlist.shots.length > 0 &&
       Array.isArray(d?.planning?.schedule) && d.planning.schedule.length > 0,
@@ -246,7 +271,6 @@ const FULL_CHUNKS: ChunkSpec[] = [
 }
 ВАЖНО: персонажи и локации — те же, что в treatment и сценарии из контекста.`,
     maxTokens: 12000,
-    timeoutMs: 180_000,
     validate: (d) =>
       Array.isArray(d?.casting) && d.casting.length > 0 &&
       Array.isArray(d?.locations) && d.locations.length > 0 &&
@@ -339,15 +363,27 @@ function chunkPrompt(
  * Каждый вызов callGroq сам ретраит сетевые сбои/5xx/429 (с учётом Retry-After);
  * здесь дополнительно ретраим обрезанные (finish_reason=length) и невалидные
  * ответы — это и есть главная причина старой ошибки «не получил полный ответ».
+ *
+ * ВАЖНО: никаких собственных таймаутов (timeoutMs: 0) — модель думает сколько
+ * нужно; единственный предохранитель — общий бюджет запуска `deadline`,
+ * после которого блок честно возвращает null, и цикл сборки добирает его из
+ * локального пакета (запуск не падает).
  */
 async function generateChunk(
   chunk: ChunkSpec,
   brief: DirectorBrief,
   projectTitle: string,
-  partial: PreProduction
+  partial: PreProduction,
+  deadline: number
 ): Promise<Record<string, any> | null> {
-  const MAX_ATTEMPTS = 5;
+  const MAX_ATTEMPTS = 8;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (Date.now() + ATTEMPT_FLOOR_MS > deadline) {
+      console.warn(
+        `[director] chunk "${chunk.key}" — общий бюджет времени исчерпан (attempt ${attempt + 1}/${MAX_ATTEMPTS}), блок будет собран локально`
+      );
+      return null;
+    }
     // На обрезанном ответе (finish_reason=length) увеличиваем бюджет токенов:
     // повтор с тем же (слишком маленьким) лимитом снова упрётся в max_tokens.
     // С каждым ретраем даём модели больше места дописать валидный JSON.
@@ -359,8 +395,8 @@ async function generateChunk(
       ],
       temperature: 0.55,
       maxTokens,
-      timeoutMs: chunk.timeoutMs + attempt * 60_000,
-      maxRetries: 3,
+      timeoutMs: 0, // без лимита времени: Groq отвечает столько, сколько нужно
+      maxRetries: 4,
       responseFormat: { type: "json_object" },
     });
 
@@ -392,6 +428,97 @@ async function generateChunk(
   }
   console.warn(`[director] chunk "${chunk.key}" — failed after ${MAX_ATTEMPTS} attempts`);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Resume: переиспользование блоков, уже сгенерированных Groq, при повторном
+// запуске после неудачи («Повторите запуск — бриф сохранён»). Повторный запуск
+// не начинает с нуля: блоки, которые Groq успела собрать, берутся из
+// сохранённого препродакшена, а не пересоздаются заново.
+// ---------------------------------------------------------------------------
+
+/** Ключи, которыми локальный шаблон и результат Groq отличаются всегда (id и т.п.). */
+const VOLATILE_KEYS = new Set([
+  "version", "updatedAt", "activeStage", "photoDataUrl", "date", "chat",
+]);
+
+function stripVolatile(v: any): any {
+  if (Array.isArray(v)) return v.map(stripVolatile);
+  if (v && typeof v === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, val] of Object.entries(v)) {
+      // id, sceneId, castId… и undefined-значения (при передаче по HTTP они
+      // теряются, поэтому при сравнении их не должно быть ни на одной стороне)
+      if (VOLATILE_KEYS.has(k) || /Id$/i.test(k) || val === undefined) continue;
+      out[k] = stripVolatile(val);
+    }
+    return out;
+  }
+  return v;
+}
+
+/**
+ * Канонический JSON для сравнения: сортирует ключи и нормализует undefined,
+ * поэтому «одинаковое содержимое» сравнивается надёжно (NaN/undefined-поля
+ * не ломают сравнение, как в наивной рекурсии).
+ */
+function canonicalJson(v: any): string {
+  if (v === undefined) return '"__undef__"';
+  if (Array.isArray(v)) return "[" + v.map(canonicalJson).join(",") + "]";
+  if (v && typeof v === "object") {
+    const keys = Object.keys(v).sort();
+    return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalJson(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v);
+}
+
+/** Достаёт из препродакшена данные блока (в формате, который ждёт валидатор). */
+function chunkDataFromPreprod(
+  chunk: ChunkSpec,
+  p: PreProduction
+): Record<string, any> | null {
+  switch (chunk.key) {
+    case "core":
+      return p.idea && p.logline && p.treatment
+        ? { idea: p.idea, logline: p.logline, treatment: p.treatment }
+        : null;
+    case "script":
+      return p.script ? { script: p.script } : null;
+    case "visual":
+      return p.vision && p.storyboard
+        ? { vision: p.vision, storyboard: p.storyboard }
+        : null;
+    case "production":
+      return p.shotlist && p.planning
+        ? { shotlist: p.shotlist, planning: p.planning }
+        : null;
+    case "wrap":
+      return Array.isArray(p.casting) && p.casting.length > 0 &&
+        Array.isArray(p.locations) && p.locations.length > 0 && p.risks
+        ? { casting: p.casting, locations: p.locations, risks: p.risks }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Блок можно переиспользовать при resume, только если его содержимое ОТЛИЧАЕТСЯ
+ * от локального шаблона (то есть его реально собрала Groq, а не normalizePreprod
+ * добил пропуски шаблоном в прошлый раз).
+ */
+function chunkIsReusable(
+  chunk: ChunkSpec,
+  existing: PreProduction,
+  template: PreProduction
+): boolean {
+  const data = chunkDataFromPreprod(chunk, existing);
+  if (!data || !chunk.validate(data)) return false;
+  const tpl = chunkDataFromPreprod(chunk, template);
+  if (!tpl) return false;
+  return (
+    canonicalJson(stripVolatile(data)) !== canonicalJson(stripVolatile(tpl))
+  );
 }
 
 function stageRegenerationPrompt(
@@ -465,27 +592,13 @@ function safeNum(v: unknown, d: number, min = 0, max = 100): number {
 }
 
 /**
- * Не принимаем урезанный JSON как готовый препродакшен. Раньше модель могла
- * успеть закрыть JSON после пары разделов, а normalizer незаметно заполнял
- * остальные 10–12 локальными шаблонами. В pro-режиме это хуже явной ошибки:
- * пользователь думает, что получил работу режиссёра. Все основные разделы
- * должны прийти именно от Groq.
+ * Раньше здесь был жёсткий валидатор полноты пакета: если хотя бы один раздел
+ * не пришёл от Groq, весь запуск падал в 502 «не получил полный ответ».
+ * Теперь политика обратная: normalizePreprod гарантированно добирает любые
+ * пропуски из локального базового пакета, а факт частичной сборки честно
+ * сообщается пользователю через `partial` + `warnings`. Запуск ВСЕГДА
+ * заканчивается полным препродакшеном, а не ошибкой.
  */
-function isCompleteDirectorPackage(data: unknown): data is Record<string, unknown> {
-  if (!data || typeof data !== "object") return false;
-  const p = data as Record<string, any>;
-  return Boolean(
-    p.idea && p.logline && p.treatment &&
-    Array.isArray(p.script?.scenes) && p.script.scenes.length > 0 &&
-    Array.isArray(p.vision?.scenes) && p.vision.scenes.length > 0 &&
-    Array.isArray(p.storyboard?.frames) && p.storyboard.frames.length > 0 &&
-    Array.isArray(p.shotlist?.shots) && p.shotlist.shots.length > 0 &&
-    Array.isArray(p.planning?.schedule) && p.planning.schedule.length > 0 &&
-    Array.isArray(p.casting) && p.casting.length > 0 &&
-    Array.isArray(p.locations) && p.locations.length > 0 &&
-    Array.isArray(p.risks?.risks) && p.risks.risks.length > 0
-  );
-}
 
 // ---------------------------------------------------------------------------
 // POST
@@ -518,6 +631,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Накопленный результат полной сборки объявляем вне try, чтобы catch мог
+  // отдать даже частично собранный пакет (всегда отвечаем, никогда не 502).
+  const raw: Record<string, any> = {};
+
   try {
     if (mode === "chat") {
       const userText = String(userMessage || "").trim();
@@ -531,7 +648,7 @@ export async function POST(req: NextRequest) {
         ],
         temperature: 0.9,
         maxTokens: 1600,
-        timeoutMs: 90_000,
+        timeoutMs: 0, // без лимита времени — модель отвечает столько, сколько нужно
         maxRetries: 3,
       });
 
@@ -558,7 +675,7 @@ export async function POST(req: NextRequest) {
         ],
         temperature: 0.75,
         maxTokens: 8000,
-        timeoutMs: 120_000,
+        timeoutMs: 0, // без лимита времени — модель отвечает столько, сколько нужно
         maxRetries: 3,
         responseFormat: { type: "json_object" },
       });
@@ -580,33 +697,61 @@ export async function POST(req: NextRequest) {
     // сценарий. Раньше это был ОДИН вызов на 24 000 токенов: ответ упирался в
     // max_tokens, JSON обрезался, парсинг падал, и пользователь получал 502
     // «не получил полный ответ от Groq». Теперь пакет собирается пятью
-    // последовательными маленькими вызовами (см. FULL_CHUNKS), каждый из
-    // которых валидируется и ретраится отдельно — обрезание одного блока не
-    // убивает весь запуск.
+    // последовательными вызовами (см. FULL_CHUNKS), каждый из которых
+    // валидируется и ретраится отдельно — обрезание одного блока не убивает
+    // весь запуск. У вызовов Groq НЕТ лимитов времени (timeoutMs: 0); общий
+    // бюджет запуска ограничен только платформой (maxDuration), и если он
+    // истекает, блоки добираются из локального пакета — пользователь всегда
+    // получает полный ответ, а не ошибку.
+    const resume = body.resume === true;
+    const templatePreprod = buildOfflinePreprod(brief);
+    const deadline = Date.now() + fullRunDeadlineMs();
     const partial: PreProduction = partialPreprodFrom(basePreprod);
-    const raw: Record<string, any> = {};
+    const warnings: string[] = [];
+    let reusedChunks = 0;
 
     for (const chunk of FULL_CHUNKS) {
-      const data = await generateChunk(chunk, brief, projectName, partial);
+      let data: Record<string, any> | null = null;
+
+      // Повторный запуск после неудачи: блок, который Groq уже собрала в
+      // прошлый раз (отличается от локального шаблона), переиспользуем и не
+      // тратим на него время.
+      if (resume && chunkIsReusable(chunk, basePreprod, templatePreprod)) {
+        data = chunkDataFromPreprod(chunk, basePreprod);
+        reusedChunks++;
+        console.warn(
+          `[director] chunk "${chunk.key}" — переиспользован из сохранённого препродакшена (resume)`
+        );
+      }
+
       if (!data) {
-        // Не отдаём базовый offline-пакет со статусом 200: именно так в pro-режиме
-        // появлялись одинаковые ответы на все разделы, хотя запрос к Groq не удался
-        // или его JSON был обрезан.
-        return NextResponse.json({ error: FULL_GENERATION_ERROR }, { status: 502 });
+        data = await generateChunk(chunk, brief, projectName, partial, deadline);
+      }
+
+      if (!data) {
+        // НЕ роняем запуск: раздел будет добит normalizePreprod из локального
+        // базового пакета, а пользователь увидит предупреждение. Гарантия:
+        // запуск всегда заканчивается полным препродакшеном.
+        warnings.push(
+          `Groq не ответила для раздела «${chunk.label}» — он собран по локальному шаблону. Нажмите «Перегенерировать», чтобы повторить.`
+        );
+        continue;
       }
       Object.assign(raw, data);
       mergeChunkInto(partial, chunk, data);
     }
 
-    // Страховка: даже после валидации блоков убеждаемся, что пакет полный.
-    if (!isCompleteDirectorPackage(raw)) {
-      console.warn("[director] full package still incomplete after chunked generation");
-      return NextResponse.json({ error: FULL_GENERATION_ERROR }, { status: 502 });
-    }
-
     const preprod = normalizePreprod(raw, brief, basePreprod);
     const sections = flattenToLegacy(preprod, brief);
-    return NextResponse.json({ sections, preprod, brief });
+    const anyGroq = reusedChunks > 0 || Object.keys(raw).length > 0;
+    return NextResponse.json({
+      sections,
+      preprod,
+      brief,
+      partial: warnings.length > 0 || !anyGroq,
+      warnings,
+      reused: reusedChunks,
+    });
   } catch (e: any) {
     console.warn("[director] error", e?.message);
     // Total failure — still return a working preprod so the UI keeps working.
@@ -625,10 +770,18 @@ export async function POST(req: NextRequest) {
         data: pickStageFromPreprod(basePreprod, String(stage)),
       });
     }
-    return NextResponse.json(
-      { error: "AI Director временно не ответил. Повторите запуск — бриф сохранён." },
-      { status: 502 },
-    );
+    // Полная сборка: даже при непредвиденной ошибке отдаём полный пакет
+    // (что успело собраться + локальный шаблон), а не 502.
+    const fallback = normalizePreprod(raw, brief, basePreprod);
+    return NextResponse.json({
+      sections: flattenToLegacy(fallback, brief),
+      preprod: fallback,
+      brief,
+      partial: true,
+      warnings: [
+        "Не удалось получить ответ Groq — план собран по локальному шаблону. Нажмите «Перегенерировать», чтобы повторить.",
+      ],
+    });
   }
 }
 

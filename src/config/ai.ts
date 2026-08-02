@@ -42,10 +42,14 @@ export const AI_CONFIG = {
     "qwen/qwen3.6-27b",
     "llama-3.3-70b-versatile",
   ],
-  // Robust networking: fail fast so the local engine can take over without the
-  // user ever noticing a spinner of death.
-  timeoutMs: 120_000,
-  maxRetries: 3,
+  // НЕ ограничиваем модель по времени: `0` означает «ждать ответ сколько нужно».
+  // Единственный потолок — лимит платформы (Vercel maxDuration), его нельзя
+  // обойти из кода, поэтому маршрут /api/director сам следит за своим бюджетом
+  // времени и мягко деградирует (см. FULL_RUN_DEADLINE_MS в route.ts), а НЕ
+  // обрывает запрос по нашему таймеру. Отдельные вызовы могут передать своё
+  // timeoutMs, если для короткого запроса нужен жёсткий дедлайн.
+  timeoutMs: 0,
+  maxRetries: 4,
   retryBaseDelayMs: 600,
   streaming: false, // streaming disabled for now to keep JSON-mode reliable
 };

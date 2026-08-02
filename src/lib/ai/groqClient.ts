@@ -2,7 +2,9 @@
  * Thin, robust Groq client used by the AI Director.
  *
  * Responsibilities:
- *   - honor AI_CONFIG.timeoutMs (AbortController)
+ *   - honor AI_CONFIG.timeoutMs (AbortController); 0 / undefined = NO timeout,
+ *     i.e. wait for the model as long as it takes (the platform's own
+ *     maxDuration is the only real ceiling — see /api/director route)
  *   - retry transient network / 5xx errors with exponential backoff
  *   - treat 4xx (except 429) as fatal
  *   - never throw — return { ok:false } so the caller silently falls back
@@ -116,12 +118,17 @@ async function tryModel(
 
   // When Groq answers 429 we must wait for its Retry-After window (TPM/RPM
   // rate limits) instead of the generic backoff — otherwise every retry just
-  // hits the same 429 again.
+  // hits the same 429 again. Groq can ask to wait several minutes on TPM
+  // limits, so we cap the wait generously (2 min per retry); the caller's own
+  // deadline guards the overall budget.
   let retryAfterMs: number | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // timeoutMs <= 0 → без таймера: ждём ответ Groq сколько потребуется.
+    // Платформенный maxDuration всё равно обрежет запрос сверху.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer: ReturnType<typeof setTimeout> | undefined =
+      timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
     try {
       const res = await fetch(AI_CONFIG.apiUrl, {
         method: "POST",
@@ -158,7 +165,7 @@ async function tryModel(
         if (res.status === 429) {
           const ra = parseFloat(res.headers.get("retry-after") || "");
           retryAfterMs =
-            Number.isFinite(ra) && ra > 0 ? Math.min(Math.ceil(ra) * 1000, 60_000) : null;
+            Number.isFinite(ra) && ra > 0 ? Math.min(Math.ceil(ra) * 1000, 120_000) : null;
           console.warn("[groq] rate limited (429), retry-after:", ra);
         } else if (res.status >= 400 && res.status < 500) {
           // Fatal client errors. If the model itself is deprecated / decommissioned /

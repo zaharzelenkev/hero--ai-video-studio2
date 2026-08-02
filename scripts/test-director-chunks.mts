@@ -4,14 +4,22 @@
  * Проверяет фикс «AI Director не получил полный ответ от Groq»: раньше весь
  * пакет из 12 разделов генерировался ОДНИМ вызовом Groq на 24 000 токенов —
  * ответ обрезался по max_tokens, JSON ломался, и маршрут всегда возвращал 502.
- * Теперь сборка разбита на 5 последовательных блоков, каждый валидируется и
- * ретраится отдельно.
+ * Теперь:
+ *   - сборка разбита на 5 последовательных блоков, каждый валидируется и
+ *     ретраится отдельно;
+ *   - у вызовов Groq НЕТ лимитов времени (timeoutMs: 0);
+ *   - если блок всё же не получился, запуск НЕ падает: раздел добирается из
+ *     локального пакета, ответ 200 + partial=true + warnings;
+ *   - повторный запуск после неудачи (resume=true) переиспользует уже
+ *     сгенерированные блоки и генерирует только недостающие.
  *
  * Тест подменяет глобальный fetch и отвечает за Groq по заранее заготовленным
  * JSON-ответам (включая сценарий «первый ответ блока обрезан — ретрай»).
  *
  * Запуск: npm run test:director-chunks
  */
+
+import { buildOfflinePreprod } from "../src/lib/brain/offlinePreprod";
 
 process.env.GROQ_API_KEY = "gsk_test_key_for_local_regression_test";
 
@@ -325,7 +333,9 @@ async function run(): Promise<void> {
     check("счастливый путь: 5 вызовов Groq", callCount === 5, `calls=${callCount}`);
     check("счастливый путь: preprod готов", Boolean(data2.preprod), "нет preprod");
 
-    // 3. Полный отказ одного блока → честная 502, а не молчаливый offline-пакет.
+    // 3. Полный отказ одного блока → НЕ 502: запуск обязан всё равно вернуть
+    //    полный препродакшен (неудавшийся раздел добирается из локального
+    //    пакета) с partial=true и warnings — «главное чтобы дала ответ».
     truncatedFirst = {};
     const failing = CHUNK_JSON.production;
     CHUNK_JSON.production = { shotlist: { shots: [] }, planning: {} } as any; // невалидно
@@ -341,9 +351,78 @@ async function run(): Promise<void> {
       })
     );
     const data3 = await res3.json();
-    check("сбой блока → 502", res3.status === 502, `status=${res3.status}`);
-    check("сбой блока → текст ошибки", String(data3.error || "").includes("полный ответ"), `error=${data3.error}`);
+    check("сбой блока → 200 (всегда отвечаем)", res3.status === 200, `status=${res3.status}`);
+    check("сбой блока → partial=true", data3.partial === true, `partial=${data3.partial}`);
+    check(
+      "сбой блока → есть warnings",
+      Array.isArray(data3.warnings) && data3.warnings.length > 0,
+      `warnings=${JSON.stringify(data3.warnings)}`
+    );
+    check(
+      "сбой блока → preprod всё равно полный",
+      Boolean(data3.preprod?.shotlist?.shots?.length) &&
+        Boolean(data3.preprod?.planning?.schedule?.length) &&
+        Boolean(data3.preprod?.script?.scenes?.length),
+      "preprod неполный"
+    );
     CHUNK_JSON.production = failing;
+
+    // 4. Resume после неудачи: preprod, где часть блоков уже собрана Groq
+    //    (отличается от шаблона), а script — ещё локальный шаблон. Повторный
+    //    запуск с resume=true переиспользует готовые блоки и генерирует
+    //    только недостающие (1 вызов Groq вместо 5).
+    const brief4 = {
+      idea: "Ролик о кофейне",
+      goal: "Привлечь гостей",
+      audience: "Офисные работники 22-35",
+      platform: "YouTube",
+      duration: "30",
+      style: "Лайфстайл",
+      mood: "Тёплый",
+      tempo: "Спокойный",
+      references: "",
+      keyMessage: "Кофе объединяет",
+      callToAction: "Заходи",
+    };
+    const template4 = buildOfflinePreprod(brief4);
+    const prev = await POST(
+      new Request("http://localhost/api/director", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief: brief4, projectTitle: "Кофе", mode: "full" }),
+      })
+    );
+    const prevData = await prev.json();
+    const resumePreprod = {
+      ...prevData.preprod,
+      // сценарий «не сгенерирован» — заменяем на локальный шаблон
+      script: template4.script,
+    };
+    truncatedFirst = {};
+    callCount = 0;
+    const res4 = await POST(
+      new Request("http://localhost/api/director", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brief: brief4,
+          projectTitle: "Кофе",
+          mode: "full",
+          preprod: resumePreprod,
+          resume: true,
+        }),
+      })
+    );
+    const data4 = await res4.json();
+    check("resume: 200", res4.status === 200, `status=${res4.status}`);
+    check("resume: только недостающий блок вызвал Groq (1 вызов)", callCount === 1, `calls=${callCount}`);
+    check("resume: 4 блока переиспользованы", data4.reused === 4, `reused=${data4.reused}`);
+    check("resume: partial=false", data4.partial === false, `partial=${data4.partial}`);
+    check(
+      "resume: сценарий собран заново",
+      Boolean(data4.preprod?.script?.scenes?.length),
+      "сценарий пуст"
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

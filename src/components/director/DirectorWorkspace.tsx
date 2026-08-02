@@ -612,9 +612,7 @@ export default function DirectorWorkspace({
 
       {mode === "pro" && stage === "result" && preprod && (
         <PreprodControlBar
-          projectId={projectId}
           activeStage={activeStage}
-          readiness={readiness}
           onStageChange={setActiveStage}
         />
       )}

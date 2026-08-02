@@ -1,14 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import { PREPROD_STAGES, type PreprodStage } from "@/lib/production";
 import { STAGE_ICONS } from "./stageIcons";
 
 interface Props {
-  projectId?: string;
   activeStage?: PreprodStage;
-  readiness?: number;
   onStageChange?: (stage: PreprodStage) => void;
   compact?: boolean;
 }
@@ -19,9 +16,7 @@ interface Props {
  * С неё начинается создание любого видео: пользователь выбирает этап или идёт по порядку.
  */
 export default function PreprodControlBar({
-  projectId,
   activeStage,
-  readiness = 0,
   onStageChange,
   compact,
 }: Props) {
@@ -49,30 +44,6 @@ export default function PreprodControlBar({
           })}
         </div>
 
-        <div className="mx-1 hidden h-6 w-px bg-white/[0.08] sm:block" />
-
-        <div className="hidden flex-col items-end leading-tight sm:flex">
-          <div className="eyebrow text-[9px]">Готовность</div>
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/[0.08]">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.max(2, Math.min(100, readiness))}%`, background: "linear-gradient(90deg,#7c6cf6,#a78bfa)" }}
-              />
-            </div>
-            <span className="text-[11px] font-bold text-slate-200">{Math.round(readiness)}%</span>
-          </div>
-        </div>
-
-        {projectId && (
-          <Link
-            href={`/editor/${projectId}`}
-            className="btn btn-primary ml-1 hidden shrink-0 px-3.5 py-1.5 text-[11px] md:inline-flex"
-          >
-            Редактор
-            <Icon name="arrow-right" size={13} />
-          </Link>
-        )}
       </div>
     </div>
   );

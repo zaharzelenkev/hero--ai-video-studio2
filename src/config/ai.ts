@@ -29,8 +29,8 @@ export const AI_CONFIG = {
   model: "llama-3.3-70b-versatile",
   // Robust networking: fail fast so the local engine can take over without the
   // user ever noticing a spinner of death.
-  timeoutMs: 25_000,
-  maxRetries: 2,
+  timeoutMs: 120_000,
+  maxRetries: 3,
   retryBaseDelayMs: 600,
   streaming: false, // streaming disabled for now to keep JSON-mode reliable
 };

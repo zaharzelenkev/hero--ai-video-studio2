@@ -8,6 +8,7 @@ import { fontFileFor } from "./presets";
 import { collectLightRaysInputs, prepareAiVfxOverrides, writeLutCubes } from "./editor/vfxExport";
 import { cubeFileName } from "./editor/lut";
 import { renderMgOverlayPng } from "./motionGraphicsCanvas";
+import { normalizeVideoInputs } from "./normalizeInputs";
 
 /**
  * Измерение текста в пикселях через canvas — для раскладки моушн-графики
@@ -194,6 +195,21 @@ export async function renderProject(
         throw new Error(`Подготовка VFX не удалась: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+
+    // Нормализация видео-входов: перекодируем каждый разный видео-исходник в
+    // промежуточный файл с разрешением, ограниченным канвасом. Это чинит
+    // фатальную ошибку декодирования «Error while processing the decoded data
+    // for stream #N:0» на автомонтаже: декодеры больше не держат несколько
+    // полноразмерных (4K) потоков одновременно в wasm-куче, а повреждённые
+    // кадры вычищаются на этом этапе. Битрейт/тайминг не трогаем.
+    const normResult = await normalizeVideoInputs(
+      { exec: (args) => ffmpeg.exec(args), onLog },
+      project,
+      assetFileNames,
+      Math.max(project.exportSettings.width, project.exportSettings.height),
+      project.exportSettings.fps,
+    );
+    for (const f of normResult.created) vfxTempFiles.add(f);
 
     // Моушн-графика: PNG-панели и измерение текста из превью.
     compileOptions.renderMgOverlay = (clip, W, H, spec) => renderMgOverlayPng(clip, W, H, spec);

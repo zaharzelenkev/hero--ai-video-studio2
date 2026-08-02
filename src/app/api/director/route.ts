@@ -8,6 +8,7 @@ import type {
 import {
   DIRECTOR_SYSTEM_PROMPT,
   DIRECTOR_VOICE_PROMPT,
+  DIRECTOR_CHUNK_SYSTEM_PROMPT,
 } from "@/lib/brain/directorSystemPrompt";
 import { buildOfflinePreprod } from "@/lib/brain/offlinePreprod";
 import { localDirectorReply } from "@/lib/brain/localDirector";
@@ -22,25 +23,371 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 // ---------------------------------------------------------------------------
-// Prompt builders
+// Chunked full generation
+//
+// Полный пакет из 12 разделов НЕ помещается в один ответ Groq: он упирается в
+// max_tokens (finish_reason="length"), JSON обрезается на середине, парсинг
+// падает, и весь запуск возвращает 502 «не получил полный ответ». Один гигантский
+// вызов также легко упирается в поминутные лимиты Groq (TPM) — и ретраи не
+// помогают, пока не подождать окно Retry-After.
+//
+// Поэтому полная сборка разбита на 5 ПОСЛЕДОВАТЕЛЬНЫХ вызовов, каждый из
+// которых:
+//   • маленький (6000–10000 токенов) — не обрезается и не бьёт лимиты;
+//   • возвращает валидный JSON своей группы разделов (json_object);
+//   • проверяется отдельно (валидатор блока);
+//   • ретраится сам по себе при обрезании/невалидности/сбое сети.
+// Последующие блоки получают в контексте уже сгенерированные, поэтому пакет
+// остаётся связным (сценарий → vision → шот-лист → риски).
 // ---------------------------------------------------------------------------
 
-function fullGenerationPrompt(
+const FULL_GENERATION_ERROR =
+  "AI Director не получил полный ответ от Groq. Повторите запуск — бриф сохранён.";
+
+interface ChunkSpec {
+  key: "core" | "script" | "visual" | "production" | "wrap";
+  label: string;
+  /** top-level keys the chunk must produce */
+  fields: string[];
+  /** Russian schema of the chunk's fields, appended to the user message */
+  schema: string;
+  maxTokens: number;
+  timeoutMs: number;
+  /** shape validation — chunk is accepted only if it returns true */
+  validate: (d: any) => boolean;
+}
+
+const FULL_CHUNKS: ChunkSpec[] = [
+  {
+    key: "core",
+    label: "идея / логлайн / тритмент",
+    fields: ["idea", "logline", "treatment"],
+    schema: `"idea": {
+  "refined": "1-2 абзаца — уточнённая идея с драматургической дугой под ТЕМУ проекта",
+  "audience": "портрет ЦА (возраст, боли, желания, триггеры)",
+  "potential": 0-10 число (честная оценка потенциала идеи как есть),
+  "pros": ["3-6 сильных сторон"],
+  "cons": ["3-6 слабых мест, за которые режиссёр будет бороться"],
+  "variants": [ровно 3 объекта: { "title": "", "concept": "", "audience": "", "hook": "", "potential": 0-10, "reasoning": "" }]
+},
+"logline": {
+  "primary": "ГЕРОЙ + ЖЕЛАНИЕ + ПРЕПЯТСТВИЕ + СТАВКИ (одно предложение)",
+  "variants": [ровно 3 объекта: { "text": "", "strengths": ["", ""], "weaknesses": [""] }],
+  "hero": "", "goal": "", "conflict": "", "stakes": ""
+},
+"treatment": {
+  "title": "рабочее название",
+  "logline": "уточнённый логлайн",
+  "genre": "жанр/формат",
+  "tone": "тон",
+  "themes": ["3-5 сквозных тем"],
+  "synopsisLong": "2-4 абзаца, полная история от хука до финала",
+  "act1": "экспозиция + хук (1-2 абзаца)",
+  "act2": "развитие, конфликт, трансформация (1-3 абзаца)",
+  "act3": "кульминация + развязка + CTA (1-2 абзаца)",
+  "characters": [{ "name": "", "role": "", "description": "" }],
+  "keyMoments": ["4-6 ключевых сцен/битов"],
+  "ending": "послевкусие и что должен сделать зритель"
+}`,
+    maxTokens: 7000,
+    timeoutMs: 90_000,
+    validate: (d) =>
+      Boolean(
+        d?.idea && typeof d.idea === "object" && (d.idea.refined || d.idea.audience) &&
+        d?.logline && typeof d.logline === "object" && (d.logline.primary || Array.isArray(d.logline.variants)) &&
+        d?.treatment && typeof d.treatment === "object" && (d.treatment.synopsisLong || d.treatment.title)
+      ),
+  },
+  {
+    key: "script",
+    label: "сценарий",
+    fields: ["script"],
+    schema: `"script": {
+  "concept": "1 абзац сверх-идеи",
+  "synopsis": "3-5 предложений",
+  "scenes": [
+    {
+      "number": 1,
+      "heading": "INT./EXT. ЛОКАЦИЯ — ВРЕМЯ",
+      "location": "",
+      "timeOfDay": "утро/день/вечер/ночь",
+      "action": "2-6 предложений, конкретно под тему",
+      "dialogue": [{ "character": "", "line": "", "direction": "" }],
+      "durationSec": 5,
+      "notes": ""
+    }
+  ],
+  "finalText": "полный текст сценария в классической разметке для актёра"
+}
+ВАЖНО: количество сцен и длительности — сумма всех durationSec должна РОВНО
+совпадать с длительностью из брифа: 15-30с → 4-5 сцен; 60с → 5-7; 90-180с → 6-10;
+300-900с → 12-25 полноценных сцен с завязкой/развитием/развязкой.
+Сценарий — конкретная сюжетная линия под ТЕМУ проекта (герои, локации, диалоги
+из темы), а не универсальный шаблон. Учитывай логлайн и treatment из контекста.`,
+    maxTokens: 10000,
+    timeoutMs: 150_000,
+    validate: (d) =>
+      Boolean(d?.script && typeof d.script === "object") &&
+      Array.isArray(d.script.scenes) &&
+      d.script.scenes.length > 0,
+  },
+  {
+    key: "visual",
+    label: "видение / раскадровка",
+    fields: ["vision", "storyboard"],
+    schema: `"vision": {
+  "overallStyle": "1-2 абзаца про общий визуальный язык",
+  "visualLanguage": "камера/оптика/движение/мотивировка",
+  "referenceFilms": ["3 референса с пояснением, что именно берём"],
+  "scenes": [
+    // ОДНА запись на КАЖДУЮ сцену из script (номера сцен — из контекста)
+    {
+      "sceneNumber": 1,
+      "sceneTitle": "заголовок сцены",
+      "shot": {
+        "goal": "", "emotion": "", "composition": "", "cameraMovement": "",
+        "duration": "", "transition": "cut/match cut/J-cut/L-cut/crossfade/...",
+        "pacing": "", "sound": "", "atmosphere": "", "lighting": "",
+        "colorPalette": ["", "", "", "", ""], "vfx": "", "dpNotes": ""
+      }
+    }
+  ]
+},
+"storyboard": {
+  "aspectRatio": "9:16 | 16:9 | 1:1 — по платформе из брифа",
+  "style": "визуальный стиль раскадровки",
+  "frames": [
+    // 6-10 кадров на весь ролик
+    {
+      "number": 1, "sceneNumber": 1, "description": "", "composition": "",
+      "cameraMovement": "", "objectPlacement": "", "lighting": "", "color": "",
+      "shotSize": "ELS/WS/MS/MCU/CU/ECU/INSERT/POV/OTS", "mood": "",
+      "imagePrompt": "8-12 англ. слов, cinematic storyboard sketch, black and white with one accent color",
+      "notes": ""
+    }
+  ]
+}`,
+    maxTokens: 8000,
+    timeoutMs: 120_000,
+    validate: (d) =>
+      Array.isArray(d?.vision?.scenes) && d.vision.scenes.length > 0 &&
+      Array.isArray(d?.storyboard?.frames) && d.storyboard.frames.length > 0,
+  },
+  {
+    key: "production",
+    label: "шот-лист / план съёмок",
+    fields: ["shotlist", "planning"],
+    schema: `"shotlist": {
+  "totalShots": число,
+  "estimatedTime": "оценка времени съёмки (напр. '1 съёмочный день, 8 часов')",
+  "shots": [
+    // 10-25 позиций
+    {
+      "number": 1, "description": "", "shotType": "", "camera": "", "lens": "",
+      "movement": "", "equipment": [""], "props": [""], "duration": "",
+      "priority": "critical|high|medium|low", "location": ""
+    }
+  ]
+},
+"planning": {
+  "schedule": [
+    {
+      "day": 1, "location": "", "scenes": [""], "shots": [1],
+      "callTime": "09:00", "wrapTime": "19:00", "notes": [""]
+    }
+  ],
+  "sceneOrder": [""],
+  "checklists": [
+    { "category": "Оборудование", "items": [{ "text": "", "done": false }] },
+    { "category": "До выхода", "items": [{ "text": "", "done": false }] },
+    { "category": "Звук", "items": [{ "text": "", "done": false }] },
+    { "category": "Свет", "items": [{ "text": "", "done": false }] }
+  ],
+  "props": [""], "equipment": [""], "cast": [], "locations": [],
+  "directorNotes": ["2-5 заметок съёмочной группе"],
+  "teamTasks": [
+    { "assignee": "Режиссёр", "task": "", "dueBy": "", "done": false },
+    { "assignee": "Оператор", "task": "", "dueBy": "", "done": false },
+    { "assignee": "Продюсер", "task": "", "dueBy": "", "done": false }
+  ]
+}
+ВАЖНО: шот-лист и план опираются на сценарий, vision и storyboard из контекста
+(те же номера сцен, локации, персонажи, CTA, хронометраж).`,
+    maxTokens: 8000,
+    timeoutMs: 120_000,
+    validate: (d) =>
+      Array.isArray(d?.shotlist?.shots) && d.shotlist.shots.length > 0 &&
+      Array.isArray(d?.planning?.schedule) && d.planning.schedule.length > 0,
+  },
+  {
+    key: "wrap",
+    label: "кастинг / локации / риски",
+    fields: ["casting", "locations", "risks"],
+    schema: `"casting": [
+  // по числу персонажей из treatment и сценария
+  { "role": "", "name": "имя (если есть)", "description": "", "look": "", "notes": "" }
+],
+"locations": [
+  // по числу локаций из сценария
+  { "name": "", "description": "", "mood": "", "lighting": "", "pros": [""], "cons": [""], "suitable": true }
+],
+"risks": {
+  "readiness": 0-100,
+  "missingItems": ["3-7 пунктов, чего не хватает для запуска"],
+  "weakScenes": [{ "sceneId": "номер или id сцены", "reason": "" }],
+  "risks": [
+    // 5-10 рисков
+    {
+      "severity": "low|medium|high|critical",
+      "category": "сценарий|съёмка|кастинг|локация|техника|время|бюджет|другое",
+      "description": "", "mitigation": ""
+    }
+  ]
+}
+ВАЖНО: персонажи и локации — те же, что в treatment и сценарии из контекста.`,
+    maxTokens: 6000,
+    timeoutMs: 90_000,
+    validate: (d) =>
+      Array.isArray(d?.casting) && d.casting.length > 0 &&
+      Array.isArray(d?.locations) && d.locations.length > 0 &&
+      Array.isArray(d?.risks?.risks) && d.risks.risks.length > 0,
+  },
+];
+
+/**
+ * Стартовый «скелет» препродакшена для контекста следующих блоков: начинаем с
+ * уже имеющегося материала (existing preprod или offline-заготовка), чтобы
+ * каждый следующий вызов видел всё, что уже сгенерировано ранее.
+ */
+function partialPreprodFrom(base: PreProduction): PreProduction {
+  return {
+    version: 2 as const,
+    updatedAt: base.updatedAt,
+    activeStage: base.activeStage,
+    idea: base.idea,
+    logline: base.logline,
+    treatment: base.treatment,
+    script: base.script,
+    vision: base.vision,
+    storyboard: base.storyboard,
+    shotlist: base.shotlist,
+    planning: base.planning,
+    casting: base.casting,
+    locations: base.locations,
+    risks: base.risks,
+    chat: base.chat,
+  };
+}
+
+/** Вливает успешно сгенерированный блок в частичный препродакшен (для контекста). */
+function mergeChunkInto(partial: PreProduction, chunk: ChunkSpec, data: Record<string, any>): void {
+  switch (chunk.key) {
+    case "core":
+      if (data.idea) partial.idea = data.idea;
+      if (data.logline) partial.logline = data.logline;
+      if (data.treatment) partial.treatment = data.treatment;
+      break;
+    case "script":
+      if (data.script) partial.script = data.script;
+      break;
+    case "visual":
+      if (data.vision) partial.vision = data.vision;
+      if (data.storyboard) partial.storyboard = data.storyboard;
+      break;
+    case "production":
+      if (data.shotlist) partial.shotlist = data.shotlist;
+      if (data.planning) partial.planning = data.planning;
+      break;
+    case "wrap":
+      if (Array.isArray(data.casting)) partial.casting = data.casting;
+      if (Array.isArray(data.locations)) partial.locations = data.locations;
+      if (data.risks) partial.risks = data.risks;
+      break;
+  }
+}
+
+function chunkPrompt(
+  chunk: ChunkSpec,
   brief: DirectorBrief,
   projectTitle: string,
-  existing: PreProduction | null
+  partial: PreProduction,
+  attempt: number
 ): string {
   const ctx = buildDirectorContext({
     brief,
-    preprod: existing,
+    preprod: partial,
     projectTitle,
     focus: "full",
   });
+  const retryHint =
+    attempt > 0
+      ? `\n\nВНИМАНИЕ: предыдущий ответ на это же задание был неполным или невалидным. ` +
+        `Сгенерируй раздел(ы) ЗАНОВО и ПОЛНОСТЬЮ — верни валидный JSON со ВСЕМИ полями из задания.`
+      : "";
   return (
     ctx +
-    `\n\nНа основе контекста выше сгенерируй ПОЛНЫЙ ПАКЕТ ПРЕПРОДАКШЕНА в JSON по схеме из системного промпта. ` +
-    `Верни только JSON — без комментариев и без markdown.`
+    `\n\n=== ЗАДАНИЕ ===\n` +
+    `Сгенерируй ТОЛЬКО разделы: ${chunk.fields.map((f) => `"${f}"`).join(", ")}.\n` +
+    `Верни JSON-объект ровно с этими полями — без обёрток и без markdown.\n\n` +
+    `### Схема блока «${chunk.label}»:\n${chunk.schema}` +
+    retryHint
   );
+}
+
+/**
+ * Генерирует один блок с ретраями. Возвращает распарсенный JSON блока или null.
+ * Каждый вызов callGroq сам ретраит сетевые сбои/5xx/429 (с учётом Retry-After);
+ * здесь дополнительно ретраим обрезанные (finish_reason=length) и невалидные
+ * ответы — это и есть главная причина старой ошибки «не получил полный ответ».
+ */
+async function generateChunk(
+  chunk: ChunkSpec,
+  brief: DirectorBrief,
+  projectTitle: string,
+  partial: PreProduction
+): Promise<Record<string, any> | null> {
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const groq = await callGroq({
+      messages: [
+        { role: "system", content: DIRECTOR_CHUNK_SYSTEM_PROMPT },
+        { role: "user", content: chunkPrompt(chunk, brief, projectTitle, partial, attempt) },
+      ],
+      temperature: 0.7,
+      maxTokens: chunk.maxTokens,
+      timeoutMs: chunk.timeoutMs,
+      maxRetries: 1,
+      responseFormat: { type: "json_object" },
+    });
+
+    if (!groq.ok) {
+      console.warn(
+        `[director] chunk "${chunk.key}" — groq call failed (attempt ${attempt + 1}/${MAX_ATTEMPTS})`
+      );
+      continue;
+    }
+    if (groq.truncated) {
+      console.warn(
+        `[director] chunk "${chunk.key}" — response truncated at max_tokens (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying fresh`
+      );
+      continue;
+    }
+
+    let data: any = null;
+    try {
+      data = JSON.parse(extractJson(groq.text));
+    } catch {
+      data = null;
+    }
+    if (data && chunk.validate(data)) {
+      return data as Record<string, any>;
+    }
+    console.warn(
+      `[director] chunk "${chunk.key}" — response parsed but incomplete/invalid (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying`
+    );
+  }
+  console.warn(`[director] chunk "${chunk.key}" — failed after ${MAX_ATTEMPTS} attempts`);
+  return null;
 }
 
 function stageRegenerationPrompt(
@@ -225,44 +572,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ stage, data });
     }
 
-    // full generation — это самый «дорогой» и медленный вызов: все 12 разделов,
-    // включая полный сценарий под выбранную тематику. Даём ему щедрый лимит токенов
-    // и длинный таймаут с повтором, чтобы Groq успел написать действительно умный,
-    // нешаблонный пакет, а не срезал хвост и не упал в локальный шаблон.
-    const sys = DIRECTOR_SYSTEM_PROMPT;
-    const usr = fullGenerationPrompt(brief, projectName, existingPreprod || null);
-    const groq = await callGroq({
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: usr },
-      ],
-      temperature: 0.7,
-      maxTokens: 24000,
-      timeoutMs: 120_000,
-      maxRetries: 2,
-      responseFormat: { type: "json_object" },
-    });
+    // Полная сборка — самый «дорогой» заказ: все 12 разделов, включая полный
+    // сценарий. Раньше это был ОДИН вызов на 24 000 токенов: ответ упирался в
+    // max_tokens, JSON обрезался, парсинг падал, и пользователь получал 502
+    // «не получил полный ответ от Groq». Теперь пакет собирается пятью
+    // последовательными маленькими вызовами (см. FULL_CHUNKS), каждый из
+    // которых валидируется и ретраится отдельно — обрезание одного блока не
+    // убивает весь запуск.
+    const partial: PreProduction = partialPreprodFrom(basePreprod);
+    const raw: Record<string, any> = {};
 
-    let parsed: any = null;
-    if (groq.ok) {
-      try {
-        parsed = JSON.parse(extractJson(groq.text));
-      } catch {
-        parsed = null;
+    for (const chunk of FULL_CHUNKS) {
+      const data = await generateChunk(chunk, brief, projectName, partial);
+      if (!data) {
+        // Не отдаём базовый offline-пакет со статусом 200: именно так в pro-режиме
+        // появлялись одинаковые ответы на все разделы, хотя запрос к Groq не удался
+        // или его JSON был обрезан.
+        return NextResponse.json({ error: FULL_GENERATION_ERROR }, { status: 502 });
       }
+      Object.assign(raw, data);
+      mergeChunkInto(partial, chunk, data);
     }
 
-    // Не отдаём базовый offline-пакет со статусом 200: именно так в pro-режиме
-    // появлялись одинаковые ответы на все разделы, хотя запрос к Groq не удался
-    // или его JSON был обрезан.
-    if (!groq.ok || !isCompleteDirectorPackage(parsed)) {
-      return NextResponse.json(
-        { error: "AI Director не получил полный ответ от Groq. Повторите запуск — бриф сохранён." },
-        { status: 502 },
-      );
+    // Страховка: даже после валидации блоков убеждаемся, что пакет полный.
+    if (!isCompleteDirectorPackage(raw)) {
+      console.warn("[director] full package still incomplete after chunked generation");
+      return NextResponse.json({ error: FULL_GENERATION_ERROR }, { status: 502 });
     }
 
-    const preprod = normalizePreprod(parsed, brief, basePreprod);
+    const preprod = normalizePreprod(raw, brief, basePreprod);
     const sections = flattenToLegacy(preprod, brief);
     return NextResponse.json({ sections, preprod, brief });
   } catch (e: any) {

@@ -22,6 +22,22 @@ export interface AIAnalysisRequest {
    * ровно на дропе.
    */
   musicInPointSec?: number;
+  /**
+   * OFFLINE EDIT: результат автоматической синхронизации раздельно записанного
+   * звука (камера + петличка/рекордер). Считается в конвейере автомонтажа,
+   * где есть доступ к файлам; режиссёр получает готовое решение и включает
+   * его в план/отчёт чернового монтажа.
+   */
+  audioSync?: Array<{
+    audioAssetId: string;
+    audioName: string;
+    videoAssetId: string;
+    videoName: string;
+    offsetSec: number;
+    confidence: number;
+    applied: boolean;
+    reason: string;
+  }>;
   assets: Array<{
     id: string;
     name: string;
@@ -67,6 +83,19 @@ export interface AIEditDecision {
       type: import("../types").TransitionType;
       duration: number;
       reason?: string;
+    };
+    /**
+     * РЕЖИССЁРСКАЯ ПОСТАНОВКА СЦЕНЫ: цель, темп, музыка и цветовое настроение,
+     * назначенные AI Director ДО монтажа. Монтажный движок исполняет их
+     * буквально (грейд, уровень музыки, акценты), а не додумывает по шаблону.
+     */
+    sceneDirection?: {
+      sceneId: string;
+      phase: import("../brain/directorPlan").PlanPhase;
+      goal: string;
+      pace: import("../brain/directorPlan").ScenePace;
+      colorMood: import("../brain/directorPlan").SceneColorMood;
+      music: import("../brain/directorPlan").SceneMusicDirective;
     };
   }>;
 

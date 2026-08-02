@@ -614,7 +614,12 @@ export function compileProjectToFfmpeg(
   if (audioLabels.length) {
     finalAudio = id("aout_");
     lines.push(
-      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0[amix_out];` +
+      // normalize=0 — КРИТИЧНО для микса: по умолчанию amix делит каждый вход
+      // на число входов, поэтому добавление дорожки SFX механически глушило
+      // музыку и речь втрое. Режиссёрские уровни (scene.music.level, ducking)
+      // после такого деления не значат ничего. С normalize=0 микс — честная
+      // сумма, а от перегруза защищают loudnorm + alimiter ниже.
+      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[amix_out];` +
         // Мастер-нормализация всего микса к платформенным -14 LUFS (YouTube/IG/TikTok):
         // ролики гарантированно звучат одинаково громко независимо от исходников,
         // платформа не будет пережимать громкость своим кривым AGC.

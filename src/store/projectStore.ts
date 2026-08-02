@@ -6,7 +6,9 @@ import { saveProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import { createAudioClip, createTextClip, createVideoClip } from "@/lib/factories";
 
-export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "animation" | "ai" | "export";
+/** Страницы инспектора редактора. `offline` — отчёт чернового монтажа
+ *  (какие дубли выбраны, что вырезано, как поставлена каждая сцена). */
+export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "animation" | "ai" | "offline" | "export";
 export type EditorTool = "select" | "razor" | "hand";
 export type TrimEdge = "in" | "out";
 

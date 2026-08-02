@@ -27,6 +27,7 @@ import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
 import ProductionPanelV2 from "./panels/ProductionPanelV2";
+import OfflineEditPanel from "./panels/OfflineEditPanel";
 import DirectorRedirectPanel from "./DirectorRedirectPanel";
 import KeyframeEditor from "./KeyframeEditor";
 
@@ -43,6 +44,7 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "text", label: "Текст", icon: "📝", desc: "Титры, шрифты, анимация" },
   { id: "animation", label: "Кадры", icon: "🎬", desc: "Ключевые кадры и кривые" },
   { id: "ai", label: "AI", icon: "🤖", desc: "AI Director" },
+  { id: "offline", label: "Черновик", icon: "✂️", desc: "Offline Edit: дубли, чистка речи, драматургия" },
   { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
 ];
 
@@ -73,6 +75,7 @@ const PANEL_COMPONENTS: Record<EditorPage, ComponentType> = {
   text: TextPanelV2,
   animation: KeyframeEditor,
   ai: DirectorRedirectPanel,
+  offline: OfflineEditPanel,
   export: ExportPanelV2,
 };
 

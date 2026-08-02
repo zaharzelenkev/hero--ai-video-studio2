@@ -20,8 +20,20 @@ const PHASE_TO_SCENE: Record<PlanPhase, DirectorScene["phase"]> = {
   buildup: "buildup",
   preClimax: "buildup",
   climax: "climax",
+  // Развязка исполняется монтажным движком как нарастание пониженной
+  // интенсивности: старый интерфейс не знает отдельной фазы падения действия.
+  resolution: "buildup",
   outro: "outro",
 };
+
+/**
+ * Тег фазы в `reason` клипа — единственный канал, по которому монтажный
+ * движок узнаёт фазу сцены. Формат строго `[PHASE]` в начале строки.
+ */
+export function phaseTagOf(reason: string | undefined): string | null {
+  const m = (reason ?? "").match(/^\[([A-Z]+)\]/);
+  return m?.[1] ?? null;
+}
 
 /** План → классический DirectorScript (совместимость со старым интерфейсом). */
 export function planToScript(plan: DirectorPlan): DirectorScript {
@@ -97,6 +109,16 @@ export function planToDecision(plan: DirectorPlan): AIEditDecision {
       transitionHint: scene.transitionIn
         ? { type: scene.transitionIn.type, duration: scene.transitionIn.duration, reason: scene.transitionIn.reason }
         : undefined,
+      // Постановка сцены доезжает до монтажного движка целиком: он красит
+      // и микширует ровно так, как решил режиссёр, без шаблонных догадок.
+      sceneDirection: {
+        sceneId: scene.id,
+        phase: scene.phase,
+        goal: scene.goal,
+        pace: scene.pace,
+        colorMood: scene.colorMood,
+        music: scene.music,
+      },
     });
 
     for (const b of scene.bRolls) {

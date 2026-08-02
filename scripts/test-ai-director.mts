@@ -137,7 +137,28 @@ check("без лиц и движения → static", inferCameraMotion([], "sta
   check("драматическая пауза сохранена", filtered.some((f) => f.isPause && Math.abs(f.start - 4.0) < 1e-6));
 }
 
-// Музыка: bpm по сетке, дропы сдвинуты на inPoint в координаты таймлайна.
+// Речь за пределами материала: Whisper на реальных файлах галлюцинирует
+// таймкоды на хвосте (или их ломает склейка чанков). Такая фраза раньше
+// доезжала до плана как есть — монтажный движок получал окно 100–105с в
+// 15-секундном ролике и отдавал в экспорт замороженный/чёрный кадр.
+{
+  const p = perceiveAssets({
+    assets: [asset("v", "v.mp4", "video", 15, {
+      transcript: "[2.0s - 4.0s] нормальная фраза про море\n[13.0s - 18.0s] хвост вылезает за конец\n[100.0s - 105.0s] за пределами файла",
+    })],
+  });
+  const phrases = p.assets[0].speech?.phrases ?? [];
+  check("фраза целиком за пределами исходника отброшена",
+    !phrases.some((f) => f.start >= 15), JSON.stringify(phrases.map((f) => `${f.start}-${f.end}`)));
+  check("фраза, вылезающая за конец, подрезана по длительности",
+    phrases.every((f) => f.end <= 15.001), JSON.stringify(phrases.map((f) => `${f.start}-${f.end}`)));
+  check("валидная речь при этом сохранена", phrases.some((f) => Math.abs(f.start - 2) < 1e-6));
+}
+
+// Музыка: bpm по сетке, ОНСЕТЫ дропов сдвинуты на inPoint в координаты таймлайна.
+// Важно: два соседних «drop»-окна (28-30 и 30-32) — это ОДНО музыкальное
+// событие длиной 4с, а не два дропа. Наружу отдаётся начало прогона: только
+// так кульминация встаёт в момент удара, а не в середину громкой секции.
 {
   const music = perceiveMusic({
     assets: [asset("m1", "track.mp3", "audio", 60, {
@@ -153,7 +174,10 @@ check("без лиц и движения → static", inferCameraMotion([], "sta
   });
   check("present=true при аудио-ассете", music.present === true);
   check("beatDur=0.5 → 120 BPM", music.beatDur === 0.5 && music.bpm === 120, `beatDur=${music.beatDur} bpm=${music.bpm}`);
-  check("дропы сдвинуты на inPoint", JSON.stringify(music.dropsTimeline) === JSON.stringify([2, 4]), JSON.stringify(music.dropsTimeline));
+  check("онсет дропа сдвинут на inPoint (одно событие, не два окна)",
+    JSON.stringify(music.dropsTimeline) === JSON.stringify([2]), JSON.stringify(music.dropsTimeline));
+  check("онсет следующей секции (high) тоже найден",
+    JSON.stringify(music.highsTimeline) === JSON.stringify([6]), JSON.stringify(music.highsTimeline));
 }
 
 // ---------------------------------------------------------------------------

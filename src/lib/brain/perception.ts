@@ -765,6 +765,27 @@ export interface PerceptionResult {
   bestGlobalShot?: Shot;
 }
 
+/**
+ * Обрезка речевых фраз по реальной длительности материала.
+ *
+ * Whisper на практике выдаёт таймкоды ЗА пределами файла (галлюцинация на
+ * хвосте, склейка чанков, битый контейнер). Раньше такая фраза доезжала до
+ * плана как есть: монтажный движок получал окно вида 100–105с в 15-секундном
+ * ролике и отдавал в экспорт замороженный или чёрный кадр. Правило простое:
+ * речи не может быть там, где нет картинки.
+ */
+function clampPhrasesToAsset<T extends { start: number; end: number }>(phrases: T[], duration?: number): T[] {
+  if (!duration || duration <= 0) return phrases;
+  const out: T[] = [];
+  for (const p of phrases) {
+    if (p.start >= duration) continue; // фраза целиком за пределами файла
+    const end = Math.min(p.end, duration);
+    if (end - p.start < 0.2) continue; // от фразы остался неразличимый огрызок
+    out.push(end === p.end ? p : { ...p, end });
+  }
+  return out;
+}
+
 export function perceiveAssets(request: PerceiveInput): PerceptionResult {
   const assets: AssetUnderstanding[] = [];
   let strongTotal = 0;
@@ -800,8 +821,11 @@ export function perceiveAssets(request: PerceiveInput): PerceptionResult {
 
     let speech: AssetUnderstanding["speech"];
     if (a.transcript && a.transcript.length > 10) {
-      const filtered = filterSpeechPhrases(parseTranscriptPhrases(a.id, a.transcript));
-      const withPauses = filterSpeechPhrases(parseTranscriptPhrases(a.id, a.transcript, { keepPauses: true }));
+      const filtered = clampPhrasesToAsset(filterSpeechPhrases(parseTranscriptPhrases(a.id, a.transcript)), a.duration);
+      const withPauses = clampPhrasesToAsset(
+        filterSpeechPhrases(parseTranscriptPhrases(a.id, a.transcript, { keepPauses: true })),
+        a.duration,
+      );
       const phrasesWithPauses = withPauses.length > 0 ? withPauses : filtered;
       if (phrasesWithPauses.length > 0) {
         speech = { phrases: filtered, phrasesWithPauses };

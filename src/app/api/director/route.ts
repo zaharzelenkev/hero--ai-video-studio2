@@ -15,7 +15,10 @@ import { buildDirectorContext } from "@/lib/brain/directorContext";
 import { callGroq } from "@/lib/ai/groqClient";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Полная сборка всех 12 разделов + озвучка длинного сценария может занимать
+// до 1-2 минут на Groq (с учётом ретраев). 300с даёт запас на платформах,
+// поддерживающих длинные функции (Vercel Pro). 
+export const maxDuration = 300;
 
 // ---------------------------------------------------------------------------
 // Prompt builders
@@ -143,7 +146,9 @@ export async function POST(req: NextRequest) {
           { role: "user", content: usr },
         ],
         temperature: 0.9,
-        maxTokens: 1400,
+        maxTokens: 1600,
+        timeoutMs: 45_000,
+        maxRetries: 2,
       });
 
       const reply = groq.ok
@@ -167,8 +172,10 @@ export async function POST(req: NextRequest) {
           { role: "system", content: sys },
           { role: "user", content: usr },
         ],
-        temperature: 0.7,
-        maxTokens: 5000,
+        temperature: 0.75,
+        maxTokens: 8000,
+        timeoutMs: 60_000,
+        maxRetries: 2,
         responseFormat: { type: "json_object" },
       });
 
@@ -185,7 +192,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ stage, data });
     }
 
-    // full generation
+    // full generation — это самый «дорогой» и медленный вызов: все 12 разделов,
+    // включая полный сценарий под выбранную тематику. Даём ему щедрый лимит токенов
+    // и длинный таймаут с повтором, чтобы Groq успел написать действительно умный,
+    // нешаблонный пакет, а не срезал хвост и не упал в локальный шаблон.
     const sys = DIRECTOR_SYSTEM_PROMPT;
     const usr = fullGenerationPrompt(brief, projectName, existingPreprod || null);
     const groq = await callGroq({
@@ -193,8 +203,10 @@ export async function POST(req: NextRequest) {
         { role: "system", content: sys },
         { role: "user", content: usr },
       ],
-      temperature: 0.65,
-      maxTokens: 14000,
+      temperature: 0.7,
+      maxTokens: 24000,
+      timeoutMs: 120_000,
+      maxRetries: 2,
       responseFormat: { type: "json_object" },
     });
 

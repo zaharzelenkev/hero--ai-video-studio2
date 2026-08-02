@@ -24,6 +24,10 @@ export interface GroqOptions {
   maxTokens?: number;
   responseFormat?: { type: "json_object" | "text" };
   model?: string;
+  /** Override the global request timeout (ms). Used for long full-project generations. */
+  timeoutMs?: number;
+  /** Override the number of retry attempts for transient failures. */
+  maxRetries?: number;
 }
 
 export interface GroqResult {
@@ -45,6 +49,8 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
     maxTokens = 4000,
     responseFormat,
     model = AI_CONFIG.model,
+    timeoutMs = AI_CONFIG.timeoutMs,
+    maxRetries = AI_CONFIG.maxRetries,
   } = opts;
 
   const body: Record<string, unknown> = {
@@ -56,11 +62,11 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
   if (responseFormat) body.response_format = responseFormat;
 
   let lastErr: unknown = null;
-  const maxAttempts = 1 + Math.max(0, AI_CONFIG.maxRetries);
+  const maxAttempts = 1 + Math.max(0, maxRetries);
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AI_CONFIG.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(AI_CONFIG.apiUrl, {
         method: "POST",

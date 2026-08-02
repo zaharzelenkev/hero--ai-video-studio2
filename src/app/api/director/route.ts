@@ -13,6 +13,7 @@ import { buildOfflinePreprod } from "@/lib/brain/offlinePreprod";
 import { localDirectorReply } from "@/lib/brain/localDirector";
 import { buildDirectorContext } from "@/lib/brain/directorContext";
 import { callGroq } from "@/lib/ai/groqClient";
+import { hasGroqKey } from "@/config/ai";
 
 export const runtime = "nodejs";
 // Полная сборка всех 12 разделов + озвучка длинного сценария может занимать
@@ -112,6 +113,29 @@ function safeNum(v: unknown, d: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, n));
 }
 
+/**
+ * Не принимаем урезанный JSON как готовый препродакшен. Раньше модель могла
+ * успеть закрыть JSON после пары разделов, а normalizer незаметно заполнял
+ * остальные 10–12 локальными шаблонами. В pro-режиме это хуже явной ошибки:
+ * пользователь думает, что получил работу режиссёра. Все основные разделы
+ * должны прийти именно от Groq.
+ */
+function isCompleteDirectorPackage(data: unknown): data is Record<string, unknown> {
+  if (!data || typeof data !== "object") return false;
+  const p = data as Record<string, any>;
+  return Boolean(
+    p.idea && p.logline && p.treatment &&
+    Array.isArray(p.script?.scenes) && p.script.scenes.length > 0 &&
+    Array.isArray(p.vision?.scenes) && p.vision.scenes.length > 0 &&
+    Array.isArray(p.storyboard?.frames) && p.storyboard.frames.length > 0 &&
+    Array.isArray(p.shotlist?.shots) && p.shotlist.shots.length > 0 &&
+    Array.isArray(p.planning?.schedule) && p.planning.schedule.length > 0 &&
+    Array.isArray(p.casting) && p.casting.length > 0 &&
+    Array.isArray(p.locations) && p.locations.length > 0 &&
+    Array.isArray(p.risks?.risks) && p.risks.risks.length > 0
+  );
+}
+
 // ---------------------------------------------------------------------------
 // POST
 // ---------------------------------------------------------------------------
@@ -133,6 +157,15 @@ export async function POST(req: NextRequest) {
     existingPreprod && Object.keys(existingPreprod).length > 0
       ? (existingPreprod as PreProduction)
       : buildOfflinePreprod(brief);
+
+  // Полная профессиональная сборка не должна незаметно превращаться в шаблон,
+  // когда ключ не подхватился после запуска сервера.
+  if (mode !== "chat" && !hasGroqKey()) {
+    return NextResponse.json(
+      { error: "Groq API key не найден. Добавьте GROQ_API_KEY в .env.local и перезапустите сервер." },
+      { status: 503 },
+    );
+  }
 
   try {
     if (mode === "chat") {
@@ -219,9 +252,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const preprod: PreProduction = parsed
-      ? normalizePreprod(parsed, brief, basePreprod)
-      : basePreprod;
+    // Не отдаём базовый offline-пакет со статусом 200: именно так в pro-режиме
+    // появлялись одинаковые ответы на все разделы, хотя запрос к Groq не удался
+    // или его JSON был обрезан.
+    if (!groq.ok || !isCompleteDirectorPackage(parsed)) {
+      return NextResponse.json(
+        { error: "AI Director не получил полный ответ от Groq. Повторите запуск — бриф сохранён." },
+        { status: 502 },
+      );
+    }
+
+    const preprod = normalizePreprod(parsed, brief, basePreprod);
     const sections = flattenToLegacy(preprod, brief);
     return NextResponse.json({ sections, preprod, brief });
   } catch (e: any) {
@@ -242,11 +283,10 @@ export async function POST(req: NextRequest) {
         data: pickStageFromPreprod(basePreprod, String(stage)),
       });
     }
-    return NextResponse.json({
-      sections: flattenToLegacy(basePreprod, brief),
-      preprod: basePreprod,
-      brief,
-    });
+    return NextResponse.json(
+      { error: "AI Director временно не ответил. Повторите запуск — бриф сохранён." },
+      { status: 502 },
+    );
   }
 }
 

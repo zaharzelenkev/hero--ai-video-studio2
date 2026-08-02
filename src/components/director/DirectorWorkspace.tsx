@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
@@ -113,7 +113,6 @@ export default function DirectorWorkspace({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
-  const autoTriggeredRef = useRef(false);
   // NOTE: model selection (remote vs local) is internal and NEVER shown to the user.
 
   useEffect(() => {
@@ -262,43 +261,20 @@ export default function DirectorWorkspace({
       }
       setSaved(false);
     } catch (e: any) {
-      setError("Не удалось связаться с сервером — попробуйте ещё раз.");
-      if (stg === "full") {
-        // Local engine takes over transparently — user keeps working.
-        const local = buildOfflinePreprod(brief);
-        setPreprod(local);
-        setSections(flattenSections(local, brief));
-        setStage("result");
-      }
+      // Не подменяем ответ режиссёра локальной заготовкой: в pro-режиме
+      // пользователь должен либо получить персональный результат Groq, либо
+      // увидеть ошибку и повторить запрос с заполненным брифом.
+      setError("Не удалось связаться с AI Director. Проверьте ключ Groq и попробуйте ещё раз.");
+      if (stg === "full") setStage("brief");
     } finally {
       timers.forEach(clearTimeout);
       setBusyStage(null);
     }
   };
 
-  // Авто-запуск режиссёра: как только бриф достаточно заполнен — сразу отправляем
-  // его на полную генерацию всех 12 разделов через Groq, не дожидаясь клика.
-  const briefIsFilled = useMemo(
-    () =>
-      brief.idea.trim().length >= 6 &&
-      brief.goal.trim().length >= 3 &&
-      brief.audience.trim().length >= 3 &&
-      brief.platform.trim().length >= 2,
-    [brief]
-  );
-
-  useEffect(() => {
-    if (stage !== "brief" || busyStage || preprod) return;
-    if (!briefIsFilled || autoTriggeredRef.current) return;
-    // Не спамим Groq при каждом символе: ждём паузы ввода и генерируем после
-    // 2.5с тишины. После успешной генерации (preprod появился) больше не дёргаем.
-    const t = setTimeout(() => {
-      autoTriggeredRef.current = true;
-      void generate("full");
-    }, 2500);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [briefIsFilled, stage, busyStage, preprod]);
+  // В pro-режиме генерацию запускает только кнопка после заполнения брифа.
+  // Раньше она срабатывала уже после первых четырёх полей и отправляла Groq
+  // неполный контекст; оставшиеся ответы заменялись общими заготовками.
 
   const persistPlan = async () => {
     if (!preprod || !sections) return;
@@ -612,9 +588,7 @@ export default function DirectorWorkspace({
 
       {mode === "pro" && stage === "result" && preprod && (
         <PreprodControlBar
-          projectId={projectId}
           activeStage={activeStage}
-          readiness={readiness}
           onStageChange={setActiveStage}
         />
       )}

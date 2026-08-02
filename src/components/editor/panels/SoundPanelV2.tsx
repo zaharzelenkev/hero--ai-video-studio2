@@ -544,7 +544,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── AI Music Selection ────────────────────────────────────────── */}
-      <SectionToggle id="musicSelection" title="AI Music Selection" icon="music" subtitle="Автоподбор музыки" enabled={sd.musicSelection.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("musicSelection" as keyof SoundDesignSettings)}>
+      <SectionToggle id="musicSelection" title="AI Music Selection" icon="music" subtitle="Бесплатная библиотека · подбор под настроение" enabled={sd.musicSelection.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("musicSelection" as keyof SoundDesignSettings)}>
         <CheckboxField
           label="Автоподбор под настроение"
           checked={sd.musicSelection.autoMatch}

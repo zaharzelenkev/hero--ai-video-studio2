@@ -319,6 +319,7 @@ async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMed
   // иначе длинные сценарии уезжали в тишину после 30 секунды.
   try {
     const { generateProceduralMusic, proceduralStyleForTemplate } = await import("../musicGenerator");
+    const { downloadFreeMusicTrack, musicMoodForVideo, selectFreeMusicTrack } = await import("../freeMusicLibrary");
     // Реальная длительность сцены на таймлайне = озвучка + 0.5с «воздуха»
     // (то же правило, что и при размещении клипов ниже). Раньше сетка BGM
     // считалась только по озвучке — музыка кончалась на ~0.5с × N раньше видео.
@@ -326,19 +327,26 @@ async function generateEnhancedMagicVideo(scriptData: any, sceneMedia: (SceneMed
       (sceneMedia[idx]?.duration || Math.max(2, (s.voiceover?.length || 24) / 12)) + 0.5);
     // перекрытия xfade (0.4с на сцену) укорачивают суммарный хронометраж
     const fullDur = Math.max(3, sceneDurs.reduce((a: number, b: number) => a + b, 0) - Math.max(0, scriptData.scenes.length - 1) * 0.4);
-    // сид от контента сценария — прогрессия и тембр зависят от истории, но детерминированы
     const mSeed = (String(scriptData.title || "").length + scriptData.scenes.length * 17 + Math.round(fullDur * 13)) | 0;
-    // Жанр саундтрека следует шаблону: свадьба/кино — оркестровая тема,
-    // подкаст/обучение — lofi, остальное — электроника. Раньше всегда
-    // играла electronic, и Cinematic-ролик звучал как реклама энергетика.
-    const mBlob = await generateProceduralMusic(proceduralStyleForTemplate(activeTemplate.id), fullDur + 0.5, mSeed);
-    if (!mBlob) throw new Error("procedural music unavailable");
+    const libraryTrack = selectFreeMusicTrack(musicMoodForVideo(activeTemplate.id, scriptData.title), mSeed);
+    _onProgress?.(`🎵 Подбираем музыку: ${libraryTrack.title}...`);
+    let mBlob = await downloadFreeMusicTrack(libraryTrack);
+    let bgmName = libraryTrack.title;
+    let bgmMime = mBlob?.type || "audio/ogg";
+    // Не меняем устойчивость «Магии»: если открытая библиотека недоступна,
+    // остаётся уже проверенный генератор как резервный путь.
+    if (!mBlob) {
+      mBlob = await generateProceduralMusic(proceduralStyleForTemplate(activeTemplate.id), fullDur + 0.5, mSeed);
+      bgmName = "AI Music (fallback)";
+      bgmMime = "audio/wav";
+    }
+    if (!mBlob) throw new Error("background music unavailable");
     const mId = "bgm_" + Date.now();
     const { saveBlob } = await import("../db");
-    const bgmFile = new File([mBlob], "bgm.wav", { type: "audio/wav" });
+    const bgmFile = new File([mBlob], bgmName, { type: bgmMime });
     await saveBlob(mId, bgmFile);
     _filesByAssetId.set(mId, bgmFile);
-    const mAsset = { id: mId, name: "BGM", kind: "audio", mime: "audio/wav", blobKey: mId, duration: fullDur + 0.5, createdAt: Date.now() };
+    const mAsset = { id: mId, name: bgmName, kind: "audio", mime: bgmMime, blobKey: mId, duration: fullDur + 0.5, createdAt: Date.now() };
     project.assets.push(mAsset as any);
 
     const mClip = createAudioClip({ trackId: audioTrack.id, asset: mAsset as any, start: 0, duration: fullDur });

@@ -19,7 +19,7 @@ import {
 
 /** Страницы инспектора редактора. `offline` — отчёт чернового монтажа
  *  (какие дубли выбраны, что вырезано, как поставлена каждая сцена). */
-export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "motion" | "animation" | "ai" | "offline" | "lock" | "export";
+export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "motion" | "animation" | "offline" | "lock" | "export";
 export type EditorTool = "select" | "razor" | "hand";
 export type TrimEdge = "in" | "out";
 

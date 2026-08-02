@@ -331,6 +331,23 @@ function buildVideoClipChain(
     );
   }
 
+  // РАБОЧЕЕ РАЗРЕШЕНИЕ: декодер всегда отдаёт исходное разрешение (4K с телефона
+  // и т.п.), а таймлайну нужно не больше канваса. Масштабируем сразу после
+  // декодирования до cover-размера канваса (aspect сохраняется, итоговый кадр
+  // побитово тот же — финальный cover-scale самовыравнивается по текущим
+  // размерам). Без этого монтаж из 10-16 4K-клипов исчерпывает wasm-кучу
+  // посередине рендера: воркер падает («зависание» на «Подготовка видеодвижка»)
+  // или ffmpeg отдаёт фатальную ошибку кодирования (NaN/ENOMEM в AAC-энкодере).
+  // «native» (PiP) не трогаем: его scale зависит от исходного размера кадра.
+  const effectiveFit = clip.fitMode || fitMode;
+  if (!override && effectiveFit !== "native") {
+    const pre = id(`c${tag}_wr_`);
+    lines.push(
+      `[${current}]scale=w='min(iw\\,${canvasW})':h='min(ih\\,${canvasH})':force_original_aspect_ratio=increase,setsar=1[${pre}]`,
+    );
+    current = pre;
+  }
+
   if (clip.speedRamp && clip.speedRamp.keyframes.length >= 2) {
     // SPEED RAMP: кусочно-постоянная кривая скорости. Ключи — в координатах
     // ТАЙМЛАЙНА клипа; рендер строит точное обратное отображение
@@ -988,6 +1005,15 @@ export function compileProjectToFfmpeg(
       `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[${amixLabel}]`,
     );
 
+    // Санитайзер микса: alimiter гарантированно превращает NaN/±Inf в конечные
+    // значения (av_clipd), не давая «грязным» сэмплам из входов (loudnorm на
+    // тишине, аномальные декодеры) отравить loudnorm и уронить AAC-энкодер
+    // («Input contains (near) NaN/+-Inf» → «Error while processing the decoded
+    // data for stream #N:0» → «Conversion failed!»). Порог 0.99 (−0.09 дБ) —
+    // выше любых штатных пиков микса, т.е. на звук не влияет.
+    const safeMix = id("amix_safe_");
+    lines.push(`[${amixLabel}]alimiter=limit=0.99:attack=1:release=50[${safeMix}]`);
+
     // Цепочка Sound Design поверх микса
     const hasSd = sd.noiseRemoval.enabled || sd.voiceEnhance.enabled ||
       sd.compressor.enabled || sd.limiter.enabled || sd.eq.enabled ||
@@ -996,7 +1022,7 @@ export function compileProjectToFfmpeg(
 
     if (hasSd) {
       const sdFinal = id("sd_final_");
-      const sdLines = buildSoundDesignFilters(amixLabel, sdFinal, sd);
+      const sdLines = buildSoundDesignFilters(safeMix, sdFinal, sd);
       if (sdLines.length > 0) {
         lines.push(sdLines.join(";\n"));
         if (!sd.limiter.enabled) {
@@ -1008,13 +1034,13 @@ export function compileProjectToFfmpeg(
       } else {
         const aln = id("aln_");
         finalAudio = id("aout_");
-        lines.push(`[${amixLabel}]loudnorm=I=-14:LRA=11:TP=-1.5[${aln}];[${aln}]alimiter=limit=0.9[${finalAudio}]`);
+        lines.push(`[${safeMix}]loudnorm=I=-14:LRA=11:TP=-1.5[${aln}];[${aln}]alimiter=limit=0.9[${finalAudio}]`);
       }
     } else {
       // Нет Sound Design — классический мастеринг
       finalAudio = id("aout_");
       lines.push(
-        `[${amixLabel}]loudnorm=I=-14:LRA=11:TP=-1.5[aln];[aln]alimiter=limit=0.9[${finalAudio}]`,
+        `[${safeMix}]loudnorm=I=-14:LRA=11:TP=-1.5[aln];[aln]alimiter=limit=0.9[${finalAudio}]`,
       );
     }
   }

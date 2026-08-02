@@ -2,14 +2,15 @@
  * AI Director runtime configuration.
  *
  * Priority for the Groq API key:
- *   1) GROQ_API_KEY          (server-only, recommended)
+ *   1) GROQ_API_KEY          (server-only, recommended — set it in Vercel/`.env.local`)
  *   2) NEXT_PUBLIC_GROQ_API_KEY (exposed to the client; acceptable for client-side usage)
- *   3) hardcoded fallback key (development convenience — keep last).
  *
- * The presence/absence of the key is an internal detail: the UI never shows
- * "offline", "fallback", "heuristic" or similar technical messages to the user.
- * If Groq is unreachable the director transparently falls back to a local
- * heuristic engine — the user just keeps getting professional direction.
+ * NOTE: no hardcoded keys are shipped — a leaked key in a public bundle is a
+ * security and billing liability. The presence/absence of the key is an
+ * internal detail: the UI never shows "offline", "fallback", "heuristic" or
+ * similar technical messages to the user. If Groq is unreachable the director
+ * transparently falls back to a local heuristic engine — the user just keeps
+ * getting professional direction.
  */
 
 const resolveKey = (): string => {
@@ -19,8 +20,7 @@ const resolveKey = (): string => {
     (typeof process !== "undefined" && (process as any).env?.GROQ_API_KEY) || "";
   const publicKey =
     (typeof process !== "undefined" && (process as any).env?.NEXT_PUBLIC_GROQ_API_KEY) || "";
-  const devKey = "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";
-  return String(serverKey || publicKey || devKey || "").trim();
+  return String(serverKey || publicKey || "").trim();
 };
 
 export const AI_CONFIG = {

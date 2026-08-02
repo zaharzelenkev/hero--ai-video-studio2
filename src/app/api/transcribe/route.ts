@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.GROQ_API_KEY || "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";
+  const apiKey = process.env.GROQ_API_KEY || "";
   if (!apiKey) {
     return NextResponse.json(
       { error: "Распознавание речи не настроено на сервере: не указан GROQ_API_KEY." },

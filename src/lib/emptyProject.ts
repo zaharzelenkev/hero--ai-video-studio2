@@ -1,5 +1,6 @@
 import { uid } from "./id";
 import type { Project } from "./types";
+import { defaultSoundDesign } from "./soundDesign";
 
 export function createEmptyProject(title = "Новый проект"): Project {
   const id = uid("project");
@@ -34,5 +35,6 @@ export function createEmptyProject(title = "Новый проект"): Project {
       format: "mp4",
       crf: 23,
     },
+    soundDesign: defaultSoundDesign(),
   };
 }

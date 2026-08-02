@@ -21,10 +21,11 @@
     "test:min-duration": "tsx scripts/test-min-duration.mts",
     "test:offline": "tsx scripts/test-offline-edit.mts",
     "measure:offline": "tsx scripts/measure-offline-edit.mts",
-    "test:all": "npm run typecheck && npm run test:montage && npm run test:upgrades && npm run test:director && npm run test:offline && npm run test:production && npm run test:music && npm run test:min-duration && npm run test:picture-lock",
+    "test:all": "npm run typecheck && npm run test:montage && npm run test:upgrades && npm run test:director && npm run test:offline && npm run test:production && npm run test:music && npm run test:min-duration && npm run test:picture-lock && npm run test:sound-design",
     "test:offline-render": "tsx scripts/test-offline-edit-render.mts",
     "verify": "npm run typecheck && npm run lint && npm run test:all && npm run test:e2e && npm run test:offline-render && npm run build",
     "test:picture-lock": "tsx scripts/test-picture-lock.mts",
+    "test:sound-design": "tsx scripts/test-sound-design.mts",
     "test:vfx": "tsx scripts/test-vfx.mts && tsx scripts/test-vfx-ffmpeg.mts"
   },
   "dependencies": {

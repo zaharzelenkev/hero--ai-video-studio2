@@ -3,6 +3,7 @@ import { paramToFfmpegExpr } from "./keyframes";
 import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, sanitizeGlyphs, transitionToXfade } from "./presets";
 import { speedRampToSetptsExpr } from "./speedRamp";
 import { cubeFileName } from "./editor/lut";
+import { buildSoundDesignFilters, defaultSoundDesign } from "./soundDesign";
 
 let uidCounter = 0;
 function id(prefix: string) {
@@ -949,19 +950,42 @@ export function compileProjectToFfmpeg(
 
   let finalAudio: string | null = null;
   if (audioLabels.length) {
-    finalAudio = id("aout_");
+    // Sound Design: применяем профессиональную обработку поверх микса
+    const sd = project.soundDesign ?? defaultSoundDesign();
+    const amixLabel = id("amix_");
     lines.push(
-      // normalize=0 — КРИТИЧНО для микса: по умолчанию amix делит каждый вход
-      // на число входов, поэтому добавление дорожки SFX механически глушило
-      // музыку и речь втрое. Режиссёрские уровни (scene.music.level, ducking)
-      // после такого деления не значат ничего. С normalize=0 микс — честная
-      // сумма, а от перегруза защищают loudnorm + alimiter ниже.
-      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[amix_out];` +
-        // Мастер-нормализация всего микса к платформенным -14 LUFS (YouTube/IG/TikTok):
-        // ролики гарантированно звучат одинаково громко независимо от исходников,
-        // платформа не будет пережимать громкость своим кривым AGC.
-        `[amix_out]loudnorm=I=-14:LRA=11:TP=-1.5[aln];[aln]alimiter=limit=0.9[${finalAudio}]`,
+      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0[${amixLabel}]`,
     );
+
+    // Цепочка Sound Design поверх микса
+    const hasSd = sd.noiseRemoval.enabled || sd.voiceEnhance.enabled ||
+      sd.compressor.enabled || sd.limiter.enabled || sd.eq.enabled ||
+      sd.loudnessNorm.enabled || sd.voiceIsolation.enabled ||
+      sd.stereoEnhance.enabled;
+
+    if (hasSd) {
+      const sdFinal = id("sd_final_");
+      const sdLines = buildSoundDesignFilters(amixLabel, sdFinal, sd);
+      if (sdLines.length > 0) {
+        lines.push(sdLines.join(";\n"));
+        if (!sd.limiter.enabled) {
+          lines.push(`[${sdFinal}]alimiter=limit=0.9[${amixLabel}_lim]`);
+          finalAudio = `${amixLabel}_lim`;
+        } else {
+          finalAudio = sdFinal;
+        }
+      } else {
+        const aln = id("aln_");
+        finalAudio = id("aout_");
+        lines.push(`[${amixLabel}]loudnorm=I=-14:LRA=11:TP=-1.5[${aln}];[${aln}]alimiter=limit=0.9[${finalAudio}]`);
+      }
+    } else {
+      // Нет Sound Design — классический мастеринг
+      finalAudio = id("aout_");
+      lines.push(
+        `[${amixLabel}]loudnorm=I=-14:LRA=11:TP=-1.5[aln];[aln]alimiter=limit=0.9[${finalAudio}]`,
+      );
+    }
   }
 
   return {

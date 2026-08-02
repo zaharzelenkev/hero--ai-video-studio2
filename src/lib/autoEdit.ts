@@ -400,6 +400,35 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     const mainClips = aiDecision.clips.filter(c => c.trackType !== "b-roll");
     const bRollClips = aiDecision.clips.filter(c => c.trackType === "b-roll");
 
+    // --- ГАРАНТИЯ ПОЛНОГО ПОКРЫТИЯ МАТЕРИАЛА ---
+    // Режиссёр подгоняет отбор планов под целевой хронометраж и может оставить
+    // часть загруженных фото/видео за кадром. Пользователь ожидает, что ВЕСЬ
+    // прикреплённый материал попадёт в монтаж. Ничего из уже выбранного не
+    // трогаем — просто добавляем недостающие ассеты «хвостом» как полноценные
+    // главные планы. Существующие клипы, переходы и карта времени ниже работают
+    // с ними без изменений (placeClip + финальная правка стартов).
+    const usedAssetIds = new Set<string>();
+    for (const c of aiDecision.clips) usedAssetIds.add(c.assetId);
+    const missingAssets = visualAssets.filter((a) => !usedAssetIds.has(a.id));
+    for (const a of missingAssets) {
+      mainClips.push({
+        assetId: a.id,
+        trackType: "main",
+        duration: targetClipLen,
+        startTime: 0,
+        endTime: targetClipLen,
+        speed: 1,
+        zoom: true,
+        cameraAngle: "medium",
+        emotion: "neutral",
+        reason: "[BUILDUP] добавлен пользовательский материал (полное покрытие)",
+        importance: 0.5,
+      });
+    }
+    if (missingAssets.length > 0) {
+      onProgress?.(`Все материалы включены: добавлены недостающие ${missingAssets.length} план(а).`);
+    }
+
     // --- SPEED RAMPS (только визуальные монтажи, где нет речи) ---
     // Классика: план перед дропом УСКОРЯЕТСЯ (энергия разгоняется в удар),
     // кульминационный план «оседает» из slow-mo в реальный темп. Ключи рампы

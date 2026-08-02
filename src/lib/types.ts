@@ -61,13 +61,20 @@ export type LutPreset =
   | "dramatic"
   | "moody"
   | "film-noir"
-  | "neutral"
-  | "moody"
-  | "dramatic"
-  | "neutral"
-  | "teal-orange"
-  | "film-noir"
-  | "luxury";
+  | "neutral";
+
+/** MONTIQ Color Grading Preset IDs */
+export type ColorPresetId =
+  | "cinematic"
+  | "netflix"
+  | "documentary"
+  | "commercial"
+  | "youtube"
+  | "tiktok"
+  | "apple"
+  | "dark"
+  | "warm"
+  | "cold";
 
 /** RGB Curve with control points */
 export interface CurvePoints {
@@ -121,6 +128,12 @@ export interface ColorGrade {
   curves?: RGBCurves;
   hsl?: HSLAdjustment[];
   colorWheels?: ColorWheels;
+  /** Skin tone protection amount 0..1 */
+  skinToneProtection?: number;
+  /** Applied MONTIQ color preset */
+  colorPreset?: ColorPresetId;
+  /** AI Auto Grade result confidence & scene type */
+  aiAutoGrade?: { confidence: number; sceneType: string; appliedAt: number };
 }
 
 export function defaultColorGrade(): ColorGrade {

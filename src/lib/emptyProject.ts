@@ -34,6 +34,11 @@ export function createEmptyProject(title = "Новый проект"): Project {
       fps: 30,
       format: "mp4",
       crf: 23,
+      bitrate: 8000,
+      audioBitrate: 192,
+      audioOnly: false,
+      formats: ["mp4"],
+      exportProject: { xml: true, edl: true, srt: true, lut: true },
     },
     soundDesign: defaultSoundDesign(),
   };

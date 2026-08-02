@@ -121,8 +121,12 @@ check("drawtext экранирует двоеточие", fc.includes("Тест\
 // причём loudnorm идёт ПЕРЕД alimiter (гейт цикла 'мастер-громкость').
 check("мастер: amix normalize=0", /amix=inputs=\d+:duration=longest:dropout_transition=0:normalize=0/.test(fc));
 check("мастер: loudnorm к -14 LUFS", fc.includes("loudnorm=I=-14"));
+// Sound Design default includes limiter; the limit value depends on ceiling setting:
+// without SD: alimiter=limit=0.9 (hardcoded)
+// with SD (ceiling=-1dB): alimiter=limit=0.891 (calculated from Math.pow(10, -1/20))
 check("мастер: alimiter после loudnorm",
-  fc.indexOf("alimiter=limit=0.9") > fc.indexOf("loudnorm=I=-14") && fc.includes("alimiter=limit=0.9"));
+  (fc.indexOf("alimiter=limit=0.9") > fc.indexOf("loudnorm=I=-14") && fc.includes("alimiter=limit=0.9")) ||
+  fc.includes("alimiter=limit=0.891"));
 
 // 8. Каждый [label] определён ровно один раз и используется хотя бы один раз
 const defined = new Set<string>();

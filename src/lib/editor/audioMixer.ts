@@ -2,6 +2,8 @@
 
 import { evalParam } from "@/lib/keyframes";
 import type { AudioClip, MediaAsset, Project } from "@/lib/types";
+import type { SoundDesignSettings } from "@/lib/soundDesign";
+import { defaultSoundDesign } from "@/lib/soundDesign";
 import { mediaPool } from "./resourcePool";
 
 interface Voice {
@@ -27,6 +29,7 @@ class AudioMixer {
   private token = 0;
   private playing = false;
   private masterVolume = 1;
+  private sd: SoundDesignSettings = defaultSoundDesign();
 
   context(): AudioContext | null {
     if (typeof window === "undefined") return null;
@@ -63,6 +66,11 @@ class AudioMixer {
     }
   }
 
+  /** Обновить настройки Sound Design (применяется к следующим play()). */
+  setSoundDesign(sd: SoundDesignSettings) {
+    this.sd = sd;
+  }
+
   stop() {
     this.token += 1;
     this.playing = false;
@@ -94,6 +102,8 @@ class AudioMixer {
     this.stop();
     this.playing = true;
     this.setMasterVolume(masterVolume);
+    // Подтягиваем Sound Design из проекта при каждом play()
+    this.sd = project.soundDesign ?? defaultSoundDesign();
     if (ctx.state === "suspended") void ctx.resume();
 
     const token = ++this.token;
@@ -197,6 +207,80 @@ class AudioMixer {
       panner.pan.value = clamp(clip.pan.value, -1, 1);
       node.connect(panner);
       node = panner;
+    }
+
+    // ─── Sound Design: глобальная обработка ───
+    const sd = this.sd;
+
+    // Voice Isolation
+    if (sd.voiceIsolation.enabled) {
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = sd.voiceIsolation.lowCut;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = sd.voiceIsolation.highCut;
+      node.connect(hp); hp.connect(lp);
+      node = lp;
+    }
+
+    // AI Noise Removal (realtime approximation: HP + LP)
+    if (sd.noiseRemoval.enabled) {
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = sd.noiseRemoval.highpassHz;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = sd.noiseRemoval.lowpassHz;
+      node.connect(hp); hp.connect(lp);
+      node = lp;
+    }
+
+    // Voice Enhancement
+    if (sd.voiceEnhance.enabled) {
+      if (Math.abs(sd.voiceEnhance.presence) > 0.1) {
+        const eq = ctx.createBiquadFilter();
+        eq.type = "peaking"; eq.frequency.value = 3500; eq.Q.value = 1;
+        eq.gain.value = clamp(sd.voiceEnhance.presence, -24, 24);
+        node.connect(eq); node = eq;
+      }
+      if (sd.voiceEnhance.air > 0.1) {
+        const eq = ctx.createBiquadFilter();
+        eq.type = "highshelf"; eq.frequency.value = 10000;
+        eq.gain.value = clamp(sd.voiceEnhance.air, -24, 24);
+        node.connect(eq); node = eq;
+      }
+      if (sd.voiceEnhance.deEss > 0.5) {
+        const eq = ctx.createBiquadFilter();
+        eq.type = "peaking"; eq.frequency.value = 7000; eq.Q.value = 2;
+        eq.gain.value = clamp(-sd.voiceEnhance.deEss, -24, 0);
+        node.connect(eq); node = eq;
+      }
+    }
+
+    // Sound Design Compressor (project-level)
+    if (sd.compressor.enabled && !clip.compressor?.enabled) {
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = clamp(sd.compressor.threshold, -100, 0);
+      comp.ratio.value = clamp(sd.compressor.ratio, 1, 20);
+      comp.attack.value = clamp(sd.compressor.attack / 1000, 0, 1);
+      comp.release.value = clamp(sd.compressor.release / 1000, 0, 1);
+      comp.knee.value = sd.compressor.knee;
+      node.connect(comp); node = comp;
+    }
+
+    // Stereo Enhancement (balance only — width needs mid/side, too heavy for realtime)
+    if (sd.stereoEnhance.enabled && ctx.createStereoPanner && sd.stereoEnhance.balance !== 0) {
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = clamp(sd.stereoEnhance.balance, -1, 1);
+      node.connect(panner); node = panner;
+    }
+
+    // Limiter (realtime via high-ratio compressor)
+    if (sd.limiter.enabled) {
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = sd.limiter.ceiling - 3;
+      lim.ratio.value = 20;
+      lim.attack.value = 0.001;
+      lim.release.value = sd.limiter.release / 1000;
+      lim.knee.value = 0;
+      node.connect(lim); node = lim;
     }
 
     node.connect(gain);

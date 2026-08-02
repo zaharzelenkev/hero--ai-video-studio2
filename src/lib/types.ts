@@ -776,6 +776,13 @@ export interface Project {
   /** Кинематографичный уход в чёрный (секунды). 0/undefined — без затемнения. */
   endingFadeOut?: number;
 
+  /**
+   * Sound Design: полный набор профессиональных аудио-инструментов.
+   * Шумоподавление, компрессия, EQ, дакинг, лимитер, нормализация,
+   * AI-подбор музыки под настроение, Foley, Room Tone и т.д.
+   */
+  soundDesign?: import("./soundDesign").SoundDesignSettings;
+
   /** Rendered proxy of the current timeline, used on the results screen. */
   previewBlobKey?: string;
 

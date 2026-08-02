@@ -26,7 +26,22 @@ const resolveKey = (): string => {
 export const AI_CONFIG = {
   groqApiKey: resolveKey(),
   apiUrl: "https://api.groq.com/openai/v1/chat/completions",
-  model: "llama-3.3-70b-versatile",
+  /**
+   * Primary chat/JSON model. NOTE: `llama-3.3-70b-versatile` was deprecated by
+   * Groq (shutdown 2026-08-16) and returns `model_decommissioned` errors, which
+   * used to make the AI Director fail with "не получил полный ответ". We now
+   * use Groq's recommended replacement; `fallbackModels` protects us if any
+   * model in the list gets deprecated in the future (the client auto-advances
+   * to the next working model instead of hard-failing).
+   */
+  model: "openai/gpt-oss-120b",
+  // Ordered fallback list. The client walks it in order and stops at the first
+  // model that accepts requests, so a future deprecation can't break generation.
+  fallbackModels: [
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.6-27b",
+    "llama-3.3-70b-versatile",
+  ],
   // Robust networking: fail fast so the local engine can take over without the
   // user ever noticing a spinner of death.
   timeoutMs: 120_000,

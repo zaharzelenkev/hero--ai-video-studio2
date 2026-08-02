@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${AI_CONFIG.groqApiKey}`,
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: AI_CONFIG.model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },

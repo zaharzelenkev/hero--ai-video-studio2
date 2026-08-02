@@ -2,8 +2,9 @@
 
 import { useProjectStore, findClip, assetOf } from "@/store/projectStore";
 import { param } from "@/lib/types";
-import type { AnimParam, AudioClip, CameraMotion, Clip, TextClip, TransitionType, VideoClip } from "@/lib/types";
+import type { AnimParam, AudioClip, CameraMotion, Clip, TextClip, Track, TransitionType, VideoClip } from "@/lib/types";
 import { TRANSITIONS } from "@/lib/presets";
+import { isPictureLocked } from "@/lib/pictureLock";
 import ParamControl from "../ParamControl";
 import { PanelSection, NumberField, SelectField, ToggleButton, EmptyHint } from "./ui";
 
@@ -41,6 +42,13 @@ export default function MontagePanelV2() {
   const isVisual = clip.type === "video" || clip.type === "image";
   const media = clip as VideoClip;
   const audio = clip as AudioClip;
+
+  // PICTURE LOCK: монтаж зафиксирован — страница «Монтаж» переходит в режим
+  // просмотра. Тайминг, склейки, скорость и переходы больше не редактируются;
+  // цвет, звук, титры и эффекты остаются доступными в своих разделах.
+  if (isPictureLocked(project)) {
+    return <LockedMontageNotice clip={clip} track={track} />;
+  }
 
   const patch = (fn: (c: Clip) => Clip) => updateClip(clip.id, fn);
   const setParam = (key: keyof VideoClip, value: AnimParam) =>
@@ -355,6 +363,61 @@ export default function MontagePanelV2() {
           </div>
         </PanelSection>
       )}
+    </div>
+  );
+}
+
+/** Просмотр клипа в режиме зафиксированного монтажа (Picture Lock). */
+function LockedMontageNotice({ clip, track }: { clip: Clip; track: Track }) {
+  const setActivePage = useProjectStore((s) => s.setActivePage);
+  const media = clip as VideoClip;
+  const rows: Array<[string, string]> = [["Дорожка", track.name], ["Начало", `${clip.start.toFixed(2)} с`], ["Длительность", `${clip.duration.toFixed(2)} с`]];
+  if (clip.type === "video" || clip.type === "image") {
+    rows.push(["In / Out", `${media.inPoint.toFixed(2)} / ${media.outPoint.toFixed(2)} с`]);
+    rows.push(["Скорость", `${(media.speed ?? 1).toFixed(2)}×`]);
+  }
+  if (clip.type === "video") {
+    const tIn = media.transitionIn?.duration ? `${media.transitionIn.type} (${media.transitionIn.duration.toFixed(2)} с)` : "cut";
+    const tOut = media.transitionOut?.duration ? `${media.transitionOut.type} (${media.transitionOut.duration.toFixed(2)} с)` : "cut";
+    rows.push(["Переходы", `${tIn} → ${tOut}`]);
+  }
+  if (clip.type === "audio") {
+    rows.push(["Громкость", `${(media.volume?.value ?? 1).toFixed(2)}`]);
+  }
+  if (clip.type === "text" || clip.type === "subtitle") {
+    rows.push(["Текст", (clip as TextClip).text.slice(0, 60)]);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🔒</span>
+          <div>
+            <div className="text-xs font-black uppercase tracking-wider text-emerald-300">Picture Lock — монтаж зафиксирован</div>
+            <div className="mt-0.5 text-[10px] leading-relaxed text-slate-400">
+              Склейки, тайминг, скорость и переходы доступны только для просмотра. Изменяются лишь цвет, звук, титры и эффекты.
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => setActivePage("lock")}
+          className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-500/20 px-2 py-1 text-[10px] font-bold text-emerald-100 transition hover:bg-emerald-500/30"
+        >
+          📋 Открыть отчёт Picture Lock
+        </button>
+      </div>
+
+      <PanelSection title="Клип (только просмотр)" subtitle={clip.name}>
+        <div className="space-y-1">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-3 text-[11px]">
+              <span className="text-slate-500">{label}</span>
+              <span className="truncate font-mono text-slate-200">{value}</span>
+            </div>
+          ))}
+        </div>
+      </PanelSection>
     </div>
   );
 }

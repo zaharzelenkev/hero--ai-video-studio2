@@ -14,6 +14,7 @@ import { uid } from "@/lib/id";
 import type { MediaAsset, Project } from "@/lib/types";
 import { createProductionPlan } from "@/lib/production";
 import { ensureMinDuration } from "@/lib/minDuration";
+import { finalizePictureLock } from "@/lib/pictureLock";
 
 type Stage = "idle" | "reading" | "generating" | "error";
 
@@ -129,6 +130,14 @@ export default function GenerationScreenV2() {
       // Гарантируем, что ролик длится не меньше 10 секунд (слишком короткие
       // монтажи из 3–5 секунд выглядят обрывком, а не видео).
       ensureMinDuration(project, 10);
+
+      // PICTURE LOCK — режим финальной сборки: после завершения автомонтажа
+      // система проверяет длительность, ритм, длинные/короткие кадры, темп и
+      // визуальную логику, автоматически исправляет проблемы и оставляет
+      // отчёт в проекте. В редакторе монтаж появится в стадии «review» —
+      // до подтверждения Picture Lock.
+      setProgressLabel("Picture Lock: финальная проверка монтажа…");
+      project = finalizePictureLock(project);
 
       // НЕ сохраняем проект здесь: иначе незавершённое видео сразу попадало бы
       // в «Ваши проекты», и клик по нему во время рендера прерывал генерацию и

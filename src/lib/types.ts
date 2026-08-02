@@ -503,6 +503,87 @@ export interface GenerationStyle {
   templateId?: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Picture Lock — фиксация монтажа (final assembly)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Стадии Picture Lock:
+ * - `none`   — Picture Lock не запускался (проект в свободном монтаже);
+ * - `review` — автомонтаж завершён, отчёт сформирован, идёт финальная
+ *              сборка: правки разрешены, но редактор предлагает проверить
+ *              и подтвердить монтаж;
+ * - `locked` — монтаж ПОДТВЕРЖДЁН и зафиксирован: дальше меняются только
+ *              цвет, звук, титры и эффекты. Тайминг и склейки заблокированы.
+ */
+export type PictureLockStage = "none" | "review" | "locked";
+
+/** Категория проверки в отчёте Picture Lock. */
+export type PictureLockCheckKind =
+  | "duration"      // длительность ролика
+  | "rhythm"        // анализ ритма
+  | "long-shots"    // слишком длинные кадры
+  | "short-shots"   // слишком короткие кадры
+  | "tempo"         // выравнивание темпа
+  | "visual-logic"; // визуальная логика
+
+export interface PictureLockIssue {
+  kind: PictureLockCheckKind;
+  severity: "ok" | "warn" | "fail";
+  message: string;
+  /** Время на таймлайне, к которому относится проблема (сек), если применимо. */
+  time?: number;
+  clipId?: string;
+}
+
+/** Результат одного автоматического исправления Picture Lock. */
+export interface PictureLockFix {
+  kind: PictureLockCheckKind;
+  clipId?: string;
+  time?: number;
+  message: string;
+}
+
+/** Полный отчёт проверки Picture Lock. */
+export interface PictureLockReport {
+  checkedAt: number;
+  /** Время на таймлайне на момент проверки (сек). */
+  duration: number;
+  /** Целевая длительность (сек) из брифа, если задана. */
+  targetDuration?: number;
+  durationOk: boolean;
+  /** Средняя длительность плана на основной видеодорожке (сек). */
+  averageShot: number;
+  /** Медианная длительность плана (сек). */
+  medianShot: number;
+  /** Самый короткий план (сек). */
+  minShot: number;
+  /** Самый длинный план (сек). */
+  maxShot: number;
+  /** Коэффициент вариации длительностей планов (0 = идеально ровный темп). */
+  tempoVariation: number;
+  /** Доля склеек, попадающих в бит-сетку (0..1), если биты есть. */
+  beatAlignment?: number;
+  rhythmOk: boolean;
+  longShots: number;
+  shortShots: number;
+  fixedShots: number;
+  visualLogicOk: boolean;
+  issues: PictureLockIssue[];
+  fixes: PictureLockFix[];
+  /** true — все проверки пройдены, монтаж можно подтверждать. */
+  allOk: boolean;
+}
+
+/** Состояние Picture Lock проекта. Хранится в Project.pictureLock. */
+export interface PictureLock {
+  stage: PictureLockStage;
+  /** Момент подтверждения (epoch ms). Есть только у stage === "locked". */
+  lockedAt?: number;
+  /** Последний отчёт проверки. */
+  report?: PictureLockReport;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -516,6 +597,13 @@ export interface Project {
   markers: Marker[];
   style: GenerationStyle;
   exportSettings: ExportSettings;
+
+  /**
+   * Picture Lock: состояние фиксации монтажа. Автомонтаж завершается
+   * стадией `review` (финальная сборка) с отчётом проверок; после
+   * подтверждения — `locked`, и монтажные операции блокируются.
+   */
+  pictureLock?: PictureLock;
 
   /** Creative brief and director's plan created before editing begins. */
   production?: import("./production").ProductionPlan;

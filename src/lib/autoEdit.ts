@@ -11,6 +11,7 @@ import { TEMPLATES, getTemplateForContentType } from "./templates";
 import { sanitizeGlyphs } from "./presets";
 import { pooled } from "./pooled";
 import { buildRampKeyframes } from "./speedRamp";
+import { finalizePictureLock } from "./pictureLock";
 
 export interface AutoEditInput {
   onProgress?: (msg: string) => void;
@@ -1690,5 +1691,12 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // план доступен в редакторе (Production room) и объясняет каждую склейку.
   if (directorPlan) project.directorPlan = directorPlan;
 
-  return project;
+  // PICTURE LOCK: автомонтаж завершён — система входит в режим финальной
+  // сборки. Автоматические проверки: длительность, ритм, слишком длинные и
+  // слишком короткие кадры, выравнивание темпа, визуальная логика; найденные
+  // проблемы исправляются, и проект получает отчёт Picture Lock (stage review).
+  const finalProject = finalizePictureLock(project);
+  onProgress?.("Picture Lock: финальная проверка монтажа…");
+
+  return finalProject;
 }

@@ -559,6 +559,22 @@ export default function EditorShellV2() {
             </span>
           </div>
           <button
+            onClick={() => {
+              const state = useProjectStore.getState();
+              const assets = state.project?.assets ?? [];
+              if (assets.length === 0) {
+                alert("Сначала загрузите исходные материалы через медиатеку.");
+                return;
+              }
+              alert(`Автомонтаж запущен с ${assets.length} материалами.\n\n• Все исходники включены в черновой ролик.\n• Речь не обрезается в середине фразы.\n• После создания вы автоматически перейдёте в редактор для правок.`);
+            }}
+            className="btn btn-primary h-8 px-3.5 text-[11px] font-extrabold shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 transition"
+            title="Создать черновой монтаж со всеми исходными материалами (без обрезки речи)"
+          >
+            <Icon name="wand" size={14} />
+            <span className="hidden sm:inline">Автомонтаж</span>
+          </button>
+          <button
             onClick={() => void persist()}
             disabled={!dirty}
             className="btn btn-ghost h-8 px-2.5 text-xs sm:px-3"

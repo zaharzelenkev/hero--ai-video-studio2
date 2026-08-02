@@ -2,6 +2,7 @@ import type { AudioClip, ExportSettings, Project, TextClip, VideoClip } from "./
 import { paramToFfmpegExpr } from "./keyframes";
 import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, sanitizeGlyphs, transitionToXfade } from "./presets";
 import { speedRampToSetptsExpr } from "./speedRamp";
+import { cubeFileName } from "./editor/lut";
 
 let uidCounter = 0;
 function id(prefix: string) {
@@ -22,9 +23,35 @@ export interface CompileResult {
   audioMapLabel: string | null;
   fontMounted: boolean;
   totalDuration: number;
+  /** .cube файлы LUT, которые рендер должен записать в ФС ffmpeg. */
+  lutFiles: string[];
 }
 
 export type FileNameResolver = (clip: VideoClip | AudioClip) => string;
+
+/** Подмена входа клипа: пре-рендеренный материал (AI-удаление фона/объекта). */
+export interface VfxRenderOverride {
+  path: string;
+  /** Аргументы перед `-i` (например -framerate 30). */
+  pre: string[];
+  /** Длительность пре-рендеренного материала (сек). */
+  duration: number;
+  isImage: boolean;
+}
+
+/** Наложение PNG световых лучей на клип (генерируется в JS, как и превью). */
+export interface LightRaysInput {
+  clipId: string;
+  path: string;
+  strength: number;
+}
+
+export interface CompileOptions {
+  /** clipId → пре-рендеренный вход (для backgroundRemoval / objectRemoval). */
+  vfxOverrides?: Map<string, VfxRenderOverride>;
+  /** clipId → PNG световых лучей (размер = размер отрисовки клипа). */
+  lightRays?: LightRaysInput[];
+}
 
 function escFilterArg(v: string | number): string {
   return String(v);
@@ -43,9 +70,208 @@ function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
+/** Соответствие наших blend-режимов режимам blend-фильтра ffmpeg. */
+const BLEND_MODE_TO_FFMPEG: Record<string, string> = {
+  multiply: "multiply",
+  screen: "screen",
+  overlay: "overlay",
+  darken: "darken",
+  lighten: "lighten",
+  colorDodge: "dodge",
+  colorBurn: "burn",
+  hardLight: "hardlight",
+  softLight: "softlight",
+  difference: "difference",
+  exclusion: "exclusion",
+  hue: "hue",
+  saturation: "saturation",
+  color: "color",
+  luminosity: "luminosity",
+};
+
+/** Статичное значение анимируемого параметра (позиция ПИП-слоя при бленде). */
+function evalParamAt0(p: { value: number; keyframes: unknown[] } | undefined): number {
+  if (!p) return 0;
+  return p.value;
+}
+
+/** Пропорции источника клипа для расчёта размера слоя при бленд-режиме. */
+function assetAspect(clip: VideoClip, W: number, H: number): number {
+  const scale = clip.scale?.value ?? 1;
+  // Приближение: базовый scale применяется к исходным пропорциям.
+  return (W / H) * scale;
+}
+
 interface ClipChainResult {
   label: string; // final output label (yuva420p stream)
   idx: number; // ffmpeg input index (for reusing embedded audio)
+}
+
+/**
+ * Блендинг с восстановлением альфы: blend-фильтр ffmpeg игнорирует альфа-канал
+ * и смешивает весь кадр, поэтому после смешивания возвращаем альфу из
+ * исходного потока через alphaextract + alphamerge.
+ */
+function alphaAwareBlend(cur: string, second: string, blendOpts: string, lines: string[]): string {
+  const cb = id("vb_");
+  const cc = id("vc_");
+  const cag = id("vd_");
+  const sg = id("ve_");
+  const bs = id("vf_");
+  const mk = id("vg_");
+  const bsa = id("vh_");
+  const out = id("vi_");
+  lines.push(`[${cur}]format=yuva420p,split=2[${cb}][${cc}]`);
+  lines.push(`[${cc}]format=gbrp[${cag}]`);
+  lines.push(`[${second}]format=gbrp[${sg}]`);
+  lines.push(`[${cag}][${sg}]blend=${blendOpts}[${bs}]`);
+  lines.push(`[${cb}]alphaextract,format=gray[${mk}]`);
+  lines.push(`[${bs}]format=yuva420p[${bsa}]`);
+  lines.push(`[${bsa}][${mk}]alphamerge[${out}]`);
+  return out;
+}
+
+/**
+ * VFX-фильтры экспорта. Каждый эффект — настоящий ffmpeg-фильтр (проверено на
+ * @ffmpeg/core 0.12.6 / FFmpeg 5.1). AI-эффекты (удаление фона/объекта) уже
+ * «впечены» в пре-рендеренные входы, если включён opts.vfxOverrides.
+ */
+function applyVfxFilters(
+  current: string,
+  clip: VideoClip,
+  lines: string[],
+  inputs: InputEntry[],
+  fps: number,
+  opts: CompileOptions,
+): string {
+  const vfx = clip.vfx;
+  if (!vfx) return current;
+  const tag = clip.id.replace(/[^a-zA-Z0-9]/g, "");
+
+  // --- LUT-конвейер: настоящий 3D LUT (файл .cube генерируется из того же
+  //     грида, что и превью — см. src/lib/editor/lut.ts) + интенсивность.
+  if (vfx.lut?.enabled && vfx.lut.preset && vfx.lut.preset !== "none") {
+    const amount = clamp(vfx.lut.amount ?? 1, 0, 1);
+    if (amount > 0.001) {
+      const lutPath = cubeFileName(vfx.lut.preset);
+      const next = id(`c${tag}_lut_`);
+      // Оригинал нужен ДВАЖДЫ: в lut3d и в смешивании интенсивности.
+      const origA = id(`c${tag}_luta_`);
+      const origB = id(`c${tag}_lutb_`);
+      lines.push(`[${current}]split=2[${origA}][${origB}]`);
+      lines.push(`[${origA}]format=yuva420p,lut3d=file=${lutPath}:interp=tetrahedral[${next}]`);
+      const mix = alphaAwareBlend(origB, next, `all_expr='A*(1-${amount.toFixed(4)})+B*${amount.toFixed(4)}'`, lines);
+      current = mix;
+    }
+  }
+
+  // --- Шумоподавление (hqdn3d — 3D-денойзер, реальный).
+  if (vfx.noiseReduction?.enabled) {
+    const amt = clamp(vfx.noiseReduction.amount ?? 0, 0, 1);
+    if (amt > 0.01) {
+      const next = id(`c${tag}_nr_`);
+      const ls = (amt * 3).toFixed(2);
+      const cs = (amt * 1.5).toFixed(2);
+      lines.push(`[${current}]hqdn3d=${ls}:${cs}:6:6[${next}]`);
+      current = next;
+    }
+  }
+
+  // --- Резкость (unsharp mask).
+  if (vfx.sharpen?.enabled) {
+    const amt = clamp(vfx.sharpen.amount ?? 0, 0, 2);
+    if (amt > 0.01) {
+      const next = id(`c${tag}_sh_`);
+      lines.push(`[${current}]unsharp=5:5:${amt.toFixed(2)}:5:5:0[${next}]`);
+      current = next;
+    }
+  }
+
+  // --- Motion blur (dblur — направленное размытие, угол в градусах).
+  const mb = clip.motionBlur;
+  if (mb?.enabled) {
+    const angle = clamp(mb.angle ?? 0, 0, 360);
+    const length = Math.max(1, Math.round((mb.samples ?? 8) * 0.75));
+    const next = id(`c${tag}_mb_`);
+    lines.push(`[${current}]dblur=angle=${angle.toFixed(1)}:radius=${length}:planes=15[${next}]`);
+    current = next;
+  }
+
+  // --- Дисторсия объектива (lenscorrection).
+  if (vfx.lensDistortion?.enabled) {
+    const k = (clamp(vfx.lensDistortion.amount ?? 0, -1, 1) * 0.3).toFixed(4);
+    if (Math.abs(parseFloat(k)) > 0.001) {
+      const next = id(`c${tag}_ld_`);
+      lines.push(`[${current}]lenscorrection=k1=${k}:k2=0[${next}]`);
+      current = next;
+    }
+  }
+
+  // --- Свечение (glow): изоляция светов + размытие + screen-бленд.
+  if (vfx.glow?.enabled) {
+    const radius = Math.max(1, Math.round((vfx.glow.radius ?? 10) / 2));
+    const strength = clamp(vfx.glow.strength ?? 0.6, 0, 2);
+    const threshold = clamp(vfx.glow.threshold ?? 0.55, 0, 0.98);
+    const next = id(`c${tag}_gl_`);
+    lines.push(
+      `[${current}]split=2[${current}_main][${current}_glow];` +
+        `[${current}_glow]colorlevels=rimin=${threshold.toFixed(2)}:gimin=${threshold.toFixed(2)}:bimin=${threshold.toFixed(2)},gblur=sigma=${radius}[${current}_glow_blurred];` +
+        `[${current}_main][${current}_glow_blurred]blend=all_mode=screen:all_opacity=${strength.toFixed(2)}[${next}]`,
+    );
+    current = next;
+  }
+
+  // --- Bloom: изоляция ярких областей + размытие + аддитивный бленд.
+  if (vfx.bloom?.enabled) {
+    const radius = Math.max(1, Math.round((vfx.bloom.radius ?? 14) / 2));
+    const strength = clamp(vfx.bloom.strength ?? 0.5, 0, 2);
+    const threshold = clamp(vfx.bloom.threshold ?? 0.72, 0, 0.98);
+    const next = id(`c${tag}_bl_`);
+    lines.push(
+      `[${current}]split=2[${current}_bmain][${current}_bloom];` +
+        `[${current}_bloom]colorlevels=rimin=${threshold.toFixed(2)}:gimin=${threshold.toFixed(2)}:bimin=${threshold.toFixed(2)},gblur=sigma=${radius}[${current}_bloom_blurred];` +
+        `[${current}_bmain][${current}_bloom_blurred]blend=all_mode=addition:all_opacity=${strength.toFixed(2)}[${next}]`,
+    );
+    current = next;
+  }
+
+  // --- Световые лучи: PNG-текстура лучей (генерируется в JS, как превью)
+  //     блендится screen-режимом поверх клипа с восстановлением альфы.
+  const rays = opts.lightRays?.find((r) => r.clipId === clip.id);
+  if (rays) {
+    const raysIdx = inputs.length;
+    inputs.push({ pre: ["-loop", "1", "-t", String(Math.max(0.1, clip.duration))], path: rays.path });
+    const raysId = id(`c${tag}_rays_`);
+    lines.push(
+      `[${raysIdx}:v]fps=${fps},settb=1/${fps},setpts=PTS-STARTPTS,format=gbrp[${raysId}]`,
+    );
+    const strength = clamp(rays.strength ?? 0.5, 0, 1);
+    current = alphaAwareBlend(current, raysId, `all_mode=screen:all_opacity=${strength.toFixed(2)}`, lines);
+  }
+
+  // --- Плёночное зерно (noise).
+  if (vfx.filmGrain?.enabled) {
+    const amt = clamp(vfx.filmGrain.amount ?? 0, 0, 1);
+    if (amt > 0.005) {
+      const n = Math.max(1, Math.round(amt * 45));
+      const next = id(`c${tag}_gr_`);
+      lines.push(`[${current}]noise=alls=${n}:allf=t[${next}]`);
+      current = next;
+    }
+  }
+
+  // --- Виньетка (vignette, угол = сила).
+  if (vfx.vignette?.enabled) {
+    const strength = clamp(vfx.vignette.strength ?? 0.45, 0, 1);
+    if (strength > 0.01) {
+      const angle = (0.15 + strength * 0.9).toFixed(3);
+      const next = id(`c${tag}_vi_`);
+      lines.push(`[${current}]vignette=angle=${angle}[${next}]`);
+      current = next;
+    }
+  }
+
+  return current;
 }
 
 /**
@@ -63,9 +289,14 @@ function buildVideoClipChain(
   canvasH: number,
   fitMode: "cover" | "native",
   lines: string[],
+  opts: CompileOptions = {},
 ): ClipChainResult {
   const idx = inputs.length;
-  if (clip.type === "image") {
+  const override = opts.vfxOverrides?.get(clip.id);
+  if (override) {
+    // Пре-рендеренный материал (AI-удаление фона/объекта): вход уже готовый.
+    inputs.push({ pre: override.pre, path: override.path });
+  } else if (clip.type === "image") {
     inputs.push({ pre: ["-loop", "1", "-t", String(Math.max(0.1, clip.duration))], path: fileNameFor(clip) });
   } else {
     // Автомонтаж открывает один исходник на каждый фрагмент. Файлы с телефона
@@ -78,7 +309,13 @@ function buildVideoClipChain(
   const tag = clip.id.replace(/[^a-zA-Z0-9]/g, "");
   let current = id(`c${tag}_`);
 
-  if (clip.type === "image") {
+  if (override) {
+    if (override.isImage) {
+      lines.push(`[${idx}:v]fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[${current}]`);
+    } else {
+      lines.push(`[${idx}:v]trim=start=0:end=${override.duration},setpts=PTS-STARTPTS,fps=${fps}[${current}]`);
+    }
+  } else if (clip.type === "image") {
     lines.push(`[${idx}:v]fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[${current}]`);
   } else {
     lines.push(
@@ -227,10 +464,13 @@ function buildVideoClipChain(
   if (clip.chroma.enabled) {
     const next = id(`c${tag}_`);
     lines.push(
-      `[${current}]format=yuva420p,colorkey=color=${clip.chroma.color}:similarity=${clip.chroma.similarity}:blend=${clip.chroma.blend}[${next}]`,
+      `[${current}]format=yuva420p,chromakey=color=${clip.chroma.color}:similarity=${clip.chroma.similarity}:blend=${clip.chroma.blend}[${next}]`,
     );
     current = next;
   }
+
+  // Полноценный VFX-блок (порядок совпадает с движком превью).
+  current = applyVfxFilters(current, clip, lines, inputs, fps, opts);
 
   for (const effectId of clip.effects || []) {
     if (effectId === "glow") {
@@ -280,7 +520,15 @@ function buildVideoClipChain(
     lines.push(`[${current}]format=yuva420p,geq=lum='lum(X,Y)':a='clip(alpha(X,Y)*(${opacityExpr})\\,0\\,255)'[${finalLabel}]`);
   }
 
-  return { label: finalLabel, idx };
+  // Для пре-рендеренного входа (PNG-последовательность без звука) аудио
+  // берём из ОРИГИНАЛЬНОГО исходника отдельным входом (-vn).
+  let audioIdx = idx;
+  if (override && clip.type === "video" && !clip.muted) {
+    audioIdx = inputs.length;
+    inputs.push({ pre: ["-fflags", "+discardcorrupt", "-err_detect", "ignore_err", "-vn"], path: fileNameFor(clip) });
+  }
+
+  return { label: finalLabel, idx: audioIdx };
 }
 
 function buildAudioChain(
@@ -375,14 +623,27 @@ export function compileProjectToFfmpeg(
   project: Project,
   exportSettings: ExportSettings,
   fileNameFor: FileNameResolver,
+  options: CompileOptions = {},
 ): CompileResult {
   uidCounter = 0;
   const inputs: InputEntry[] = [];
   const lines: string[] = [];
   const audioLabels: string[] = [];
+  const lutFiles = new Set<string>();
   const W = exportSettings.width;
   const H = exportSettings.height;
   const fps = exportSettings.fps;
+
+  // Собираем список .cube файлов, которые понадобятся рендеру.
+  for (const track of project.tracks) {
+    if (track.type !== "video") continue;
+    for (const clip of track.clips) {
+      const vfx = (clip as VideoClip).vfx;
+      if (vfx?.lut?.enabled && vfx.lut.preset && vfx.lut.preset !== "none") {
+        lutFiles.add(vfx.lut.preset);
+      }
+    }
+  }
 
   const videoTracks = project.tracks.filter((t) => t.type === "video" && !t.hidden);
   const textTracks = project.tracks.filter((t) => t.type === "text" && !t.hidden);
@@ -406,7 +667,7 @@ export function compileProjectToFfmpeg(
         lines.push(`color=c=black:s=${W}x${H}:d=${gap}:r=${fps},format=yuv420p[${fillLabel}]`);
         segments.push({ label: fillLabel, duration: gap, transition: { type: "cut", duration: 0 }, idx: -1 });
       }
-      const { label, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "cover", lines);
+      const { label, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "cover", lines, options);
       segments.push({ label, duration: clip.duration, transition: clip.transitionIn, idx });
       cursor = clip.start + clip.duration;
 
@@ -475,7 +736,7 @@ export function compileProjectToFfmpeg(
   // Overlay video/image tracks.
   for (const track of overlayTracks) {
     for (const clip of track.clips as VideoClip[]) {
-      const { label: rawLabel, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "native", lines);
+      const { label: rawLabel, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "native", lines, options);
       const start = clip.start;
       const end = clip.start + clip.duration;
       // buildVideoClipChain resets this clip's PTS to start at 0. Since it will be
@@ -487,11 +748,46 @@ export function compileProjectToFfmpeg(
       lines.push(`[${rawLabel}]setpts=PTS+${start}/TB[${label}]`);
       const xExpr = paramToFfmpegExpr(clip.x, `t-${start}`);
       const yExpr = paramToFfmpegExpr(clip.y, `t-${start}`);
-      const next = id("ov_");
-      lines.push(
-        `[${composite}][${label}]overlay=x='(main_w-overlay_w)/2+(${xExpr})*main_w/2':y='(main_h-overlay_h)/2+(${yExpr})*main_h/2':enable='between(t\\,${start}\\,${end})'[${next}]`,
-      );
-      composite = next;
+
+      const blendMode = clip.blendMode && clip.blendMode !== "normal" ? clip.blendMode : null;
+      if (blendMode) {
+        // БЛЕНД-РЕЖИМ ПИП-СЛОЯ: blend-фильтр смешивает кадры целиком, поэтому
+        // слой растягивается на весь канвас (scale+pad на статичной позиции),
+        // смешивается с фоном в RGB (gbrp) и возвращается на место с
+        // восстановлением альфы через alphaextract+alphamerge.
+        const sourceAspect = (clip.fitMode === "cover" ? W / H : assetAspect(clip, W, H)) || W / H;
+        let dw = W;
+        let dh = H;
+        const frameAspect = W / H;
+        if (sourceAspect > frameAspect) {
+          dh = Math.max(2, Math.round(W / sourceAspect / 2) * 2);
+        } else {
+          dw = Math.max(2, Math.round((H * sourceAspect) / 2) * 2);
+        }
+        const px = Math.max(0, Math.round((W - dw) / 2 + evalParamAt0(clip.x) * W / 2));
+        const py = Math.max(0, Math.round((H - dh) / 2 + evalParamAt0(clip.y) * H / 2));
+        const bm = BLEND_MODE_TO_FFMPEG[blendMode] ?? "screen";
+        const ovf = id("ovf_");
+        lines.push(
+          `[${label}]scale=${dw}:${dh},pad=${W}:${H}:${px}:${py}:color=black@0,format=yuva420p[${ovf}]`,
+        );
+        // composite используется дважды: для смешивания и как фон оверлея.
+        const bgA = id("bga_");
+        const bgB = id("bgb_");
+        lines.push(`[${composite}]split=2[${bgA}][${bgB}]`);
+        // all_opacity=1: прозрачность слоя уже в альфе цепочки (colorchannelmixer),
+        // оверлей сам смешает с фоном с учётом альфы.
+        const bs = alphaAwareBlend(bgA, ovf, `all_mode=${bm}:all_opacity=1`, lines);
+        const next = id("ov_");
+        lines.push(`[${bgB}][${bs}]overlay=0:0:enable='between(t\\,${start}\\,${end})'[${next}]`);
+        composite = next;
+      } else {
+        const next = id("ov_");
+        lines.push(
+          `[${composite}][${label}]overlay=x='(main_w-overlay_w)/2+(${xExpr})*main_w/2':y='(main_h-overlay_h)/2+(${yExpr})*main_h/2':enable='between(t\\,${start}\\,${end})'[${next}]`,
+        );
+        composite = next;
+      }
 
       if (!clip.muted) {
         const audioLabel = buildAudioChain(
@@ -634,6 +930,7 @@ export function compileProjectToFfmpeg(
     audioMapLabel: finalAudio,
     fontMounted: usedFont,
     totalDuration,
+    lutFiles: [...lutFiles],
   };
 }
 

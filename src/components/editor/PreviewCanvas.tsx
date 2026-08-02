@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useProjectStore, timelineDuration } from "@/store/projectStore";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useProjectStore, timelineDuration, findClip } from "@/store/projectStore";
 import { renderFrame, syncVideoElements } from "@/lib/editor/compositor";
 import { audioMixer } from "@/lib/editor/audioMixer";
 import { mediaPool } from "@/lib/editor/resourcePool";
+import { vfxBrush } from "@/lib/editor/vfxBrush";
+import { interactiveSegmentService, maskToPolygon } from "@/lib/editor/mediaPipeVfx";
+import { defaultVfx } from "@/lib/factories";
+import type { Clip, VideoClip } from "@/lib/types";
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
 
 const MAX_PREVIEW_WIDTH = 1280;
 
@@ -196,13 +204,130 @@ export default function PreviewCanvas() {
     else void el.requestFullscreen?.();
   };
 
+  /* ------------------- кисть удаления объекта ------------------- */
+  const brushRef = useRef(false);
+  const [brushCursor, setBrushCursor] = useState(false);
+
+  const canvasToNorm = (e: ReactPointerEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: clamp01((e.clientX - rect.left) / rect.width),
+      y: clamp01((e.clientY - rect.top) / rect.height),
+    };
+  };
+
+  const brushClip = (): VideoClip | null => {
+    const state = useProjectStore.getState();
+    const found = findClip(state.project, state.selectedClipId);
+    if (!found || (found.clip.type !== "video" && found.clip.type !== "image")) return null;
+    return found.clip as VideoClip;
+  };
+
+  const saveStrokes = (clip: VideoClip, strokes: { x: number; y: number; radius: number }[]) => {
+    useProjectStore.getState().updateClip(clip.id, (c) => {
+      const vc = c as VideoClip;
+      const vfx = vc.vfx ?? defaultVfx();
+      return {
+        ...vc,
+        vfx: {
+          ...vfx,
+          objectRemoval: {
+            ...vfx.objectRemoval,
+            enabled: true,
+            strokes: [...(vfx.objectRemoval.strokes ?? []), ...strokes],
+          },
+        },
+      } as Clip;
+    });
+  };
+
+  const handleAiPick = async (clip: VideoClip, x: number, y: number) => {
+    const state = useProjectStore.getState();
+    const asset = state.project?.assets.find((a) => a.id === clip.assetId);
+    const source =
+      clip.type === "video" && asset
+        ? mediaPool.videoFor(clip.id, asset)
+        : asset
+          ? mediaPool.imageFor(asset)
+          : null;
+    if (!source) return;
+    try {
+      const mask = await interactiveSegmentService.segmentAt(source, x, y);
+      const polygon = maskToPolygon(mask);
+      vfxBrush.state.aiPickClipId = null;
+      if (polygon.length >= 3) {
+        state.updateClip(clip.id, (c) => {
+          const vc = c as VideoClip;
+          const vfx = vc.vfx ?? defaultVfx();
+          return {
+            ...vc,
+            vfx: { ...vfx, objectRemoval: { ...vfx.objectRemoval, enabled: true, region: { polygon } } },
+          } as Clip;
+        });
+      }
+    } catch (err) {
+      vfxBrush.state.aiPickClipId = null;
+      console.error("AI-выделение объекта не удалось:", err);
+    }
+  };
+
+  const onBrushDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const clip = brushClip();
+    if (!clip) return;
+    if (vfxBrush.state.aiPickClipId === clip.id) {
+      const norm = canvasToNorm(e);
+      if (norm) void handleAiPick(clip, norm.x, norm.y);
+      return;
+    }
+    if (!vfxBrush.isActive(clip.id)) return;
+    const norm = canvasToNorm(e);
+    if (!norm) return;
+    e.preventDefault();
+    brushRef.current = true;
+    vfxBrush.beginStroke(norm.x, norm.y);
+  };
+
+  const onBrushMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const clip = brushClip();
+    if (!clip) return;
+    setBrushCursor(vfxBrush.isActive(clip.id) || vfxBrush.state.aiPickClipId === clip.id);
+    if (!brushRef.current || !vfxBrush.isActive(clip.id)) return;
+    const norm = canvasToNorm(e);
+    if (norm) vfxBrush.addPoint(norm.x, norm.y);
+  };
+
+  const onBrushUp = () => {
+    brushRef.current = false;
+    const clip = brushClip();
+    if (!clip) return;
+    const stroke = vfxBrush.endStroke();
+    if (stroke?.length && vfxBrush.isActive(clip.id)) {
+      saveStrokes(clip, stroke);
+    }
+  };
+
   return (
     <div ref={wrapRef} className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black/60">
       <canvas
         ref={canvasRef}
-        style={{ width: fit.width, height: fit.height }}
+        style={{
+          width: fit.width,
+          height: fit.height,
+          cursor: brushCursor ? "crosshair" : "default",
+          touchAction: "none",
+        }}
         className="rounded-lg bg-black shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
         aria-label="Окно предпросмотра"
+        onPointerDown={onBrushDown}
+        onPointerMove={onBrushMove}
+        onPointerUp={onBrushUp}
+        onPointerCancel={onBrushUp}
+        onPointerLeave={() => {
+          if (brushRef.current) onBrushUp();
+        }}
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2">

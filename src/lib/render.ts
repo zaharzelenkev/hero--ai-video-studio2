@@ -3,8 +3,25 @@
 import type { AudioClip, MediaAsset, Project, TextClip, VideoClip } from "./types";
 import { fetchFileFromBlob, getFFmpeg, onFFmpegProgress, type LogListener } from "./ffmpeg";
 import { loadBlob } from "./db";
-import { buildOutputArgs, compileProjectToFfmpeg } from "./filterGraph";
+import { buildOutputArgs, compileProjectToFfmpeg, type CompileOptions, type LightRaysInput } from "./filterGraph";
 import { fontFileFor } from "./presets";
+import { collectLightRaysInputs, prepareAiVfxOverrides, writeLutCubes } from "./editor/vfxExport";
+import { cubeFileName } from "./editor/lut";
+
+/** Клипы, которым нужен пре-рендер кадров (AI-эффекты) или PNG лучей. */
+function needsVfxPreRender(project: Project): boolean {
+  for (const track of project.tracks) {
+    if (track.type !== "video") continue;
+    for (const clip of track.clips as VideoClip[]) {
+      const vfx = clip.vfx;
+      if (!vfx) continue;
+      if (vfx.backgroundRemoval?.enabled) return true;
+      if (vfx.objectRemoval?.enabled && ((vfx.objectRemoval.strokes?.length ?? 0) > 0 || (vfx.objectRemoval.region?.polygon?.length ?? 0) > 0)) return true;
+      if (vfx.lightRays?.enabled) return true;
+    }
+  }
+  return false;
+}
 
 function extFor(asset: MediaAsset): string {
   const parts = asset.mime.split("/");
@@ -28,6 +45,7 @@ export async function renderProject(
   };
   ffmpeg.on("log", logHandler);
   const off = onProgress ? onFFmpegProgress(ffmpeg, onProgress) : () => {};
+  const vfxTempFiles = new Set<string>();
 
   try {
     const usedFontFiles = new Set<string>();
@@ -133,7 +151,41 @@ export async function renderProject(
     }
 
     const fileNameFor = (clip: VideoClip | AudioClip) => assetFileNames.get(clip.assetId) || "";
-    const compiled = compileProjectToFfmpeg(project, project.exportSettings, fileNameFor);
+
+    const compileOptions: CompileOptions = {};
+    if (needsVfxPreRender(project)) {
+      onLog?.("Подготовка VFX-материалов (AI-удаление фона/объекта, лучи)...");
+      const W = project.exportSettings.width;
+      const H = project.exportSettings.height;
+      try {
+        // PNG световых лучей.
+        const lightRays: LightRaysInput[] = await collectLightRaysInputs(project, W, H, ffmpeg);
+        if (lightRays.length) compileOptions.lightRays = lightRays;
+
+        // Пре-рендер кадров для AI-эффектов (MediaPipe / FMM-инпейнтинг).
+        const ai = await prepareAiVfxOverrides(project, ffmpeg, project.exportSettings.fps, assetFileNames, (done, total) => {
+          onLog?.(`AI-пре-рендер: ${done}/${total} клипов`);
+        });
+        if (ai.error) {
+          throw new Error(
+            `AI-эффект не может быть экспортирован: ${ai.error} Отключите «Удаление фона»/«Удаление объекта» или проверьте интернет.`,
+          );
+        }
+        if (ai.overrides.size) compileOptions.vfxOverrides = ai.overrides;
+        for (const f of ai.createdFiles) vfxTempFiles.add(f);
+        for (const lr of lightRays) vfxTempFiles.add(lr.path);
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("AI-эффект")) throw err;
+        throw new Error(`Подготовка VFX не удалась: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    const compiled = compileProjectToFfmpeg(project, project.exportSettings, fileNameFor, compileOptions);
+
+    // .cube файлы LUT (тот же грид, что в превью).
+    if (compiled.lutFiles.length) {
+      await writeLutCubes(ffmpeg, compiled.lutFiles);
+    }
 
     const args: string[] = [];
     for (const input of compiled.inputs) {
@@ -175,6 +227,23 @@ export async function renderProject(
         await ffmpeg.deleteFile(fname);
       } catch {
         // ignore cleanup errors
+      }
+    }
+    // Временные файлы VFX (PNG лучей, пре-рендеренные кадры, .cube LUT).
+    for (const f of vfxTempFiles) {
+      try {
+        await ffmpeg.deleteFile(f);
+      } catch {
+        // ignore
+      }
+    }
+    if (compiled?.lutFiles) {
+      for (const preset of compiled.lutFiles) {
+        try {
+          await ffmpeg.deleteFile(cubeFileName(preset));
+        } catch {
+          // ignore
+        }
       }
     }
     try {

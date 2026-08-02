@@ -147,6 +147,8 @@ export interface ChromaKey {
   color: string; // hex
   similarity: number; // 0..1
   blend: number; // 0..1
+  /** Подавление ореола ключевого цвета 0..1 (деспилл). */
+  despill?: number;
 }
 
 export type TransitionType =
@@ -218,6 +220,135 @@ export interface MotionBlur {
   enabled: boolean;
   samples: number; // 2-32
   shutterAngle: number; // 0-360 degrees
+  /** Направление размытия (градусы, 0 = горизонталь, 90 = вертикаль). */
+  angle?: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* VFX — полноценный блок эффектов                                     */
+/* ------------------------------------------------------------------ */
+
+/** Заполнение фона после удаления фона / объекта. */
+export type VfxFillMode = "transparent" | "blur" | "color";
+
+export interface VfxBackgroundRemoval {
+  enabled: boolean;
+  /** Что показывать вместо удалённого фона. */
+  fill: VfxFillMode;
+  color: string;
+  /** Сила размытия фона при fill === "blur". */
+  blurAmount: number;
+  /** Растушёвка края маски, px (в масштабе кадра предпросмотра). */
+  edgeSmooth: number;
+  /** Непрозрачность переднего плана 0..1. */
+  foregroundOpacity: number;
+  /** Порог уверенности модели 0..1: пиксели ниже порога считаются фоном. */
+  threshold: number;
+  /** true — модель (MediaPipe Selfie) уже загружена/грузится. Сервисное поле. */
+  modelStatus?: "idle" | "loading" | "ready" | "error";
+}
+
+/** Штрих кисти удаления объекта (координаты нормализованы 0..1). */
+export interface ObjectRemovalStroke {
+  x: number;
+  y: number;
+  /** Радиус кисти, нормализован к ширине кадра. */
+  radius: number;
+}
+
+/** Результат AI-сегментации объекта: компактный полигон (нормализованные точки). */
+export interface ObjectRemovalRegion {
+  /** Замкнутый контур выделенного объекта (x,y в 0..1). */
+  polygon: { x: number; y: number }[];
+}
+
+export interface VfxObjectRemoval {
+  enabled: boolean;
+  strokes: ObjectRemovalStroke[];
+  /** Радиус кисти по умолчанию (0..1, нормализован к ширине кадра). */
+  brushRadius: number;
+  /** AI-регион (интерактивная сегментация MediaPipe), опционально. */
+  region?: ObjectRemovalRegion;
+  modelStatus?: "idle" | "loading" | "ready" | "error";
+}
+
+export interface VfxGlow {
+  enabled: boolean;
+  radius: number; // px
+  strength: number; // 0..1
+  threshold: number; // 0..1 (яркость, выше которой идёт свечение)
+}
+
+export interface VfxLightRays {
+  enabled: boolean;
+  /** Источник лучей, нормализован 0..1. */
+  centerX: number;
+  centerY: number;
+  /** Длина лучей 0..1. */
+  length: number;
+  strength: number; // 0..1
+  rayCount: number; // 2..24
+}
+
+export interface VfxFilmGrain {
+  enabled: boolean;
+  amount: number; // 0..1
+  size: number; // 1..16 px (крупность зерна)
+  monochrome: boolean;
+  seed: number;
+}
+
+export interface VfxLensDistortion {
+  enabled: boolean;
+  /** -1..1: отрицательное — бочка, положительное — подушка. */
+  amount: number;
+}
+
+export interface VfxBloom {
+  enabled: boolean;
+  radius: number; // px
+  strength: number; // 0..1
+  threshold: number; // 0..1
+}
+
+export interface VfxSharpen {
+  enabled: boolean;
+  amount: number; // 0..2
+  radius: number; // 0.5..4 px
+}
+
+export interface VfxNoiseReduction {
+  enabled: boolean;
+  amount: number; // 0..1 (микс с оригиналом)
+  radius: number; // 1..3 (радиус билатерального фильтра)
+}
+
+export interface VfxVignette {
+  enabled: boolean;
+  strength: number; // 0..1
+  feather: number; // 0..1 (мягкость края)
+}
+
+export interface VfxLut {
+  enabled: boolean;
+  preset: LutPreset;
+  /** Интенсивность 0..1: 0 = без изменений, 1 = полный LUT. */
+  amount: number;
+}
+
+/** Все параметры VFX-блока одного клипа. */
+export interface VfxSettings {
+  backgroundRemoval: VfxBackgroundRemoval;
+  objectRemoval: VfxObjectRemoval;
+  glow: VfxGlow;
+  lightRays: VfxLightRays;
+  filmGrain: VfxFilmGrain;
+  lensDistortion: VfxLensDistortion;
+  bloom: VfxBloom;
+  sharpen: VfxSharpen;
+  noiseReduction: VfxNoiseReduction;
+  vignette: VfxVignette;
+  lut: VfxLut;
 }
 
 export interface SpeedRamp {
@@ -301,6 +432,9 @@ export interface VideoClip extends BaseClip {
   mask: Mask;
   blendMode?: BlendMode;
   motionBlur?: MotionBlur;
+
+  /** Полноценный VFX-блок: свечение, bloom, лучи, зерно, LUT и т.д. */
+  vfx?: VfxSettings;
   
   // Transitions
   transitionIn: Transition;

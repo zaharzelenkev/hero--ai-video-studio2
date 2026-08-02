@@ -39,4 +39,23 @@ for (const file of NEEDED) {
     copied++;
   }
 }
+
+// Также копируем WASM-рантайм @mediapipe/tasks-vision — он нужен VFX-блоку
+// (удаление фона SelfieSegmenter, AI-выделение объекта InteractiveSegmenter).
+// Модели (.tflite) грузятся с публичного Google CDN при первом использовании.
+const tasksSrcDir = path.join(__dirname, "..", "node_modules", "@mediapipe", "tasks-vision", "wasm");
+const tasksDestDir = path.join(__dirname, "..", "public", "mediapipe", "tasks-vision", "wasm");
+if (existsSync(tasksSrcDir)) {
+  mkdirSync(tasksDestDir, { recursive: true });
+  let tasksCopied = 0;
+  for (const file of ["vision_wasm_internal.js", "vision_wasm_internal.wasm", "vision_wasm_nosimd_internal.js", "vision_wasm_nosimd_internal.wasm"]) {
+    const src = path.join(tasksSrcDir, file);
+    if (existsSync(src)) {
+      copyFileSync(src, path.join(tasksDestDir, file));
+      tasksCopied++;
+    }
+  }
+  console.log(`[copy-mediapipe] copied ${tasksCopied} file(s) into public/mediapipe/tasks-vision/wasm/`);
+}
+
 console.log(`[copy-mediapipe] copied ${copied} file(s) into public/mediapipe/face_detection/`);

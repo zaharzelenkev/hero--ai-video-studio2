@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectStore, timelineDuration, findClip } from "@/store/projectStore";
 import { mediaPool } from "@/lib/editor/resourcePool";
 import { importFilesAsAssets } from "@/lib/editor/mediaImport";
+import { isPictureLocked } from "@/lib/pictureLock";
 import type { AudioClip, Clip, MediaAsset, TextClip, Track, VideoClip } from "@/lib/types";
 
 const HEADER_WIDTH = 176;
@@ -603,6 +604,13 @@ export default function TimelineV2() {
       const track = currentProject.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
       if (!track || track.locked) return;
 
+      // PICTURE LOCK: монтаж зафиксирован — клипы нельзя двигать, обрезать
+      // и разрезать; выделение и навигация остаются доступными.
+      if (isPictureLocked(currentProject)) {
+        state.selectClip(clip.id, event.shiftKey || event.metaKey || event.ctrlKey);
+        return;
+      }
+
       if (state.tool === "razor") {
         state.beginHistory();
         state.splitClipAt(clip.id, timeFromClientX(event.clientX));
@@ -752,6 +760,12 @@ export default function TimelineV2() {
   return (
     <div className="relative flex h-full flex-col bg-[#08080f]">
       <TimelineToolbar onFit={fitToWindow} />
+
+      {isPictureLocked(project) && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-emerald-400/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+          🔒 Picture Lock — таймлайн зафиксирован (доступны: цвет, звук, титры, эффекты)
+        </div>
+      )}
 
       <div ref={scrollRef} className="relative flex-1 overflow-auto">
         <div className="relative" style={{ width: HEADER_WIDTH + contentWidth, minWidth: "100%" }}>

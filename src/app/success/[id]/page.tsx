@@ -179,7 +179,24 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
                   <span className="text-violet-400">✓</span>
                   <span>Оптимизация темпа</span>
                 </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-violet-400">✓</span>
+                  <span>Picture Lock — фиксация монтажа</span>
+                </div>
               </div>
+            </div>
+
+            {/* Picture Lock: финальная сборка */}
+            <div className="mb-6 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="text-base">📋</span>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-300">Режим финальной сборки</h3>
+              </div>
+              <p className="text-xs leading-relaxed text-amber-200/80">
+                Монтаж прошёл автоматическую проверку Picture Lock: длительность, ритм, длинные и короткие кадры,
+                темп и визуальная логика. В редакторе вы можете просмотреть отчёт, исправить оставшееся вручную
+                и подтвердить фиксацию монтажа — после этого изменяются только цвет, звук, титры и эффекты.
+              </p>
             </div>
 
             {/* CTA Buttons */}

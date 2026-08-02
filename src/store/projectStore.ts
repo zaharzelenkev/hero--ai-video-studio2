@@ -5,10 +5,19 @@ import type { AudioClip, Clip, MediaAsset, Marker, Project, TextClip, Track, Tra
 import { saveProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import { createAudioClip, createTextClip, createVideoClip } from "@/lib/factories";
+import {
+  analyzePictureLock,
+  clipIsStructuralEdit,
+  fixPictureLock,
+  isPictureLocked,
+  lockPicture,
+  projectStructuralSignature,
+  unlockPicture,
+} from "@/lib/pictureLock";
 
 /** Страницы инспектора редактора. `offline` — отчёт чернового монтажа
  *  (какие дубли выбраны, что вырезано, как поставлена каждая сцена). */
-export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "animation" | "ai" | "offline" | "export";
+export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "animation" | "ai" | "offline" | "lock" | "export";
 export type EditorTool = "select" | "razor" | "hand";
 export type TrimEdge = "in" | "out";
 
@@ -111,6 +120,18 @@ interface ProjectState {
   paste: () => void;
   alignSelectedToPlayhead: () => void;
   closeGapsOnTrack: (trackId: string) => void;
+
+  /* --- picture lock --- */
+  /** true, если монтаж зафиксирован (Picture Lock подтверждён). */
+  isEditLocked: () => boolean;
+  /** Прогнать проверки Picture Lock и сохранить отчёт (без правок). */
+  runPictureLockCheck: () => void;
+  /** Автоматически исправить найденные проблемы и обновить отчёт. */
+  applyPictureLockFixes: () => void;
+  /** Подтвердить Picture Lock: монтаж фиксируется, правки тайминга блокируются. */
+  confirmPictureLock: () => void;
+  /** Снять фиксацию и вернуться к монтажу. */
+  unlockPictureLock: () => void;
 
   /* --- creating content --- */
   addClipFromAsset: (assetId: string, options?: { trackId?: string; start?: number; select?: boolean }) => string | null;
@@ -228,6 +249,8 @@ function normalizeProject(p: Project): Project {
       format: "mp4",
       crf: 23,
     },
+    // Старые сохранения не знают о Picture Lock — считаем монтаж свободным.
+    pictureLock: p.pictureLock ?? { stage: "none" },
   };
   next.duration = recomputeDuration(next) || p.duration || 0;
   return next;
@@ -333,6 +356,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => {
       if (!s.project) return s;
       const next = fn(s.project);
+      // Picture Lock: после подтверждения монтаж (склейки, тайминг, выбор
+      // исходников) менять нельзя — только цвет, звук, титры и эффекты.
+      if (isPictureLocked(s.project) && projectStructuralSignature(next) !== projectStructuralSignature(s.project)) {
+        return s;
+      }
       next.duration = recomputeDuration(next);
       next.updatedAt = Date.now();
       return pushHistory(s, next, options?.history !== false) as Partial<ProjectState>;
@@ -351,6 +379,47 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       fps: Math.max(1, Math.min(120, Math.round(fps))),
       exportSettings: { ...p.exportSettings, fps: Math.max(1, Math.min(120, Math.round(fps))) },
     })),
+
+  /* ------------------------------ picture lock --------------------- */
+  isEditLocked: () => isPictureLocked(get().project),
+
+  runPictureLockCheck: () => {
+    const { project } = get();
+    if (!project) return;
+    const report = analyzePictureLock(project);
+    get().updateProject(
+      (p) => ({
+        ...p,
+        pictureLock: { ...(p.pictureLock ?? { stage: "none" }), report },
+      }),
+      { history: false },
+    );
+  },
+
+  applyPictureLockFixes: () => {
+    const { project } = get();
+    if (!project || isPictureLocked(project)) return;
+    const { project: fixed, fixes } = fixPictureLock(project);
+    const report = analyzePictureLock(fixed);
+    report.fixes = fixes;
+    report.fixedShots = fixes.filter((f) => f.kind === "long-shots" || f.kind === "short-shots").length;
+    get().updateProject((p) => ({
+      ...fixed,
+      pictureLock: { ...(p.pictureLock ?? { stage: "review" }), stage: "review", report },
+    }));
+  },
+
+  confirmPictureLock: () => {
+    const { project } = get();
+    if (!project) return;
+    get().updateProject((p) => lockPicture(p));
+  },
+
+  unlockPictureLock: () => {
+    const { project } = get();
+    if (!project || !isPictureLocked(project)) return;
+    get().updateProject((p) => unlockPicture(p));
+  },
 
   /* ------------------------------ ui ------------------------------ */
   setActivePage: (page) => set({ activePage: page }),
@@ -405,13 +474,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   updateClip: (clipId, fn, options) =>
     set((s) => {
       if (!s.project) return s;
-      let touched = false;
-      const tracks = s.project.tracks.map((track) => {
-        if (!track.clips.some((c) => c.id === clipId)) return track;
-        touched = true;
-        return { ...track, clips: track.clips.map((c) => (c.id === clipId ? fn(c) : c)) };
-      });
-      if (!touched) return s;
+      const found = findClip(s.project, clipId);
+      if (!found) return s;
+      const nextClip = fn(found.clip);
+      // Picture Lock: правки тайминга/склейки отклоняются, остальное — можно.
+      if (isPictureLocked(s.project) && clipIsStructuralEdit(found.clip, nextClip)) return s;
+      const tracks = s.project.tracks.map((track) =>
+        track.id === found.track.id ? { ...track, clips: track.clips.map((c) => (c.id === clipId ? nextClip : c)) } : track,
+      );
       return pushHistory(s, withTracks(s.project, tracks), options?.history !== false) as Partial<ProjectState>;
     }),
 
@@ -419,16 +489,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => {
       if (!s.project || s.selectedClipIds.length === 0) return s;
       const ids = new Set(s.selectedClipIds);
+      const locked = isPictureLocked(s.project);
       const tracks = s.project.tracks.map((track) => ({
         ...track,
-        clips: track.clips.map((c) => (ids.has(c.id) ? fn(c) : c)),
+        clips: track.clips.map((c) => {
+          if (!ids.has(c.id)) return c;
+          const next = fn(c);
+          // Picture Lock: структурные изменения выделенных клипов отклоняются.
+          if (locked && clipIsStructuralEdit(c, next)) return c;
+          return next;
+        }),
       }));
       return pushHistory(s, withTracks(s.project, tracks), true) as Partial<ProjectState>;
     }),
 
   removeClip: (clipId) =>
     set((s) => {
-      if (!s.project) return s;
+      if (!s.project || isPictureLocked(s.project)) return s;
       const tracks = s.project.tracks.map((track) => ({ ...track, clips: track.clips.filter((c) => c.id !== clipId) }));
       return {
         ...pushHistory(s, withTracks(s.project, tracks), true),
@@ -439,7 +516,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   removeSelected: () =>
     set((s) => {
-      if (!s.project || s.selectedClipIds.length === 0) return s;
+      if (!s.project || s.selectedClipIds.length === 0 || isPictureLocked(s.project)) return s;
       const ids = new Set(s.selectedClipIds);
       const tracks = s.project.tracks.map((track) => ({ ...track, clips: track.clips.filter((c) => !ids.has(c.id)) }));
       return {
@@ -451,7 +528,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   rippleDeleteSelected: () =>
     set((s) => {
-      if (!s.project || s.selectedClipIds.length === 0) return s;
+      if (!s.project || s.selectedClipIds.length === 0 || isPictureLocked(s.project)) return s;
       const ids = new Set(s.selectedClipIds);
       const tracks = s.project.tracks.map((track) => {
         const removed = track.clips.filter((c) => ids.has(c.id));
@@ -472,7 +549,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   duplicateClip: (clipId) =>
     set((s) => {
-      if (!s.project) return s;
+      if (!s.project || isPictureLocked(s.project)) return s;
       let newId: string | null = null;
       const tracks = s.project.tracks.map((track) => {
         const original = track.clips.find((c) => c.id === clipId);
@@ -491,7 +568,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   splitClipAt: (clipId, time) =>
     set((s) => {
-      if (!s.project) return s;
+      if (!s.project || isPictureLocked(s.project)) return s;
       let created: string | null = null;
       const tracks = s.project.tracks.map((track) => {
         const idx = track.clips.findIndex((c) => c.id === clipId);
@@ -546,7 +623,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   moveClip: (clipId, targetTrackId, newStart, options) =>
     set((s) => {
-      if (!s.project) return s;
+      if (!s.project || isPictureLocked(s.project)) return s;
       const found = findClip(s.project, clipId);
       if (!found) return s;
       const target = s.project.tracks.find((t) => t.id === targetTrackId);
@@ -566,7 +643,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   trimClip: (clipId, edge, newTime, options) =>
     set((s) => {
-      if (!s.project) return s;
+      if (!s.project || isPictureLocked(s.project)) return s;
       const found = findClip(s.project, clipId);
       if (!found) return s;
       const clip = found.clip;
@@ -683,7 +760,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   paste: () =>
     set((s) => {
-      if (!s.project || s.clipboard.length === 0) return s;
+      if (!s.project || s.clipboard.length === 0 || isPictureLocked(s.project)) return s;
       const base = Math.min(...s.clipboard.map((c) => c.start));
       const newIds: string[] = [];
       const additions = new Map<string, Clip[]>();
@@ -715,7 +792,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   alignSelectedToPlayhead: () =>
     set((s) => {
-      if (!s.project || s.selectedClipIds.length === 0) return s;
+      if (!s.project || s.selectedClipIds.length === 0 || isPictureLocked(s.project)) return s;
       const ids = new Set(s.selectedClipIds);
       const selected = s.project.tracks.flatMap((t) => t.clips.filter((c) => ids.has(c.id)));
       if (selected.length === 0) return s;
@@ -730,7 +807,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   closeGapsOnTrack: (trackId) =>
     set((s) => {
-      if (!s.project) return s;
+      if (!s.project || isPictureLocked(s.project)) return s;
       const tracks = s.project.tracks.map((track) => {
         if (track.id !== trackId) return track;
         let cursor = 0;
@@ -751,6 +828,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!project) return null;
     const asset = project.assets.find((a) => a.id === assetId);
     if (!asset) return null;
+    // Picture Lock: новые планы на таймлайн добавлять нельзя (меняется монтаж).
+    // Аудио — можно: звук остаётся редактируемым после фиксации.
+    if (isPictureLocked(project) && asset.kind !== "audio") return null;
 
     const wantedType = trackTypeForKind(asset.kind);
     let track =
@@ -815,9 +895,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   /* ------------------------------ tracks -------------------------- */
-  addTrack: (track) => get().updateProject((p) => ({ ...p, tracks: [...p.tracks, track] })),
+  addTrack: (track) => {
+    // Picture Lock: новая видеодорожка изменила бы монтаж; текст/звук — можно.
+    if (isPictureLocked(get().project) && track.type === "video") return;
+    get().updateProject((p) => ({ ...p, tracks: [...p.tracks, track] }));
+  },
 
   createTrack: (type) => {
+    const { project } = get();
+    // Picture Lock: новая видеодорожка изменила бы монтаж; текст/звук — можно.
+    if (isPictureLocked(project) && type === "video") return "";
     const id = uid("track");
     const label =
       type === "video" ? "Видео" : type === "audio" ? "Аудио" : type === "text" ? "Титры" : "Субтитры";
@@ -843,6 +930,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   removeTrack: (trackId) =>
     set((s) => {
       if (!s.project) return s;
+      // Picture Lock: дорожку с планами удалить нельзя — это меняет монтаж.
+      const doomed = s.project.tracks.find((t) => t.id === trackId);
+      if (isPictureLocked(s.project) && doomed?.clips.some((c) => c.type === "video" || c.type === "image")) return s;
       const tracks = s.project.tracks.filter((t) => t.id !== trackId);
       return {
         ...pushHistory(s, withTracks(s.project, tracks), true),

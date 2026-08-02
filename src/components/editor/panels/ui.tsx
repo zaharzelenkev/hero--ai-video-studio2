@@ -29,12 +29,14 @@ export function ToggleButton({
   onClick,
   tone = "default",
   title,
+  disabled,
 }: {
   children: ReactNode;
   active?: boolean;
   onClick?: () => void;
   tone?: "default" | "danger" | "accent";
   title?: string;
+  disabled?: boolean;
 }) {
   const base = "rounded-lg border px-2 py-1 text-[10px] font-bold transition";
   const styles = active
@@ -47,7 +49,7 @@ export function ToggleButton({
         ? "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"
         : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white";
   return (
-    <button type="button" onClick={onClick} title={title} className={`${base} ${styles}`}>
+    <button type="button" onClick={onClick} title={title} disabled={disabled} className={`${base} ${styles} ${disabled ? "cursor-not-allowed opacity-40" : ""}`}>
       {children}
     </button>
   );

@@ -28,8 +28,10 @@ import TextPanelV2 from "./panels/TextPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
 import ProductionPanelV2 from "./panels/ProductionPanelV2";
 import OfflineEditPanel from "./panels/OfflineEditPanel";
+import PictureLockPanelV2 from "./panels/PictureLockPanelV2";
 import DirectorRedirectPanel from "./DirectorRedirectPanel";
 import KeyframeEditor from "./KeyframeEditor";
+import { isPictureLocked } from "@/lib/pictureLock";
 
 /* ------------------------------------------------------------------ */
 /* pages                                                               */
@@ -45,6 +47,7 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "animation", label: "Кадры", icon: "🎬", desc: "Ключевые кадры и кривые" },
   { id: "ai", label: "AI", icon: "🤖", desc: "AI Director" },
   { id: "offline", label: "Черновик", icon: "✂️", desc: "Offline Edit: дубли, чистка речи, драматургия" },
+  { id: "lock", label: "Picture Lock", icon: "🔒", desc: "Финальная сборка: проверка и фиксация монтажа" },
   { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
 ];
 
@@ -76,6 +79,7 @@ const PANEL_COMPONENTS: Record<EditorPage, ComponentType> = {
   animation: KeyframeEditor,
   ai: DirectorRedirectPanel,
   offline: OfflineEditPanel,
+  lock: PictureLockPanelV2,
   export: ExportPanelV2,
 };
 
@@ -162,6 +166,8 @@ export default function EditorShellV2() {
   const redo = useProjectStore((s) => s.redo);
   const past = useProjectStore((s) => s.past.length);
   const future = useProjectStore((s) => s.future.length);
+  const applyPictureLockFixes = useProjectStore((s) => s.applyPictureLockFixes);
+  const confirmPictureLock = useProjectStore((s) => s.confirmPictureLock);
 
   const { importFromDevice, busy: importing, status: importStatus } = useMediaImport();
 
@@ -181,6 +187,8 @@ export default function EditorShellV2() {
     () => project?.tracks.reduce((n, t) => n + t.clips.length, 0) ?? 0,
     [project],
   );
+  const locked = isPictureLocked(project);
+  const lockStage = project?.pictureLock?.stage ?? "none";
 
   /* ------------------------- autosave ---------------------------- */
   useEffect(() => {
@@ -225,6 +233,8 @@ export default function EditorShellV2() {
       const s = useProjectStore.getState();
       const mod = event.ctrlKey || event.metaKey;
       const frame = 1 / (s.project?.fps || 30);
+      // Picture Lock подтверждён: монтажные операции недоступны даже с клавиатуры.
+      const locked = s.isEditLocked();
 
       // --- clipboard / history / save -----------------------------
       if (mod && event.code === "KeyZ") {
@@ -250,17 +260,17 @@ export default function EditorShellV2() {
       }
       if (mod && event.code === "KeyX") {
         event.preventDefault();
-        s.cutSelection();
+        if (!locked) s.cutSelection();
         return;
       }
       if (mod && event.code === "KeyV") {
         event.preventDefault();
-        s.paste();
+        if (!locked) s.paste();
         return;
       }
       if (mod && event.code === "KeyD") {
         event.preventDefault();
-        if (s.selectedClipId) s.duplicateClip(s.selectedClipId);
+        if (!locked && s.selectedClipId) s.duplicateClip(s.selectedClipId);
         return;
       }
       if (mod && event.code === "KeyA") {
@@ -330,7 +340,7 @@ export default function EditorShellV2() {
         case "KeyS":
         case "KeyB":
           event.preventDefault();
-          s.splitAtPlayhead();
+          if (!locked) s.splitAtPlayhead();
           break;
         case "KeyI":
           s.setInPoint(s.playhead);
@@ -344,6 +354,7 @@ export default function EditorShellV2() {
         case "Delete":
         case "Backspace":
           event.preventDefault();
+          if (locked) break;
           if (s.ripple) s.rippleDeleteSelected();
           else s.removeSelected();
           break;
@@ -470,6 +481,25 @@ export default function EditorShellV2() {
           <span className="hidden sm:inline">{importing ? "Импорт…" : "Добавить медиа"}</span>
         </button>
 
+        {/* Picture Lock badge — редактор всегда понимает состояние монтажа */}
+        {locked ? (
+          <button
+            onClick={() => setActivePage("lock")}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-extrabold text-emerald-300 shadow-lg shadow-emerald-900/20 transition hover:bg-emerald-500/20"
+            title="Picture Lock подтверждён — монтаж зафиксирован. Доступны: цвет, звук, титры, эффекты."
+          >
+            🔒 <span className="hidden sm:inline">Picture Lock</span>
+          </button>
+        ) : lockStage === "review" ? (
+          <button
+            onClick={() => setActivePage("lock")}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] font-extrabold text-amber-300 shadow-lg shadow-amber-900/20 transition hover:bg-amber-500/20"
+            title="Режим финальной сборки: проверьте отчёт Picture Lock"
+          >
+            📋 <span className="hidden sm:inline">Picture Lock</span>
+          </button>
+        ) : null}
+
         {/* Desktop nav */}
         <nav className="no-scrollbar hidden flex-1 items-center justify-center gap-0.5 overflow-x-auto md:flex">
           {PAGES.map((p) => (
@@ -484,7 +514,10 @@ export default function EditorShellV2() {
               title={p.desc}
             >
               <span>{p.icon}</span>
-              <span className="hidden lg:inline">{p.label}</span>
+              <span className="hidden lg:inline">
+                {p.label}
+                {locked && p.id === "montage" ? " 🔒" : ""}
+              </span>
             </button>
           ))}
         </nav>
@@ -538,6 +571,43 @@ export default function EditorShellV2() {
           Импорт медиа: {importStatus || "чтение файлов…"}
         </div>
       )}
+
+      {/* ------------------- Picture Lock status strip ------------------- */}
+      {locked ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200">
+          <span>🔒 Picture Lock подтверждён — монтаж зафиксирован. Дальше изменяются только цвет, звук, титры и эффекты.</span>
+          <button
+            onClick={() => setActivePage("lock")}
+            className="ml-auto rounded-md border border-emerald-400/30 bg-emerald-500/20 px-2 py-0.5 font-bold transition hover:bg-emerald-500/30"
+          >
+            Открыть отчёт
+          </button>
+        </div>
+      ) : lockStage === "review" ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-400/20 bg-amber-500/10 px-3 py-1.5 text-[10px] font-semibold text-amber-200">
+          <span>📋 Режим финальной сборки: автомонтаж завершён. Проверьте отчёт Picture Lock и подтвердите монтаж.</span>
+          <button
+            onClick={() => setActivePage("lock")}
+            className="ml-auto rounded-md border border-amber-400/30 bg-amber-500/20 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"
+          >
+            Открыть отчёт
+          </button>
+          <button
+            onClick={() => applyPictureLockFixes()}
+            className="rounded-md border border-amber-400/30 bg-amber-500/20 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"
+            title="Автоматически исправить длинные/короткие кадры, темп и визуальную логику"
+          >
+            🛠 Исправить
+          </button>
+          <button
+            onClick={() => confirmPictureLock()}
+            className="rounded-md border border-emerald-400/40 bg-emerald-500/20 px-2 py-0.5 font-bold text-emerald-100 transition hover:bg-emerald-500/35"
+            title="Зафиксировать монтаж: дальше меняются только цвет, звук, титры и эффекты"
+          >
+            🔒 Подтвердить Picture Lock
+          </button>
+        </div>
+      ) : null}
 
       {/* Mobile nav dropdown */}
       {mobileNavOpen && (

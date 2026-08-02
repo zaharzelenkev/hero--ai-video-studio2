@@ -1,14 +1,34 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
-export function PanelSection({ title, subtitle, children, right }: { title: string; subtitle?: string; children: ReactNode; right?: ReactNode }) {
+/**
+ * MONTIQ editor — единые примитивы инспектора.
+ * Все панели выглядят одинаково: секции с hairline-разделителями,
+ * одинаковые кнопки, поля, слайдеры и переключатели.
+ */
+
+export function PanelSection({
+  title,
+  subtitle,
+  children,
+  right,
+  icon,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  right?: ReactNode;
+  icon?: IconName;
+}) {
   return (
-    <section className="surface-card mb-3 p-3">
-      <div className="mb-2.5 flex items-center gap-2">
-        <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-300">{title}</h3>
-        {subtitle && <span className="truncate text-[10px] text-slate-500">{subtitle}</span>}
-        {right && <div className="ml-auto">{right}</div>}
+    <section className="insp-section">
+      <div className="insp-section-header">
+        {icon && <Icon name={icon} size={13} strokeWidth={1.8} className="shrink-0 text-violet-300" />}
+        <h3 className="insp-section-title">{title}</h3>
+        {subtitle && <span className="insp-section-sub">{subtitle}</span>}
+        {right && <div className="ml-auto flex shrink-0 items-center gap-1.5">{right}</div>}
       </div>
       {children}
     </section>
@@ -17,8 +37,9 @@ export function PanelSection({ title, subtitle, children, right }: { title: stri
 
 export function EmptyHint({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-white/[0.12] bg-white/[0.015] p-5 text-center text-[11px] leading-relaxed text-slate-500">
-      {children}
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-white/[0.13] bg-white/[0.015] px-5 py-7 text-center text-[11px] leading-relaxed text-slate-500">
+      <Icon name="info" size={16} strokeWidth={1.6} className="text-slate-600" />
+      <span>{children}</span>
     </div>
   );
 }
@@ -38,18 +59,25 @@ export function ToggleButton({
   title?: string;
   disabled?: boolean;
 }) {
-  const base = "rounded-lg border px-2 py-1 text-[10px] font-bold transition";
   const styles = active
     ? tone === "danger"
-      ? "border-rose-400/50 bg-rose-500/20 text-rose-100"
-      : "border-violet-400/50 bg-violet-500/25 text-violet-100"
+      ? "border-rose-400/50 bg-rose-500/20 text-rose-100 shadow-[0_0_12px_-4px_rgba(244,63,94,0.5)]"
+      : "border-violet-400/55 bg-violet-500/25 text-violet-100 shadow-[0_0_12px_-4px_rgba(124,108,246,0.6)]"
     : tone === "danger"
-      ? "border-white/10 bg-white/[0.04] text-rose-300 hover:bg-rose-500/15"
+      ? "border-white/10 bg-white/[0.04] text-rose-300 hover:bg-rose-500/15 hover:border-rose-400/30"
       : tone === "accent"
-        ? "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"
-        : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white";
+        ? "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20 hover:border-violet-400/45"
+        : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white hover:border-white/20";
   return (
-    <button type="button" onClick={onClick} title={title} disabled={disabled} className={`${base} ${styles} ${disabled ? "cursor-not-allowed opacity-40" : ""}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[10px] font-bold transition-all ${styles} ${
+        disabled ? "cursor-not-allowed opacity-40" : "active:scale-[0.96]"
+      }`}
+    >
       {children}
     </button>
   );
@@ -73,7 +101,7 @@ export function NumberField({
   suffix?: string;
 }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="field-label mb-1 !text-[9px]">{label}</span>
       <div className="flex items-center gap-1.5">
         <input
@@ -86,9 +114,9 @@ export function NumberField({
             const parsed = parseFloat(e.target.value);
             if (!Number.isNaN(parsed)) onChange(parsed);
           }}
-          className="input !px-2 !py-1 !text-[11px]"
+          className="input !px-2 !py-1.5 !text-[11px]"
         />
-        {suffix && <span className="text-[10px] text-slate-500">{suffix}</span>}
+        {suffix && <span className="shrink-0 text-[10px] text-slate-500">{suffix}</span>}
       </div>
     </label>
   );
@@ -106,15 +134,15 @@ export function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="field-label mb-1 !text-[9px]">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="input !px-2 !py-1 !text-[11px]"
+        className="input !px-2 !py-1.5 !text-[11px]"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value} className="bg-[#101017]">
+          <option key={o.value} value={o.value}>
             {o.label}
           </option>
         ))}
@@ -140,11 +168,14 @@ export function SliderField({
   onChange: (v: number) => void;
   display?: (v: number) => string;
 }) {
+  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
   return (
     <div className="mb-2">
-      <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-300">
-        <span>{label}</span>
-        <span className="font-mono text-violet-300">{display ? display(value) : value.toFixed(2)}</span>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium text-slate-300">
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 rounded-md bg-violet-500/10 px-1.5 py-0.5 font-mono text-[9px] text-violet-200">
+          {display ? display(value) : value.toFixed(2)}
+        </span>
       </div>
       <input
         type="range"
@@ -153,8 +184,8 @@ export function SliderField({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="h-1 w-full"
-        style={{ accentColor: "var(--primary)" }}
+        className="h-4 w-full"
+        style={{ ["--range-pct" as string]: `${Math.max(0, Math.min(100, pct))}%` }}
         aria-label={label}
       />
     </div>
@@ -165,21 +196,29 @@ export function ColorField({ label, value, onChange }: { label: string; value: s
   return (
     <label className="flex items-center justify-between gap-2 py-1">
       <span className="text-[10px] font-medium text-slate-400">{label}</span>
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-6 w-10 cursor-pointer rounded border border-white/10 bg-transparent p-0"
-        aria-label={label}
-      />
+      <span className="flex items-center gap-1.5">
+        <span className="font-mono text-[9px] uppercase text-slate-500">{value}</span>
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-7 w-9 cursor-pointer rounded-lg border border-white/10 bg-transparent p-0.5 transition hover:border-violet-400/40"
+          aria-label={label}
+        />
+      </span>
     </label>
   );
 }
 
 export function CheckboxField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex items-center gap-2 py-1 text-[11px] text-slate-300">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "var(--primary)" }} />
+    <label className="flex cursor-pointer items-center gap-2 py-1 text-[11px] font-medium text-slate-300 transition hover:text-slate-100">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 cursor-pointer rounded accent-[#7c6cf6]"
+      />
       {label}
     </label>
   );

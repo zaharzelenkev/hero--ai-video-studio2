@@ -7,6 +7,7 @@ import { TEXT_FONTS } from "@/lib/presets";
 import { applyTextAnimation } from "@/lib/textAnimations";
 import { mgLabel } from "@/lib/motionGraphics";
 import { PanelSection, ToggleButton, EmptyHint, SliderField, SelectField, ColorField, NumberField, CheckboxField } from "./ui";
+import { Icon } from "@/components/ui/Icon";
 
 const ANIMATIONS: TextAnimation[] = [
   "none",
@@ -115,7 +116,7 @@ export default function TextPanelV2() {
       <div className="space-y-3">
         <PanelSection title="Титры">
           <ToggleButton tone="accent" onClick={() => addTextClip()}>
-            ＋ Добавить титр на плейхеде
+            <Icon name="plus" size={11} />Добавить титр на плейхеде
           </ToggleButton>
           {textClips.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -141,7 +142,7 @@ export default function TextPanelV2() {
           </EmptyHint>
           <div className="mt-2">
             <ToggleButton tone="accent" onClick={() => setActivePage("motion")}>
-              🪄 Открыть панель Motion
+              <Icon name="wand" size={11} />Открыть панель Motion
             </ToggleButton>
           </div>
         </PanelSection>
@@ -222,9 +223,9 @@ export default function TextPanelV2() {
         <SliderField label="Масштаб" value={clip.scale?.value ?? 1} min={0.2} max={3} onChange={(v) => patch((c) => ({ ...c, scale: param(v) }))} />
         <SliderField label="Прозрачность" value={clip.opacity?.value ?? 1} min={0} max={1} onChange={(v) => patch((c) => ({ ...c, opacity: param(v) }))} />
         <div className="flex flex-wrap gap-1.5">
-          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(-0.3) }))}>↑ Верх</ToggleButton>
+          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(-0.3) }))}><Icon name="chevron-up" size={11} />Верх</ToggleButton>
           <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(0) }))}>• Центр</ToggleButton>
-          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(0.32) }))}>↓ Низ</ToggleButton>
+          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(0.32) }))}><Icon name="chevron-down" size={11} />Низ</ToggleButton>
         </div>
       </PanelSection>
 
@@ -255,7 +256,7 @@ export default function TextPanelV2() {
             }
             title="Пересчитать ключевые кадры под выбранную анимацию"
           >
-            ⚡ Применить анимацию
+            <Icon name="zap" size={11} />Применить анимацию
           </ToggleButton>
           <ToggleButton
             onClick={() =>
@@ -268,7 +269,7 @@ export default function TextPanelV2() {
               }))
             }
           >
-            ↺ Убрать ключи
+            <Icon name="rotate-ccw" size={11} />Убрать ключи
           </ToggleButton>
         </div>
       </PanelSection>

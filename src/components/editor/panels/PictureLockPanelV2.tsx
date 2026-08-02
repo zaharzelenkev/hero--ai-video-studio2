@@ -5,6 +5,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { isPictureLocked, timelineDurationOf } from "@/lib/pictureLock";
 import type { PictureLockIssue } from "@/lib/types";
 import { PanelSection, ToggleButton, EmptyHint } from "./ui";
+import { Icon } from "@/components/ui/Icon";
 
 const KIND_LABELS: Record<PictureLockIssue["kind"], string> = {
   duration: "Длительность",
@@ -16,9 +17,9 @@ const KIND_LABELS: Record<PictureLockIssue["kind"], string> = {
 };
 
 function StatusIcon({ severity }: { severity: PictureLockIssue["severity"] }) {
-  if (severity === "ok") return <span className="text-emerald-400">✓</span>;
-  if (severity === "warn") return <span className="text-amber-400">⚠</span>;
-  return <span className="text-rose-400">✕</span>;
+  if (severity === "ok") return <Icon name="check" size={12} className="text-emerald-400" />;
+  if (severity === "warn") return <Icon name="alert" size={12} className="text-amber-400" />;
+  return <Icon name="x" size={12} className="text-rose-400" />;
 }
 
 export default function PictureLockPanelV2() {
@@ -60,7 +61,7 @@ export default function PictureLockPanelV2() {
         }`}
       >
         <div className="flex items-center gap-2">
-          <span className="text-2xl">{locked ? "🔒" : lock.stage === "review" ? "📋" : "🎬"}</span>
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-200"><Icon name={locked ? "lock" : lock.stage === "review" ? "clipboard" : "film"} size={22} /></span>
           <div>
             <div className={`text-xs font-black uppercase tracking-wider ${locked ? "text-emerald-300" : lock.stage === "review" ? "text-amber-300" : "text-slate-300"}`}>
               {locked ? "Picture Lock подтверждён" : lock.stage === "review" ? "Режим финальной сборки" : "Picture Lock не запускался"}
@@ -79,7 +80,7 @@ export default function PictureLockPanelV2() {
           {!locked && (
             <>
               <ToggleButton onClick={() => run(runPictureLockCheck)} disabled={busy} tone="accent">
-                🔍 Запустить проверку
+                <Icon name="search" size={12} />Запустить проверку
               </ToggleButton>
               <ToggleButton
                 onClick={() => run(applyPictureLockFixes)}
@@ -87,7 +88,7 @@ export default function PictureLockPanelV2() {
                 tone="accent"
                 title={lock.stage === "none" ? "Сначала запустите проверку" : undefined}
               >
-                🛠 Исправить автоматически
+                <Icon name="wrench" size={12} />Исправить автоматически
               </ToggleButton>
             </>
           )}
@@ -95,7 +96,7 @@ export default function PictureLockPanelV2() {
             <>
               {!confirmOpen ? (
                 <ToggleButton onClick={() => setConfirmOpen(true)} tone="accent">
-                  🔒 Подтвердить Picture Lock
+                  <Icon name="lock" size={12} />Подтвердить Picture Lock
                 </ToggleButton>
               ) : (
                 <div className="flex w-full flex-col gap-2 rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-2">
@@ -105,7 +106,7 @@ export default function PictureLockPanelV2() {
                   </span>
                   <div className="flex gap-1.5">
                     <ToggleButton tone="accent" onClick={() => { confirmPictureLock(); setConfirmOpen(false); }}>
-                      ✅ Да, зафиксировать монтаж
+                      <Icon name="check-circle" size={12} />Да, зафиксировать монтаж
                     </ToggleButton>
                     <ToggleButton onClick={() => setConfirmOpen(false)}>Отмена</ToggleButton>
                   </div>
@@ -117,7 +118,7 @@ export default function PictureLockPanelV2() {
             <>
               {!unlockOpen ? (
                 <ToggleButton onClick={() => setUnlockOpen(true)} tone="danger">
-                  ✏️ Снять блокировку
+                  <Icon name="draft" size={12} />Снять блокировку
                 </ToggleButton>
               ) : (
                 <div className="flex w-full flex-col gap-2 rounded-lg border border-rose-400/30 bg-rose-500/10 p-2">
@@ -197,12 +198,12 @@ export default function PictureLockPanelV2() {
             {report.fixes.length > 0 && (
               <div className="mt-3">
                 <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                  🛠 Автоматические исправления ({report.fixes.length})
+                  <Icon name="wrench" size={12} />Автоматические исправления ({report.fixes.length})
                 </div>
                 <div className="space-y-1">
                   {report.fixes.map((fix, idx) => (
                     <div key={idx} className="flex items-start gap-2 text-[10px] leading-snug text-emerald-200/90">
-                      <span>→</span>
+                      <Icon name="arrow-right" size={11} className="text-slate-600" />
                       <span>{fix.message}</span>
                     </div>
                   ))}
@@ -213,7 +214,7 @@ export default function PictureLockPanelV2() {
 
           {locked && (
             <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-3 text-[11px] leading-relaxed text-emerald-200/90">
-              🔒 <b>Монтаж зафиксирован.</b> Редактор понимает, что Picture Lock завершён: страница «Монтаж» переведена
+              <Icon name="lock" size={12} className="mr-1 inline-block text-emerald-300" /><b>Монтаж зафиксирован.</b> Редактор понимает, что Picture Lock завершён: страница «Монтаж» переведена
               в режим просмотра, таймлайн не позволяет двигать и обрезать планы, а изменения доступны только в разделах
               «Цвет», «Звук», «Текст» и «Эффекты».
             </div>

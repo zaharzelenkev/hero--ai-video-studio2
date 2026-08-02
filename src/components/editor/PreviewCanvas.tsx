@@ -8,6 +8,7 @@ import { mediaPool } from "@/lib/editor/resourcePool";
 import { vfxBrush } from "@/lib/editor/vfxBrush";
 import { interactiveSegmentService, maskToPolygon } from "@/lib/editor/mediaPipeVfx";
 import { defaultVfx } from "@/lib/factories";
+import { Icon } from "@/components/ui/Icon";
 import type { Clip, VideoClip } from "@/lib/types";
 
 function clamp01(v: number): number {
@@ -61,6 +62,7 @@ export default function PreviewCanvas() {
   const resolution = useProjectStore((s) => s.project?.resolution);
   const projectId = useProjectStore((s) => s.project?.id);
   const isPlaying = useProjectStore((s) => s.isPlaying);
+  const clipCount = useProjectStore((s) => s.project?.tracks.reduce((n, t) => n + t.clips.length, 0) ?? 0);
   const [guides, setGuides] = useState(false);
   const [fit, setFit] = useState<{ width: number; height: number }>({ width: 640, height: 360 });
 
@@ -310,49 +312,88 @@ export default function PreviewCanvas() {
   };
 
   return (
-    <div ref={wrapRef} className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black/60">
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: fit.width,
-          height: fit.height,
-          cursor: brushCursor ? "crosshair" : "default",
-          touchAction: "none",
-        }}
-        className="rounded-lg bg-black shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
-        aria-label="Окно предпросмотра"
-        onPointerDown={onBrushDown}
-        onPointerMove={onBrushMove}
-        onPointerUp={onBrushUp}
-        onPointerCancel={onBrushUp}
-        onPointerLeave={() => {
-          if (brushRef.current) onBrushUp();
-        }}
+    <div ref={wrapRef} className="preview-stage relative flex h-full w-full items-center justify-center overflow-hidden">
+      {/* Мягкое свечение за кадром */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "radial-gradient(60% 50% at 50% 50%, rgba(124,108,246,0.08), transparent 70%)" }}
       />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2">
-        <div className="pointer-events-auto rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-mono text-slate-300 backdrop-blur">
+      <div className="relative" style={{ width: fit.width, height: fit.height }}>
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: fit.width,
+            height: fit.height,
+            cursor: brushCursor ? "crosshair" : "default",
+            touchAction: "none",
+          }}
+          className="preview-canvas rounded-[6px] bg-black"
+          aria-label="Окно предпросмотра"
+          onPointerDown={onBrushDown}
+          onPointerMove={onBrushMove}
+          onPointerUp={onBrushUp}
+          onPointerCancel={onBrushUp}
+          onPointerLeave={() => {
+            if (brushRef.current) onBrushUp();
+          }}
+        />
+        {/* Профессиональные уголки рамки */}
+        <div className="preview-corner preview-corner-tl" />
+        <div className="preview-corner preview-corner-tr" />
+        <div className="preview-corner preview-corner-bl" />
+        <div className="preview-corner preview-corner-br" />
+      </div>
+
+      {/* Верхние оверлеи */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2.5">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/55 px-2 py-1 font-mono text-[10px] text-slate-300 backdrop-blur-md">
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-400" style={{ boxShadow: "0 0 8px rgba(124,108,246,0.9)" }} />
           {resolution ? `${resolution.width}×${resolution.height}` : "—"}
         </div>
         <div className="pointer-events-auto flex items-center gap-1">
           <button
             onClick={() => setGuides((g) => !g)}
-            className={`rounded-lg border px-2 py-1 text-[10px] font-bold backdrop-blur transition ${
-              guides ? "border-violet-400/50 bg-violet-500/25 text-violet-100" : "border-white/10 bg-black/60 text-slate-300 hover:text-white"
+            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-bold backdrop-blur-md transition-all ${
+              guides
+                ? "border-violet-400/50 bg-violet-500/25 text-violet-100 shadow-[0_0_12px_-4px_rgba(124,108,246,0.7)]"
+                : "border-white/10 bg-black/55 text-slate-300 hover:text-white"
             }`}
             title="Безопасные зоны и сетка третей"
           >
-            ⊞ Сетка
+            <Icon name="grid" size={12} />
+            Сетка
           </button>
           <button
             onClick={toggleFullscreen}
-            className="rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-slate-300 backdrop-blur transition hover:text-white"
+            className="flex items-center justify-center rounded-lg border border-white/10 bg-black/55 p-1.5 text-slate-300 backdrop-blur-md transition-all hover:text-white"
             title="Полный экран"
           >
-            ⛶
+            <Icon name="maximize" size={13} />
           </button>
         </div>
       </div>
+
+      {/* Пустой проект — подсказка */}
+      {clipCount === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] text-slate-500">
+            <Icon name="film" size={22} strokeWidth={1.5} />
+          </div>
+          <div className="text-xs font-semibold text-slate-400">Таймлайн пуст</div>
+          <div className="max-w-[220px] text-center text-[10px] leading-relaxed text-slate-600">
+            Импортируйте видео, аудио или фото и перетащите их на таймлайн — или нажмите «Добавить медиа».
+          </div>
+        </div>
+      )}
+
+      {/* Индикатор записи/воспроизведения */}
+      {isPlaying && (
+        <div className="pointer-events-none absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-md bg-black/50 px-2 py-0.5 backdrop-blur-sm">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500" style={{ boxShadow: "0 0 8px rgba(244,63,94,0.9)" }} />
+          <span className="font-mono text-[9px] uppercase tracking-widest text-slate-400">Play</span>
+        </div>
+      )}
     </div>
   );
 }

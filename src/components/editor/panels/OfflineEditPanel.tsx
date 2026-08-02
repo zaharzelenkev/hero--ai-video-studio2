@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useProjectStore } from "@/store/projectStore";
 import { PACE_LABELS } from "@/lib/brain/sceneDirection";
 import type { PlannedScene } from "@/lib/brain/directorPlan";
+import { Icon } from "@/components/ui/Icon";
 
 /**
  * OFFLINE EDIT (Черновой монтаж) — что автоматика сделала до того,
@@ -95,7 +96,7 @@ export default function OfflineEditPanel() {
   if (!plan) {
     return (
       <div className="rounded-2xl border border-white/10 bg-[#0d0d16] p-4 text-center">
-        <div className="mb-2 text-3xl">✂️</div>
+        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-violet-200"><Icon name="scissors" size={18} /></div>
         <h3 className="mb-1 text-sm font-bold text-slate-200">Черновой монтаж не выполнялся</h3>
         <p className="text-[11px] leading-relaxed text-slate-400">
           Этот проект собран вручную. Автоматический черновой монтаж (умный выбор дублей,
@@ -174,7 +175,7 @@ export default function OfflineEditPanel() {
               <div key={i} className="rounded-lg border border-white/10 bg-black/30 p-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[10px] font-bold text-emerald-300">
-                    ✓ {d.assetName} @{d.start}с
+                    <Icon name="check" size={10} className="inline-block text-emerald-400" />{d.assetName} @{d.start}с
                   </span>
                   <span className="shrink-0 font-mono text-[10px] text-emerald-400">{d.score.toFixed(2)}</span>
                 </div>
@@ -183,7 +184,7 @@ export default function OfflineEditPanel() {
                 )}
                 {d.losers.map((l, j) => (
                   <div key={j} className="mt-1 border-l-2 border-rose-400/30 pl-2 text-[9px] leading-relaxed text-slate-400">
-                    <span className="text-rose-300">✕ {l.assetName} @{l.start}с</span> — {l.reason}
+                    <span className="flex items-center gap-1 text-rose-300"><Icon name="x" size={10} />{l.assetName} @{l.start}с</span> — {l.reason}
                   </div>
                 ))}
               </div>
@@ -302,12 +303,12 @@ export default function OfflineEditPanel() {
         <Card title="Самопроверка режиссёра">
           {plan.qa.passed.map((p, i) => (
             <div key={`p${i}`} className="mb-1 text-[10px] leading-relaxed text-emerald-300">
-              ✓ {p}
+              <Icon name="check" size={10} className="inline-block text-emerald-400" />{p}
             </div>
           ))}
           {plan.qa.fixed.map((f, i) => (
             <div key={`f${i}`} className="mb-1 text-[10px] leading-relaxed text-amber-300">
-              ⟳ {f}
+              <Icon name="refresh" size={10} className="inline-block text-amber-400" />{f}
             </div>
           ))}
         </Card>

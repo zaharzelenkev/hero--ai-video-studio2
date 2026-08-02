@@ -5,6 +5,12 @@ import { useProjectStore, timelineDuration } from "@/store/projectStore";
 import { cloneProject, downloadBlob, exportFramePng, safeFilename, sliceProject } from "@/lib/editor/exportUtils";
 import { saveBlob } from "@/lib/db";
 import { uid } from "@/lib/id";
+import { Icon } from "@/components/ui/Icon";
+
+/** Обёртка над Date.now для событийных обработчиков (purity-правило React). */
+function now(): number {
+  return Date.now();
+}
 import { PanelSection, ToggleButton, EmptyHint, SelectField, NumberField, SliderField } from "./ui";
 import { 
   masterAndRender, 
@@ -129,7 +135,7 @@ export default function ExportPanelV2() {
         name,
         resultBlobKey: key,
         sizeMB: Math.round(finalBlob.size / 1024 / 1024),
-        finishedAt: Date.now(),
+        finishedAt: now(),
       });
       refreshQueue();
 
@@ -321,7 +327,7 @@ export default function ExportPanelV2() {
             onClick={() => setExportAudio(!exportAudio)}
             className={`px-2 py-0.5 rounded text-[10px] border ${exportAudio ? "bg-sky-600 border-sky-400" : "border-white/10 bg-white/5"}`}
           >
-            🎵 Аудио
+            <Icon name="music" size={12} />Аудио
           </button>
         </div>
 
@@ -429,7 +435,7 @@ export default function ExportPanelV2() {
 
       {result && (
         <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-2 text-[10px] text-emerald-200">
-          ✅ {result.name} · {(result.blob.size / 1024 / 1024).toFixed(1)} МБ
+          <Icon name="check-circle" size={13} className="text-emerald-400" />{result.name} · {(result.blob.size / 1024 / 1024).toFixed(1)} МБ
           <button onClick={() => downloadBlob(result.blob, result.name)} className="ml-2 underline">скачать</button>
         </div>
       )}
@@ -452,7 +458,7 @@ export default function ExportPanelV2() {
       </PanelSection>
 
       <PanelSection title="Кадр">
-        <ToggleButton onClick={() => void saveFrame()}>🖼 Сохранить текущий кадр (PNG)</ToggleButton>
+        <ToggleButton onClick={() => void saveFrame()}><Icon name="image" size={11} />Сохранить текущий кадр (PNG)</ToggleButton>
       </PanelSection>
 
       <div className="text-[9px] text-center text-slate-500 pt-1">

@@ -4,6 +4,9 @@ import { evalParam } from "@/lib/keyframes";
 import { EFFECT_PRESETS } from "@/lib/presets";
 import type { BlendMode, Clip, ColorGrade, MediaAsset, Project, SubtitleClip, TextClip, Track, VideoClip } from "@/lib/types";
 import { mediaPool } from "./resourcePool";
+import { applyVfxChain, hexToRgbArr, toImageData } from "./vfxEngine";
+import { vfxBrush } from "./vfxBrush";
+import { bgRemovalService, type SegmentationMask } from "./mediaPipeVfx";
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -133,47 +136,6 @@ function scratch(key: string, width: number, height: number): CanvasRenderingCon
   return ctx;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const clean = hex.replace("#", "");
-  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
-  const num = parseInt(full || "00ff00", 16);
-  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
-}
-
-/** Хромакей в реальном времени (на уменьшенной копии кадра — для скорости). */
-function applyChromaKey(
-  source: CanvasImageSource,
-  sourceWidth: number,
-  sourceHeight: number,
-  clipId: string,
-  color: string,
-  similarity: number,
-  blend: number,
-): HTMLCanvasElement | null {
-  const maxWidth = 720;
-  const scale = Math.min(1, maxWidth / Math.max(1, sourceWidth));
-  const w = Math.max(2, Math.round(sourceWidth * scale));
-  const h = Math.max(2, Math.round(sourceHeight * scale));
-  const ctx = scratch(`chroma:${clipId}`, w, h);
-  if (!ctx) return null;
-  ctx.drawImage(source, 0, 0, w, h);
-  const frame = ctx.getImageData(0, 0, w, h);
-  const data = frame.data;
-  const [kr, kg, kb] = hexToRgb(color);
-  const threshold = 255 * 3 * Math.max(0.01, similarity);
-  const softness = Math.max(1, 255 * 3 * Math.max(0.01, blend));
-  for (let i = 0; i < data.length; i += 4) {
-    const distance = Math.abs(data[i] - kr) + Math.abs(data[i + 1] - kg) + Math.abs(data[i + 2] - kb);
-    if (distance < threshold) {
-      data[i + 3] = 0;
-    } else if (distance < threshold + softness) {
-      data[i + 3] = Math.round(data[i + 3] * ((distance - threshold) / softness));
-    }
-  }
-  ctx.putImageData(frame, 0, 0);
-  return ctx.canvas;
-}
-
 /* ------------------------------------------------------------------ */
 /* geometry                                                            */
 /* ------------------------------------------------------------------ */
@@ -260,6 +222,134 @@ function transitionAlpha(clip: VideoClip | TextClip, localTime: number): { alpha
 }
 
 /* ------------------------------------------------------------------ */
+/* VFX helpers                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Есть ли у клипа эффекты движка, требующие обработки кадра. */
+function hasEngineVfx(clip: VideoClip): boolean {
+  const vfx = clip.vfx;
+  if (clip.chroma?.enabled) return true;
+  if (clip.motionBlur?.enabled) return true;
+  if (!vfx) return false;
+  return (
+    (vfx.backgroundRemoval?.enabled ?? false) ||
+    (vfx.objectRemoval?.enabled && ((vfx.objectRemoval.strokes?.length ?? 0) > 0 || (vfx.objectRemoval.region?.polygon?.length ?? 0) > 0)) ||
+    (vfx.lut?.enabled && vfx.lut.preset !== "none") ||
+    (vfx.glow?.enabled ?? false) ||
+    (vfx.lightRays?.enabled ?? false) ||
+    (vfx.filmGrain?.enabled ?? false) ||
+    (vfx.lensDistortion?.enabled ?? false) ||
+    (vfx.bloom?.enabled ?? false) ||
+    (vfx.sharpen?.enabled ?? false) ||
+    (vfx.noiseReduction?.enabled ?? false) ||
+    (vfx.vignette?.enabled ?? false)
+  );
+}
+
+/**
+ * Прогоняет VFX-цепочку движка по слою клипа (offscreen-канвас).
+ * Для скорости работает на уменьшенной копии кадра — как прокси в NLE.
+ */
+function applyEngineToLayer(
+  layerCtx: CanvasRenderingContext2D,
+  clip: VideoClip,
+  asset: MediaAsset | undefined,
+  source: CanvasImageSource,
+  localTime: number,
+  w: number,
+  h: number,
+) {
+  const vfx = clip.vfx;
+  // Удаление объекта (FMM-инпейнтинг) — самый дорогой шаг: считаем на
+  // заметно меньшем разрешении.
+  const maxWork = vfx?.objectRemoval?.enabled ? 420 : 660;
+  const scale = Math.min(1, maxWork / Math.max(1, w));
+  const workW = Math.max(2, Math.round(w * scale));
+  const workH = Math.max(2, Math.round(h * scale));
+
+  let work: CanvasRenderingContext2D | null = null;
+  let full: CanvasRenderingContext2D | null = null;
+  if (scale < 0.999) {
+    work = scratch(`vfxWork:${clip.id}`, workW, workH);
+    if (!work) return;
+    work.drawImage(layerCtx.canvas, 0, 0, workW, workH);
+  } else {
+    full = layerCtx;
+  }
+
+  const target = (work ?? full)!;
+  const frame = target.getImageData(0, 0, workW, workH);
+
+  // AI-удаление фона: маска MediaPipe (кэшируется по времени — 250 мс корзины).
+  let bgMask: SegmentationMask | null = null;
+  if (vfx?.backgroundRemoval?.enabled) {
+    const key = `${clip.id}:${asset?.id ?? "?"}:${Math.round(localTime * 4) / 4}`;
+    bgMask = bgRemovalService.getMask(key);
+    if (!bgMask) {
+      bgRemovalService.computeMaskSoon(source, key);
+    }
+  }
+
+  const chainVfx = {
+    ...vfx,
+    motionBlur: clip.motionBlur?.enabled
+      ? {
+          enabled: true,
+          angleDeg: clip.motionBlur.angle ?? 0,
+          length: (clip.motionBlur.samples ?? 8) * 0.75,
+          samples: Math.max(2, Math.round((clip.motionBlur.samples ?? 8) * 1.5)),
+        }
+      : null,
+  };
+
+  const chroma = clip.chroma;
+  const out = applyVfxChain(
+    { data: frame.data, width: workW, height: workH },
+    chainVfx,
+    {
+      time: localTime,
+      workScale: scale,
+      bgMask: bgMask ?? null,
+      chroma: chroma?.enabled
+        ? {
+            color: hexToRgbArr(chroma.color),
+            similarity: chroma.similarity,
+            blend: chroma.blend,
+            despill: chroma.despill ?? 0.35,
+          }
+        : null,
+    },
+  );
+
+  target.putImageData(toImageData(out), 0, 0);
+
+  if (scale < 0.999 && work) {
+    layerCtx.drawImage(work.canvas, 0, 0, w, h);
+  }
+}
+
+/** Оверлей кисти удаления объекта (штрихи + живой мазок). */
+function drawBrushOverlay(ctx: CanvasRenderingContext2D, clip: VideoClip, w: number, h: number) {
+  if (!vfxBrush.isActive(clip.id)) return;
+  const strokes = clip.vfx?.objectRemoval.strokes ?? [];
+  const live = vfxBrush.state.liveStroke;
+  ctx.save();
+  for (const s of [...strokes, ...(live ?? [])]) {
+    const cx = s.x * w;
+    const cy = s.y * h;
+    const r = Math.max(2, s.radius * w);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(244,63,94,0.35)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ */
 /* clip drawing                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -302,18 +392,8 @@ function drawVisualClip(
   }
 
   const crop = croppedSource(clip, sourceWidth, sourceHeight, localTime);
-  const chroma = clip.chroma;
-  let drawSource: CanvasImageSource = source;
-  let drawCrop = crop;
-  if (chroma?.enabled) {
-    const keyed = applyChromaKey(source, sourceWidth, sourceHeight, clip.id, chroma.color, chroma.similarity, chroma.blend);
-    if (keyed) {
-      const scaleX = keyed.width / sourceWidth;
-      const scaleY = keyed.height / sourceHeight;
-      drawSource = keyed;
-      drawCrop = { sx: crop.sx * scaleX, sy: crop.sy * scaleY, sw: crop.sw * scaleX, sh: crop.sh * scaleY };
-    }
-  }
+  const drawSource: CanvasImageSource = source;
+  const drawCrop = crop;
 
   const opacity = clamp(clip.opacity ? evalParam(clip.opacity, localTime) : 1, 0, 1);
   const { alpha, flash } = transitionAlpha(clip, localTime);
@@ -331,13 +411,17 @@ function drawVisualClip(
     .filter(Boolean)
     .join(" ");
 
+  // Ключ цвета и motion blur теперь считаются движком попиксельно.
   const needsMask = clip.mask?.enabled;
-  const target = needsMask ? scratch(`mask:${clip.id}`, w, h) : ctx;
+  const engineFx = hasEngineVfx(clip);
+  // Если нужен движок — рисуем в offscreen-слой, обрабатываем, потом кладём на холст.
+  const needsOffscreen = needsMask || engineFx;
+  const target = needsOffscreen ? scratch(`mask:${clip.id}`, w, h) : ctx;
   if (!target) return;
 
   target.save();
   target.globalAlpha = opacity * alpha;
-  if (!needsMask && clip.blendMode && clip.blendMode !== "normal") {
+  if (!needsOffscreen && clip.blendMode && clip.blendMode !== "normal") {
     target.globalCompositeOperation = BLEND_MAP[clip.blendMode] ?? "source-over";
   }
 
@@ -368,10 +452,6 @@ function drawVisualClip(
   if (rotation) target.rotate((rotation * Math.PI) / 180);
   target.scale(scaleX, scaleY);
   if (filter) target.filter = filter;
-  if (clip.motionBlur?.enabled) {
-    const blur = clamp((clip.motionBlur.samples ?? 8) / 8, 0.5, 6);
-    target.filter = `${filter} blur(${blur.toFixed(2)}px)`.trim();
-  }
   target.drawImage(drawSource, drawCrop.sx, drawCrop.sy, drawCrop.sw, drawCrop.sh, -dw / 2, -dh / 2, dw, dh);
   target.filter = "none";
 
@@ -395,42 +475,52 @@ function drawVisualClip(
   }
   target.restore();
 
-  if (needsMask && clip.mask) {
-    const maskCtx = target;
-    const mx = evalParam(clip.mask.x, localTime) * w;
-    const my = evalParam(clip.mask.y, localTime) * h;
-    const mw = evalParam(clip.mask.width, localTime) * w;
-    const mh = evalParam(clip.mask.height, localTime) * h;
-    maskCtx.save();
-    maskCtx.globalCompositeOperation = clip.mask.inverted ? "destination-out" : "destination-in";
-    if (clip.mask.feather > 0) maskCtx.filter = `blur(${clip.mask.feather}px)`;
-    maskCtx.fillStyle = "#ffffff";
-    if (clip.mask.shape === "ellipse") {
-      maskCtx.beginPath();
-      maskCtx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
-      maskCtx.fill();
-    } else if (clip.mask.shape === "polygon" && clip.mask.points?.length) {
-      maskCtx.beginPath();
-      clip.mask.points.forEach((p, i) => {
-        const px = p.x * w;
-        const py = p.y * h;
-        if (i === 0) maskCtx.moveTo(px, py);
-        else maskCtx.lineTo(px, py);
-      });
-      maskCtx.closePath();
-      maskCtx.fill();
-    } else {
-      maskCtx.fillRect(mx, my, mw, mh);
+  // VFX-движок: настоящая попиксельная обработка слоя.
+  if (engineFx && target !== ctx) {
+    applyEngineToLayer(target, clip, asset, source, localTime, w, h);
+  }
+
+  if (needsOffscreen) {
+    // Маска (destination-in/out) на обработанном слое.
+    if (clip.mask?.enabled) {
+      const maskCtx = target;
+      const mx = evalParam(clip.mask.x, localTime) * w;
+      const my = evalParam(clip.mask.y, localTime) * h;
+      const mw = evalParam(clip.mask.width, localTime) * w;
+      const mh = evalParam(clip.mask.height, localTime) * h;
+      maskCtx.save();
+      maskCtx.globalCompositeOperation = clip.mask.inverted ? "destination-out" : "destination-in";
+      if (clip.mask.feather > 0) maskCtx.filter = `blur(${clip.mask.feather}px)`;
+      maskCtx.fillStyle = "#ffffff";
+      if (clip.mask.shape === "ellipse") {
+        maskCtx.beginPath();
+        maskCtx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+        maskCtx.fill();
+      } else if (clip.mask.shape === "polygon" && clip.mask.points?.length) {
+        maskCtx.beginPath();
+        clip.mask.points.forEach((p, i) => {
+          const px = p.x * w;
+          const py = p.y * h;
+          if (i === 0) maskCtx.moveTo(px, py);
+          else maskCtx.lineTo(px, py);
+        });
+        maskCtx.closePath();
+        maskCtx.fill();
+      } else {
+        maskCtx.fillRect(mx, my, mw, mh);
+      }
+      maskCtx.restore();
     }
-    maskCtx.restore();
 
     ctx.save();
     if (clip.blendMode && clip.blendMode !== "normal") {
       ctx.globalCompositeOperation = BLEND_MAP[clip.blendMode] ?? "source-over";
     }
-    ctx.drawImage(maskCtx.canvas, 0, 0);
+    ctx.drawImage(target.canvas, 0, 0);
     ctx.restore();
   }
+
+  drawBrushOverlay(ctx, clip, w, h);
 
   if (clip.effects?.includes("vignette")) {
     const gradient = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.max(w, h) * 0.75);

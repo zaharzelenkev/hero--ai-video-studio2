@@ -9,13 +9,45 @@ import {
   TextClip,
   Track,
   Transition,
+  VfxSettings,
   VideoClip,
   defaultColorGrade,
   param,
 } from "./types";
 
 export function defaultChroma(): ChromaKey {
-  return { enabled: false, color: "#00ff00", similarity: 0.22, blend: 0.12 };
+  return { enabled: false, color: "#00ff00", similarity: 0.22, blend: 0.12, despill: 0.35 };
+}
+
+/** Значения VFX-блока по умолчанию: всё выключено, параметры — нейтральные. */
+export function defaultVfx(): VfxSettings {
+  return {
+    backgroundRemoval: {
+      enabled: false,
+      fill: "transparent",
+      color: "#000000",
+      blurAmount: 18,
+      edgeSmooth: 6,
+      foregroundOpacity: 1,
+      threshold: 0.4,
+      modelStatus: "idle",
+    },
+    objectRemoval: {
+      enabled: false,
+      strokes: [],
+      brushRadius: 0.04,
+      modelStatus: "idle",
+    },
+    glow: { enabled: false, radius: 10, strength: 0.6, threshold: 0.55 },
+    lightRays: { enabled: false, centerX: 0.5, centerY: 0.35, length: 0.6, strength: 0.5, rayCount: 8 },
+    filmGrain: { enabled: false, amount: 0.12, size: 1.5, monochrome: true, seed: 1337 },
+    lensDistortion: { enabled: false, amount: 0 },
+    bloom: { enabled: false, radius: 14, strength: 0.5, threshold: 0.72 },
+    sharpen: { enabled: false, amount: 0.6, radius: 1.2 },
+    noiseReduction: { enabled: false, amount: 0.5, radius: 1 },
+    vignette: { enabled: false, strength: 0.45, feather: 0.6 },
+    lut: { enabled: false, preset: "cinematic", amount: 1 },
+  };
 }
 
 export function defaultMask(): Mask {
@@ -71,6 +103,7 @@ export function createVideoClip(opts: {
     mask: defaultMask(),
     transitionIn: opts.transitionIn ?? { type: "cut", duration: 0 },
     effects: [],
+    vfx: defaultVfx(),
   };
 }
 

@@ -89,8 +89,8 @@ const FULL_CHUNKS: ChunkSpec[] = [
   "keyMoments": ["4-6 ключевых сцен/битов"],
   "ending": "послевкусие и что должен сделать зритель"
 }`,
-    maxTokens: 9000,
-    timeoutMs: 180_000,
+    maxTokens: 14000,
+    timeoutMs: 240_000,
     validate: (d) =>
       Boolean(
         d?.idea && typeof d.idea === "object" && (d.idea.refined || d.idea.audience) &&
@@ -124,8 +124,8 @@ const FULL_CHUNKS: ChunkSpec[] = [
 300-900с → 12-25 полноценных сцен с завязкой/развитием/развязкой.
 Сценарий — конкретная сюжетная линия под ТЕМУ проекта (герои, локации, диалоги
 из темы), а не универсальный шаблон. Учитывай логлайн и treatment из контекста.`,
-    maxTokens: 12000,
-    timeoutMs: 240_000,
+    maxTokens: 22000,
+    timeoutMs: 300_000,
     validate: (d) =>
       Boolean(d?.script && typeof d.script === "object") &&
       Array.isArray(d.script.scenes) &&
@@ -167,8 +167,8 @@ const FULL_CHUNKS: ChunkSpec[] = [
     }
   ]
 }`,
-    maxTokens: 10000,
-    timeoutMs: 180_000,
+    maxTokens: 18000,
+    timeoutMs: 240_000,
     validate: (d) =>
       Array.isArray(d?.vision?.scenes) && d.vision.scenes.length > 0 &&
       Array.isArray(d?.storyboard?.frames) && d.storyboard.frames.length > 0,
@@ -213,8 +213,8 @@ const FULL_CHUNKS: ChunkSpec[] = [
 }
 ВАЖНО: шот-лист и план опираются на сценарий, vision и storyboard из контекста
 (те же номера сцен, локации, персонажи, CTA, хронометраж).`,
-    maxTokens: 10000,
-    timeoutMs: 180_000,
+    maxTokens: 16000,
+    timeoutMs: 240_000,
     validate: (d) =>
       Array.isArray(d?.shotlist?.shots) && d.shotlist.shots.length > 0 &&
       Array.isArray(d?.planning?.schedule) && d.planning.schedule.length > 0,
@@ -245,8 +245,8 @@ const FULL_CHUNKS: ChunkSpec[] = [
   ]
 }
 ВАЖНО: персонажи и локации — те же, что в treatment и сценарии из контекста.`,
-    maxTokens: 8000,
-    timeoutMs: 120_000,
+    maxTokens: 12000,
+    timeoutMs: 180_000,
     validate: (d) =>
       Array.isArray(d?.casting) && d.casting.length > 0 &&
       Array.isArray(d?.locations) && d.locations.length > 0 &&
@@ -346,16 +346,20 @@ async function generateChunk(
   projectTitle: string,
   partial: PreProduction
 ): Promise<Record<string, any> | null> {
-  const MAX_ATTEMPTS = 3;
+  const MAX_ATTEMPTS = 5;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    // На обрезанном ответе (finish_reason=length) увеличиваем бюджет токенов:
+    // повтор с тем же (слишком маленьким) лимитом снова упрётся в max_tokens.
+    // С каждым ретраем даём модели больше места дописать валидный JSON.
+    const maxTokens = Math.min(chunk.maxTokens + attempt * 4000, 32768);
     const groq = await callGroq({
       messages: [
         { role: "system", content: DIRECTOR_CHUNK_SYSTEM_PROMPT },
         { role: "user", content: chunkPrompt(chunk, brief, projectTitle, partial, attempt) },
       ],
       temperature: 0.55,
-      maxTokens: chunk.maxTokens,
-      timeoutMs: chunk.timeoutMs,
+      maxTokens,
+      timeoutMs: chunk.timeoutMs + attempt * 60_000,
       maxRetries: 3,
       responseFormat: { type: "json_object" },
     });
@@ -368,7 +372,7 @@ async function generateChunk(
     }
     if (groq.truncated) {
       console.warn(
-        `[director] chunk "${chunk.key}" — response truncated at max_tokens (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying fresh`
+        `[director] chunk "${chunk.key}" — response truncated at max_tokens=${maxTokens} (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying with a larger budget`
       );
       continue;
     }

@@ -65,6 +65,7 @@ import { sceneColorMood, sceneGoal, sceneMusic, scenePace } from "./sceneDirecti
 import { recommendBroll, recommendVisualBroll } from "./brollDirection";
 import { selectBestTakes, type TakeSelectionResult } from "./takeSelection";
 import { cleanupSpeech, parseWords, type CleanupResult } from "./speechCleanup";
+import { callGroq } from "../ai/groqClient";
 
 export interface DirectOptions {
   /** Разрешить LLM-обогащение оценок (по умолчанию — только в браузере). */
@@ -2069,23 +2070,24 @@ bestHookId — фраза, которая остановит скролл в п�
 climaxId — фраза-payoff (главная мысль, вывод, секрет).
 broll — для фраз, где спикер называет предмет/место/действие, английские ключевые слова для перебивки.
 Верни строго JSON: {"ratings": {"0": 8}, "bestHookId": 0, "climaxId": 0, "broll": {"0": "keyword"}}. Оценивай ВСЕ фразы.`;
-  const resp = await fetch(AI_CONFIG.apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_CONFIG.groqApiKey}` },
-    body: JSON.stringify({
-      model: AI_CONFIG.model,
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: `Фразы:\n${list}\n\nЖанр: ${ctx.genre}, хронометраж ≈${Math.round(ctx.target)}с.` },
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-    }),
+  const groq = await callGroq({
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: `Фразы:\n${list}\n\nЖанр: ${ctx.genre}, хронометраж ≈${Math.round(ctx.target)}с.` },
+    ],
+    temperature: 0.3,
+    maxTokens: 4000,
+    timeoutMs: 90_000,
+    maxRetries: 3,
+    responseFormat: { type: "json_object" },
   });
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
-  return parsed && typeof parsed === "object" ? parsed : null;
+  if (!groq.ok) return null;
+  try {
+    const parsed = JSON.parse(groq.text.trim());
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function extractCustomText(prompt: string): string | null {

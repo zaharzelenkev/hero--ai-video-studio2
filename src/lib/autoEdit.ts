@@ -392,8 +392,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     return ((h >>> 0) % 10000) / 10000;
   };
 
-  // Статистика света по каждому размещённому плану — для сквозной нормализации экспозиции.
-  const expoSamples: Array<{ clip: import("./types").VideoClip; avgB: number; avgC: number }> = [];
+  // Статистика света по каждому размещённому плану — для сквозной нормализации
+  // экспозиции/контраста/насыщенности (единый «look» монтажа, см. colorMatch).
+  const expoSamples: Array<{ clip: import("./types").VideoClip; avgB: number; avgC: number; avgS: number }> = [];
 
   // Use AI-suggested clips if available, otherwise use rule-based approach
   if (aiDecision && aiDecision.clips.length > 0) {
@@ -410,13 +411,24 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     const usedAssetIds = new Set<string>();
     for (const c of aiDecision.clips) usedAssetIds.add(c.assetId);
     const missingAssets = visualAssets.filter((a) => !usedAssetIds.has(a.id));
+    // Детерминированная вариация длительности хвоста: ровные планы одинаковой
+    // длины читаются как монотонный тайплест, профи дышат ритмом (длиннее-короче).
+    // seed = FNV-1a от id ассета — тот же монтаж для тех же входных данных.
+    const varyDur = (seed: string) => {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+      const r = ((h >>> 0) % 10000) / 10000;
+      return Math.max(0.7, Math.round((targetClipLen * (0.78 + r * 0.5)) * 10) / 10);
+    };
+    let tailIdx = 0;
     for (const a of missingAssets) {
+      const d = varyDur(a.id + "_" + tailIdx++);
       mainClips.push({
         assetId: a.id,
         trackType: "main",
-        duration: targetClipLen,
+        duration: d,
         startTime: 0,
-        endTime: targetClipLen,
+        endTime: d,
         speed: 1,
         zoom: true,
         cameraAngle: "medium",
@@ -614,7 +626,8 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
          if (stats.length > 0) {
             const avgB = stats.reduce((a, s) => a + (s.brightness ?? 0), 0) / stats.length;
             const avgC = stats.reduce((a, s) => a + (s.contrast ?? 0), 0) / stats.length;
-            expoSamples.push({ clip, avgB, avgC });
+            const avgS = stats.reduce((a, s) => a + (s.saturation ?? 0), 0) / stats.length;
+            expoSamples.push({ clip, avgB, avgC, avgS });
          }
       }
       
@@ -919,37 +932,30 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         return Math.max(0, t - s);
     };
 
-    // СКВОЗНАЯ НОРМАЛИЗАЦИЯ ЭКСПОЗИЦИИ (после размещения всех планов):
-    // медиана яркости/контраста по ролику — единый таргет; каждый план подтягиваем
-    // к нему, иначе монтажные стыки «моргают». Намеренно тёмные кино-сцены не трогаем:
-    // тёмное при ВЫСОКОМ контрасте — художественный выбор (неон, ночь), не брак.
+    // СКВОЗНОЙ COLOR MATCH (после размещения всех планов): медиана яркости,
+    // контраста и насыщенности по ролику — единый таргет; каждый план подтягиваем
+    // к нему, иначе стыки с разных камер «моргают». Намеренно тёмные кино-сцены
+    // не трогаем: тёмное при ВЫСОКОМ контрасте — художественный выбор (неон, ночь).
     if (expoSamples.length > 1) {
-       const medOf = (vals: number[]) => {
-          const s = [...vals].sort((a, b) => a - b);
-          return s[Math.floor(s.length / 2)];
-       };
        const isCinematicDark = (smp: { clip: import("./types").VideoClip }) => {
           const segs = localSegments.get(smp.clip.assetId) ?? [];
           const covered = segs.filter(sg => sg.endTime > smp.clip.inPoint && sg.startTime < smp.clip.outPoint);
           return covered.length > 0 && covered.every(sg => sg.isDark) &&
                  covered.some(sg => (sg.contrast ?? 0) >= 150);
        };
-       const lit = expoSamples.filter(s => !isCinematicDark(s));
-       if (lit.length > 1) {
-          const targetB = Math.max(95, Math.min(160, medOf(lit.map(s => s.avgB))));
-          const targetC = medOf(lit.map(s => s.avgC));
-          for (const smp of lit) {
-             // экспозиция: 70% дистанции до таргета, ограниченный ход (не пересветить)
-             const dB = Math.max(-0.1, Math.min(0.18, ((targetB - smp.avgB) / 255) * 0.7));
-             // контраст: вялые подтягиваем вверх, не усиливаем уже плотные
-             const dC = Math.max(0, Math.min(0.12, ((targetC - smp.avgC) / 255) * 0.5));
-             if (Math.abs(dB) > 0.01 || dC > 0.01) {
-                smp.clip.color.brightness.value += dB;
-                for (const kf of smp.clip.color.brightness.keyframes) kf.value += dB;
-                smp.clip.color.contrast.value += dC;
-                for (const kf of smp.clip.color.contrast.keyframes) kf.value += dC;
-             }
-          }
+       const { computeColorMatch, applyColorAdjustment } = await import("./colorMatch");
+       const adjustments = computeColorMatch(
+          expoSamples.map(s => ({
+             id: s.clip.id,
+             brightness: s.avgB,
+             contrast: s.avgC,
+             saturation: s.avgS,
+             cinematicDark: isCinematicDark(s),
+          })),
+       );
+       for (const smp of expoSamples) {
+          const adj = adjustments.get(smp.clip.id);
+          if (adj) applyColorAdjustment(smp.clip, adj);
        }
     }
 

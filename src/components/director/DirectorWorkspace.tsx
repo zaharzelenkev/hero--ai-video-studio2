@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
@@ -44,7 +44,12 @@ const PLATFORMS = [
   "Кино / Документальный",
 ];
 const TEMPOS = ["Очень быстрый", "Быстрый", "Средний", "Медленный", "Спокойный"];
-const DURATIONS = ["15", "20", "30", "45", "60", "90", "120", "180"];
+// Длительности: короткие вертикальные ролики + классические длительности
+// короткометражек (3, 5, 7, 10, 15 мин), чтобы про-режим покрывал и кино-формат.
+const DURATIONS = [
+  "15", "20", "30", "45", "60", "90", "120", "180",
+  "300", "420", "600", "900",
+];
 
 const emptyBrief = (): DirectorBrief => ({
   idea: "",
@@ -61,6 +66,18 @@ const emptyBrief = (): DirectorBrief => ({
 });
 
 const inputCls = "input !py-2.5 !text-sm";
+
+// Длительность по умолчанию под выбранную площадку (про-режим): кино-формат
+// сразу получает длину короткометражки, остальные — короткие вертикальные.
+const PLATFORM_DEFAULT_DURATION: Record<string, string> = {
+  "Кино / Документальный": "600", // 10 минут — классика короткометражки
+  "Презентация": "120",
+  YouTube: "60",
+  TikTok: "30",
+  "Reels / Shorts": "30",
+  "Instagram (пост)": "30",
+  "VK Клипы": "30",
+};
 
 export default function DirectorWorkspace({
   projectId,
@@ -96,6 +113,7 @@ export default function DirectorWorkspace({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
+  const autoTriggeredRef = useRef(false);
   // NOTE: model selection (remote vs local) is internal and NEVER shown to the user.
 
   useEffect(() => {
@@ -258,6 +276,30 @@ export default function DirectorWorkspace({
     }
   };
 
+  // Авто-запуск режиссёра: как только бриф достаточно заполнен — сразу отправляем
+  // его на полную генерацию всех 12 разделов через Groq, не дожидаясь клика.
+  const briefIsFilled = useMemo(
+    () =>
+      brief.idea.trim().length >= 6 &&
+      brief.goal.trim().length >= 3 &&
+      brief.audience.trim().length >= 3 &&
+      brief.platform.trim().length >= 2,
+    [brief]
+  );
+
+  useEffect(() => {
+    if (stage !== "brief" || busyStage || preprod) return;
+    if (!briefIsFilled || autoTriggeredRef.current) return;
+    // Не спамим Groq при каждом символе: ждём паузы ввода и генерируем после
+    // 2.5с тишины. После успешной генерации (preprod появился) больше не дёргаем.
+    const t = setTimeout(() => {
+      autoTriggeredRef.current = true;
+      void generate("full");
+    }, 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [briefIsFilled, stage, busyStage, preprod]);
+
   const persistPlan = async () => {
     if (!preprod || !sections) return;
     try {
@@ -376,7 +418,17 @@ export default function DirectorWorkspace({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Платформа">
-            <select value={brief.platform} onChange={(e) => set("platform", e.target.value)} className={`${inputCls} appearance-none`}>
+            <select
+              value={brief.platform}
+              onChange={(e) => {
+                const v = e.target.value;
+                set("platform", v);
+                // При смене площадки подставляем подходящую длительность (если
+                // пользователь ещё не выбирал свою или переключился на кино-формат).
+                if (PLATFORM_DEFAULT_DURATION[v]) set("duration", PLATFORM_DEFAULT_DURATION[v]);
+              }}
+              className={`${inputCls} appearance-none`}
+            >
               {PLATFORMS.map((p) => (
                 <option key={p} value={p} className="bg-[#0c0c16]">{p}</option>
               ))}

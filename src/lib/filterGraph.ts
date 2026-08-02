@@ -972,7 +972,13 @@ export function compileProjectToFfmpeg(
       if (clip.muted) continue;
       const idx = inputs.length;
       // Short music beds are looped to cover the whole timeline seamlessly.
-      inputs.push({ pre: clip.loop ? ["-stream_loop", "-1"] : [], path: fileNameFor(clip) });
+      // +discardcorrupt/ignore_err: даже единичный битый пакет в музыкальном/звуковом
+      // треке (или отсутствующая дорожка) не должен ронять весь экспорт фатальной
+      // ошибкой декодирования («Error while processing the decoded data for stream #N:0»).
+      const pre: string[] = [];
+      if (clip.loop) pre.push("-stream_loop", "-1");
+      pre.push("-fflags", "+discardcorrupt", "-err_detect", "ignore_err");
+      inputs.push({ pre, path: fileNameFor(clip) });
       const audioLabel = buildAudioChain(
         `${idx}:a`,
         clip.id,

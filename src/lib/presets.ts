@@ -108,11 +108,21 @@ export function transitionToXfade(type: TransitionType): string {
 
 export const EFFECT_PRESETS: { id: string; label: string; ffmpeg: string; css: string }[] = [
   { id: "blur", label: "Размытие", ffmpeg: "gblur=sigma=6", css: "blur(3px)" },
-  { id: "glow", label: "Свечение", ffmpeg: "gblur=sigma=3,eq=brightness=0.05", css: "brightness(1.1) blur(0.5px)" },
-  { id: "vignette", label: "Виньетка", ffmpeg: "vignette=PI/4", css: "" },
+  { id: "glow", label: "Glow", ffmpeg: "", css: "" },
+  { id: "light-rays", label: "Light Rays", ffmpeg: "", css: "" },
+  { id: "film-grain", label: "Film Grain", ffmpeg: "", css: "" },
+  { id: "lens-distortion", label: "Lens Distortion", ffmpeg: "", css: "" },
+  { id: "bloom", label: "Bloom", ffmpeg: "", css: "" },
+  { id: "sharpen", label: "Sharpen", ffmpeg: "", css: "" },
+  { id: "noise-reduction", label: "Noise Reduction", ffmpeg: "", css: "" },
+  { id: "vignette", label: "Vignette", ffmpeg: "", css: "" },
+  { id: "background-removal", label: "Background Removal", ffmpeg: "", css: "" },
+  { id: "object-removal", label: "Object Removal", ffmpeg: "", css: "" },
+  { id: "motion-blur", label: "Motion Blur", ffmpeg: "", css: "" },
+  { id: "lut-pipeline", label: "LUT Pipeline", ffmpeg: "", css: "" },
   { id: "mirror", label: "Зеркало", ffmpeg: "hflip", css: "" },
-  { id: "sharpen", label: "Резкость", ffmpeg: "unsharp=5:5:1.0", css: "contrast(1.05)" },
-  { id: "noise", label: "Плёночное зерно", ffmpeg: "noise=alls=8:allf=t", css: "" },
+  // Legacy alias kept for projects created before the dedicated Film Grain UI.
+  { id: "noise", label: "Плёночное зерно", ffmpeg: "", css: "" },
   { id: "letterbox", label: "Кино-полосы", ffmpeg: "drawbox=y=0:color=black:width=iw:height=ih*0.12:t=max,drawbox=y=ih-ih*0.12:color=black:width=iw:height=ih*0.12:t=max", css: "" },
 ];
 

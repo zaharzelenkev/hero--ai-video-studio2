@@ -11,6 +11,7 @@ import {
   Transition,
   VideoClip,
   defaultColorGrade,
+  defaultVfxSettings,
   param,
 } from "./types";
 
@@ -69,6 +70,7 @@ export function createVideoClip(opts: {
     color: defaultColorGrade(),
     chroma: defaultChroma(),
     mask: defaultMask(),
+    vfx: defaultVfxSettings(),
     transitionIn: opts.transitionIn ?? { type: "cut", duration: 0 },
     effects: [],
   };
@@ -168,5 +170,6 @@ export function createEmptyProject(title: string): Project {
       rawPrompt: "",
     },
     exportSettings: defaultExportSettings(),
+    compositing: { enabled: true },
   };
 }

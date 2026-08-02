@@ -220,6 +220,136 @@ export interface MotionBlur {
   shutterAngle: number; // 0-360 degrees
 }
 
+/**
+ * Параметры VFX-процессора. Все значения хранятся в проекте, поэтому один и
+ * тот же кадр в preview и export получает одинаковую конфигурацию.
+ * Алгоритмы preview реализованы в src/lib/editor/vfx.ts, а экспортные
+ * эквиваленты собираются в filterGraph.ts.
+ */
+export interface BackgroundRemovalSettings {
+  enabled: boolean;
+  /** adaptive — цвет фона вычисляется по границе кадра; color — используется sampleColor. */
+  mode: "adaptive" | "color";
+  sampleColor: string;
+  threshold: number; // 0..1, расстояние от цвета фона
+  softness: number; // 0..1, ширина мягкого края
+  edgeBlur: number; // 0..8, сглаживание альфа-матта
+}
+
+export interface ObjectRemovalSettings {
+  enabled: boolean;
+  /** Нормализованный прямоугольник объекта. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  feather: number; // 0..1
+  iterations: number; // 1..32, количество проходов inpainting
+}
+
+export interface GlowSettings {
+  enabled: boolean;
+  threshold: number; // 0..1
+  radius: number; // px
+  intensity: number; // 0..2
+}
+
+export interface LightRaysSettings {
+  enabled: boolean;
+  threshold: number; // 0..1
+  length: number; // 0..1, длина лучей от источника
+  intensity: number; // 0..2
+  originX: number; // 0..1
+  originY: number; // 0..1
+  angle: number; // degrees, небольшой поворот веера
+}
+
+export interface FilmGrainSettings {
+  enabled: boolean;
+  amount: number; // 0..1
+  size: number; // 1..3
+  monochrome: boolean;
+}
+
+export interface LensDistortionSettings {
+  enabled: boolean;
+  amount: number; // -1 barrel .. +1 pincushion
+}
+
+export interface BloomSettings {
+  enabled: boolean;
+  threshold: number; // 0..1
+  radius: number; // px
+  intensity: number; // 0..2
+}
+
+export interface SharpenSettings {
+  enabled: boolean;
+  amount: number; // 0..2
+}
+
+export interface NoiseReductionSettings {
+  enabled: boolean;
+  amount: number; // 0..1
+}
+
+export interface VignetteSettings {
+  enabled: boolean;
+  intensity: number; // 0..1
+  size: number; // 0..1, radius of the clear centre
+}
+
+export interface LutPipelineSettings {
+  enabled: boolean;
+  preset: LutPreset;
+  intensity: number; // 0..1
+}
+
+export interface VfxSettings {
+  backgroundRemoval: BackgroundRemovalSettings;
+  objectRemoval: ObjectRemovalSettings;
+  glow: GlowSettings;
+  lightRays: LightRaysSettings;
+  filmGrain: FilmGrainSettings;
+  lensDistortion: LensDistortionSettings;
+  bloom: BloomSettings;
+  sharpen: SharpenSettings;
+  noiseReduction: NoiseReductionSettings;
+  vignette: VignetteSettings;
+  lutPipeline: LutPipelineSettings;
+}
+
+export function defaultVfxSettings(): VfxSettings {
+  return {
+    backgroundRemoval: {
+      enabled: false,
+      mode: "adaptive",
+      sampleColor: "#00ff00",
+      threshold: 0.18,
+      softness: 0.08,
+      edgeBlur: 1,
+    },
+    objectRemoval: {
+      enabled: false,
+      x: 0.4,
+      y: 0.3,
+      width: 0.2,
+      height: 0.2,
+      feather: 0.08,
+      iterations: 12,
+    },
+    glow: { enabled: false, threshold: 0.72, radius: 10, intensity: 0.55 },
+    lightRays: { enabled: false, threshold: 0.78, length: 0.38, intensity: 0.35, originX: 0.5, originY: 0.15, angle: 0 },
+    filmGrain: { enabled: false, amount: 0.12, size: 1, monochrome: true },
+    lensDistortion: { enabled: false, amount: 0 },
+    bloom: { enabled: false, threshold: 0.82, radius: 22, intensity: 0.45 },
+    sharpen: { enabled: false, amount: 0.45 },
+    noiseReduction: { enabled: false, amount: 0.35 },
+    vignette: { enabled: false, intensity: 0.55, size: 0.62 },
+    lutPipeline: { enabled: false, preset: "none", intensity: 1 },
+  };
+}
+
 export interface SpeedRamp {
   enabled: boolean;
   keyframes: Array<{
@@ -301,6 +431,8 @@ export interface VideoClip extends BaseClip {
   mask: Mask;
   blendMode?: BlendMode;
   motionBlur?: MotionBlur;
+  /** Полный стек VFX. Опционален для совместимости со старыми проектами. */
+  vfx?: VfxSettings;
   
   // Transitions
   transitionIn: Transition;
@@ -597,6 +729,9 @@ export interface Project {
   markers: Marker[];
   style: GenerationStyle;
   exportSettings: ExportSettings;
+
+  /** Первый video track — нижний слой, остальные — наложения. */
+  compositing?: { enabled: boolean };
 
   /**
    * Picture Lock: состояние фиксации монтажа. Автомонтаж завершается

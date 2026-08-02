@@ -41,7 +41,7 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "media", label: "Медиа", icon: "🎞", desc: "Медиатека и параметры проекта" },
   { id: "montage", label: "Монтаж", icon: "✂️", desc: "Клип, скорость, кадрирование, переходы" },
   { id: "color", label: "Цвет", icon: "🎨", desc: "Колесо цвета, LUT, скопы" },
-  { id: "effects", label: "Эффекты", icon: "✨", desc: "Хромакей, маски, blend, blur" },
+  { id: "effects", label: "Эффекты", icon: "✨", desc: "VFX: keying, removal, optics, compositing" },
   { id: "sound", label: "Звук", icon: "🎵", desc: "Микшер, EQ, компрессор, панорама" },
   { id: "text", label: "Текст", icon: "📝", desc: "Титры, шрифты, анимация" },
   { id: "animation", label: "Кадры", icon: "🎬", desc: "Ключевые кадры и кривые" },

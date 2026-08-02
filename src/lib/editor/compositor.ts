@@ -3,6 +3,7 @@
 import { evalParam } from "@/lib/keyframes";
 import { EFFECT_PRESETS } from "@/lib/presets";
 import type { BlendMode, Clip, ColorGrade, MediaAsset, Project, SubtitleClip, TextClip, Track, VideoClip } from "@/lib/types";
+import { inpaintObjectPixels, mergeVfxSettings, processVfxPixels } from "./vfx";
 import { mediaPool } from "./resourcePool";
 
 /* ------------------------------------------------------------------ */
@@ -105,9 +106,15 @@ function effectsToCss(effects: string[] | undefined): string {
   const parts: string[] = [];
   for (const id of effects) {
     const preset = EFFECT_PRESETS.find((p) => p.id === id);
-    if (preset?.css) parts.push(preset.css);
+    // Pixel VFX are processed below. CSS is retained only for the small set
+    // of legacy GPU-friendly effects that have no pixel parameters.
+    if (preset?.css && !["glow", "sharpen", "noise", "vignette"].includes(id)) parts.push(preset.css);
   }
   return parts.join(" ");
+}
+
+function hasEffect(clip: VideoClip, id: string): boolean {
+  return clip.effects?.includes(id) === true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,45 +140,219 @@ function scratch(key: string, width: number, height: number): CanvasRenderingCon
   return ctx;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const clean = hex.replace("#", "");
-  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
-  const num = parseInt(full || "00ff00", 16);
-  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+interface PreparedSource {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  scale: number;
 }
 
-/** Хромакей в реальном времени (на уменьшенной копии кадра — для скорости). */
-function applyChromaKey(
+/** Подготовка исходника: matte/inpaint/denoise/sharpen/lens/LUT/grain. */
+function prepareSource(
   source: CanvasImageSource,
   sourceWidth: number,
   sourceHeight: number,
-  clipId: string,
-  color: string,
-  similarity: number,
-  blend: number,
-): HTMLCanvasElement | null {
+  clip: VideoClip,
+  frameSeed: number,
+): PreparedSource {
+  const vfx = mergeVfxSettings(clip.vfx);
+  // Старые проекты хранят эффект только в effects[]. Сохраняем обратную
+  // совместимость, но сам алгоритм всегда один и тот же.
+  if (hasEffect(clip, "background-removal")) vfx.backgroundRemoval.enabled = true;
+  if (hasEffect(clip, "object-removal")) vfx.objectRemoval.enabled = true;
+  if (hasEffect(clip, "film-grain") || hasEffect(clip, "noise")) vfx.filmGrain.enabled = true;
+  if (hasEffect(clip, "lens-distortion")) {
+    vfx.lensDistortion.enabled = true;
+    if (Math.abs(vfx.lensDistortion.amount) < 0.0001) vfx.lensDistortion.amount = 0.35;
+  }
+  if (hasEffect(clip, "sharpen")) vfx.sharpen.enabled = true;
+  if (hasEffect(clip, "noise-reduction")) vfx.noiseReduction.enabled = true;
+  if (hasEffect(clip, "lut-pipeline")) {
+    vfx.lutPipeline.enabled = true;
+    if (vfx.lutPipeline.preset === "none") vfx.lutPipeline.preset = "cinematic";
+  }
+
+  const shouldProcess =
+    vfx.backgroundRemoval.enabled ||
+    vfx.filmGrain.enabled ||
+    vfx.lensDistortion.enabled ||
+    vfx.sharpen.enabled ||
+    vfx.noiseReduction.enabled ||
+    vfx.lutPipeline.enabled ||
+    clip.chroma?.enabled === true;
+  if (!shouldProcess) return { source, width: sourceWidth, height: sourceHeight, scale: 1 };
+
+  // Preview is interactive; heavy pixel passes run on a bounded proxy and are
+  // then scaled back into the compositor. Export uses the full-resolution
+  // FFmpeg filters below.
   const maxWidth = 720;
   const scale = Math.min(1, maxWidth / Math.max(1, sourceWidth));
-  const w = Math.max(2, Math.round(sourceWidth * scale));
-  const h = Math.max(2, Math.round(sourceHeight * scale));
-  const ctx = scratch(`chroma:${clipId}`, w, h);
+  const width = Math.max(2, Math.round(sourceWidth * scale));
+  const height = Math.max(2, Math.round(sourceHeight * scale));
+  const ctx = scratch(`source:${clip.id}`, width, height);
+  if (!ctx) return { source, width: sourceWidth, height: sourceHeight, scale: 1 };
+  ctx.drawImage(source, 0, 0, width, height);
+  const image = ctx.getImageData(0, 0, width, height);
+  const processed = processVfxPixels(image.data, width, height, vfx, {
+    chroma: clip.chroma,
+    objectRemovalOnSource: false,
+    seed: frameSeed,
+  });
+  image.data.set(processed);
+  ctx.putImageData(image, 0, 0);
+  return { source: ctx.canvas, width, height, scale };
+}
+
+function highlightMask(layer: HTMLCanvasElement, key: string, threshold: number): HTMLCanvasElement | null {
+  const ctx = scratch(`highlight:${key}`, layer.width, layer.height);
   if (!ctx) return null;
-  ctx.drawImage(source, 0, 0, w, h);
-  const frame = ctx.getImageData(0, 0, w, h);
-  const data = frame.data;
-  const [kr, kg, kb] = hexToRgb(color);
-  const threshold = 255 * 3 * Math.max(0.01, similarity);
-  const softness = Math.max(1, 255 * 3 * Math.max(0.01, blend));
-  for (let i = 0; i < data.length; i += 4) {
-    const distance = Math.abs(data[i] - kr) + Math.abs(data[i + 1] - kg) + Math.abs(data[i + 2] - kb);
-    if (distance < threshold) {
-      data[i + 3] = 0;
-    } else if (distance < threshold + softness) {
-      data[i + 3] = Math.round(data[i + 3] * ((distance - threshold) / softness));
+  const source = layer.getContext("2d", { willReadFrequently: true });
+  if (!source) return null;
+  const image = source.getImageData(0, 0, layer.width, layer.height);
+  for (let i = 0; i < image.data.length; i += 4) {
+    const luma = (0.2126 * image.data[i] + 0.7152 * image.data[i + 1] + 0.0722 * image.data[i + 2]) / 255;
+    const keep = clamp((luma - threshold) / Math.max(0.01, 1 - threshold), 0, 1);
+    image.data[i] = image.data[i + 1] = image.data[i + 2] = 255;
+    image.data[i + 3] = Math.round(image.data[i + 3] * keep);
+  }
+  ctx.putImageData(image, 0, 0);
+  return ctx.canvas;
+}
+
+function blurredMask(mask: HTMLCanvasElement, key: string, radius: number): HTMLCanvasElement | null {
+  const ctx = scratch(`blur-mask:${key}`, mask.width, mask.height);
+  if (!ctx) return null;
+  ctx.save();
+  ctx.filter = `blur(${Math.max(0.5, radius).toFixed(2)}px)`;
+  ctx.drawImage(mask, 0, 0);
+  ctx.restore();
+  return ctx.canvas;
+}
+
+/** Bloom, glow and directional light rays operate on the isolated clip layer. */
+function applyOpticalEffects(layer: CanvasRenderingContext2D, clip: VideoClip, w: number, h: number): void {
+  const vfx = mergeVfxSettings(clip.vfx);
+  const glowEnabled = vfx.glow.enabled || hasEffect(clip, "glow");
+  const bloomEnabled = vfx.bloom.enabled || hasEffect(clip, "bloom");
+  const raysEnabled = vfx.lightRays.enabled || hasEffect(clip, "light-rays");
+  const addOpticalPass = (kind: string, threshold: number, radius: number, intensity: number) => {
+    const mask = highlightMask(layer.canvas, `${clip.id}:${kind}`, threshold);
+    const blurred = mask ? blurredMask(mask, `${clip.id}:${kind}`, radius) : null;
+    if (!blurred) return;
+    layer.save();
+    layer.globalCompositeOperation = "screen";
+    layer.globalAlpha = clamp(intensity, 0, 2);
+    layer.drawImage(blurred, 0, 0);
+    layer.restore();
+  };
+  if (glowEnabled) addOpticalPass("glow", vfx.glow.threshold, vfx.glow.radius, vfx.glow.intensity);
+  if (bloomEnabled) addOpticalPass("bloom", vfx.bloom.threshold, vfx.bloom.radius, vfx.bloom.intensity);
+  if (raysEnabled) {
+    const mask = highlightMask(layer.canvas, `${clip.id}:rays`, vfx.lightRays.threshold);
+    const rays = scratch(`rays:${clip.id}`, w, h);
+    if (mask && rays) {
+      const ox = clamp(vfx.lightRays.originX, 0, 1) * w;
+      const oy = clamp(vfx.lightRays.originY, 0, 1) * h;
+      const count = 14;
+      rays.save();
+      rays.translate(ox, oy);
+      rays.rotate((vfx.lightRays.angle * Math.PI) / 180);
+      rays.translate(-ox, -oy);
+      for (let i = 1; i <= count; i += 1) {
+        const progress = i / count;
+        rays.save();
+        rays.globalAlpha = (1 - progress) * clamp(vfx.lightRays.intensity, 0, 2) * 0.16;
+        rays.translate(ox, oy);
+        rays.scale(1 + vfx.lightRays.length * progress, 1 + vfx.lightRays.length * progress);
+        rays.translate(-ox, -oy);
+        rays.drawImage(mask, 0, 0);
+        rays.restore();
+      }
+      rays.restore();
+      layer.save();
+      layer.filter = `blur(${Math.max(0.5, h * 0.006).toFixed(2)}px)`;
+      layer.globalCompositeOperation = "screen";
+      layer.drawImage(rays.canvas, 0, 0);
+      layer.restore();
     }
   }
-  ctx.putImageData(frame, 0, 0);
-  return ctx.canvas;
+}
+
+function applyVignette(layer: CanvasRenderingContext2D, clip: VideoClip, w: number, h: number): void {
+  const vfx = mergeVfxSettings(clip.vfx);
+  if (!vfx.vignette.enabled && !hasEffect(clip, "vignette")) return;
+  const intensity = hasEffect(clip, "vignette") && !vfx.vignette.enabled ? 0.55 : clamp(vfx.vignette.intensity, 0, 1);
+  const size = clamp(vfx.vignette.size, 0.1, 1);
+  const gradient = layer.createRadialGradient(w / 2, h / 2, Math.min(w, h) * size * 0.5, w / 2, h / 2, Math.max(w, h) * 0.72);
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(0.72, `rgba(0,0,0,${(intensity * 0.25).toFixed(3)})`);
+  gradient.addColorStop(1, `rgba(0,0,0,${intensity.toFixed(3)})`);
+  layer.save();
+  layer.globalCompositeOperation = "source-atop";
+  layer.fillStyle = gradient;
+  layer.fillRect(0, 0, w, h);
+  layer.restore();
+}
+
+function applyObjectRemovalToLayer(layer: CanvasRenderingContext2D, clip: VideoClip, w: number, h: number): void {
+  const vfx = mergeVfxSettings(clip.vfx);
+  if (hasEffect(clip, "object-removal")) vfx.objectRemoval.enabled = true;
+  if (!vfx.objectRemoval.enabled) return;
+  const image = layer.getImageData(0, 0, w, h);
+  const restored = inpaintObjectPixels(image.data, w, h, vfx.objectRemoval);
+  image.data.set(restored);
+  layer.putImageData(image, 0, 0);
+}
+
+function drawMotionBlurSamples(
+  target: CanvasRenderingContext2D,
+  drawSource: CanvasImageSource,
+  crop: SourceRect,
+  clip: VideoClip,
+  localTime: number,
+  w: number,
+  h: number,
+  dw: number,
+  dh: number,
+  filter: string,
+  alpha: number,
+): void {
+  const samples = Math.max(2, Math.min(32, Math.round(clip.motionBlur?.samples ?? 8)));
+  const shutter = clamp((clip.motionBlur?.shutterAngle ?? 180) / 360, 0.02, 1);
+  const progress = clip.duration > 0 ? clamp(localTime / clip.duration, 0, 1) : 0;
+  const currentX = clip.x ? evalParam(clip.x, localTime) : 0;
+  const currentY = clip.y ? evalParam(clip.y, localTime) : 0;
+  const currentRotation = clip.rotation ? evalParam(clip.rotation, localTime) : 0;
+  // Keyframe/camera motion is sampled spatially. For a static clip a small
+  // horizontal shutter vector still creates a visible, physically meaningful
+  // blur instead of silently doing nothing.
+  const camera = cameraTransform(clip, progress);
+  const motionX = camera.dx || (clip.cameraMotion === "none" ? 0.018 : 0);
+  const motionY = camera.dy || 0;
+  const localDelta = Math.max(0.01, clip.duration * 0.03 * shutter);
+  const previousAlpha = target.globalAlpha;
+  for (let i = 0; i < samples; i += 1) {
+    const p = i / Math.max(1, samples - 1);
+    const offset = (p - 0.5) * 2;
+    const sampleTime = clamp(localTime + offset * localDelta, 0, Math.max(0, clip.duration));
+    const sampleProgress = clip.duration > 0 ? clamp(sampleTime / clip.duration, 0, 1) : progress;
+    const sampleCamera = cameraTransform(clip, sampleProgress);
+    const scale = (clip.scale ? evalParam(clip.scale, sampleTime) : 1) * sampleCamera.scale;
+    const sx = (clip.scaleX ? evalParam(clip.scaleX, sampleTime) : 1) * scale * (clip.flipH ? -1 : 1);
+    const sy = (clip.scaleY ? evalParam(clip.scaleY, sampleTime) : 1) * scale * (clip.flipV ? -1 : 1);
+    const x = currentX + sampleCamera.dx + motionX * offset;
+    const y = currentY + sampleCamera.dy + motionY * offset;
+    const rotation = (clip.rotation ? evalParam(clip.rotation, sampleTime) : currentRotation) + offset * (currentRotation === 0 ? 1.2 : currentRotation * 0.04);
+    target.save();
+    target.globalAlpha = alpha / samples;
+    target.translate(w / 2 + x * w, h / 2 + y * h);
+    target.rotate((rotation * Math.PI) / 180);
+    target.scale(sx, sy);
+    if (filter) target.filter = filter;
+    target.drawImage(drawSource, crop.sx, crop.sy, crop.sw, crop.sh, -dw / 2, -dh / 2, dw, dh);
+    target.restore();
+  }
+  target.globalAlpha = previousAlpha;
 }
 
 /* ------------------------------------------------------------------ */
@@ -301,19 +482,15 @@ function drawVisualClip(
     return;
   }
 
-  const crop = croppedSource(clip, sourceWidth, sourceHeight, localTime);
-  const chroma = clip.chroma;
-  let drawSource: CanvasImageSource = source;
-  let drawCrop = crop;
-  if (chroma?.enabled) {
-    const keyed = applyChromaKey(source, sourceWidth, sourceHeight, clip.id, chroma.color, chroma.similarity, chroma.blend);
-    if (keyed) {
-      const scaleX = keyed.width / sourceWidth;
-      const scaleY = keyed.height / sourceHeight;
-      drawSource = keyed;
-      drawCrop = { sx: crop.sx * scaleX, sy: crop.sy * scaleY, sw: crop.sw * scaleX, sh: crop.sh * scaleY };
-    }
-  }
+  const originalCrop = croppedSource(clip, sourceWidth, sourceHeight, localTime);
+  const prepared = prepareSource(source, sourceWidth, sourceHeight, clip, Math.floor(time * 60));
+  const drawSource = prepared.source;
+  const drawCrop: SourceRect = {
+    sx: originalCrop.sx * prepared.scale,
+    sy: originalCrop.sy * prepared.scale,
+    sw: originalCrop.sw * prepared.scale,
+    sh: originalCrop.sh * prepared.scale,
+  };
 
   const opacity = clamp(clip.opacity ? evalParam(clip.opacity, localTime) : 1, 0, 1);
   const { alpha, flash } = transitionAlpha(clip, localTime);
@@ -331,18 +508,16 @@ function drawVisualClip(
     .filter(Boolean)
     .join(" ");
 
-  const needsMask = clip.mask?.enabled;
-  const target = needsMask ? scratch(`mask:${clip.id}`, w, h) : ctx;
+  // Каждый visual clip сначала получает собственный прозрачный слой. Это
+  // критично для настоящего compositing: glow/vignette/mask не должны
+  // размывать уже нарисованные нижние слои.
+  const target = scratch(`layer:${clip.id}`, w, h);
   if (!target) return;
-
-  target.save();
-  target.globalAlpha = opacity * alpha;
-  if (!needsMask && clip.blendMode && clip.blendMode !== "normal") {
-    target.globalCompositeOperation = BLEND_MAP[clip.blendMode] ?? "source-over";
-  }
 
   // Blur-pad: заполняем фон размытой копией кадра, чтобы вертикальное видео
   // на горизонтальном холсте не резалось.
+  target.save();
+  target.globalAlpha = opacity * alpha;
   if (clip.blurPad) {
     const cover = fitRect(drawCrop.sw, drawCrop.sh, w, h, "cover");
     target.save();
@@ -363,93 +538,95 @@ function drawVisualClip(
 
   const mode: "cover" | "contain" = clip.blurPad ? "contain" : clip.fitMode ?? "cover";
   const { dw, dh } = fitRect(drawCrop.sw, drawCrop.sh, w, h, mode);
-
-  target.translate(w / 2 + offsetX * w, h / 2 + offsetY * h);
-  if (rotation) target.rotate((rotation * Math.PI) / 180);
-  target.scale(scaleX, scaleY);
-  if (filter) target.filter = filter;
-  if (clip.motionBlur?.enabled) {
-    const blur = clamp((clip.motionBlur.samples ?? 8) / 8, 0.5, 6);
-    target.filter = `${filter} blur(${blur.toFixed(2)}px)`.trim();
+  const motionBlurEnabled = clip.motionBlur?.enabled === true || hasEffect(clip, "motion-blur");
+  if (motionBlurEnabled) {
+    target.filter = filter;
+    drawMotionBlurSamples(target, drawSource, drawCrop, clip, localTime, w, h, dw, dh, filter, opacity * alpha);
+  } else {
+    target.translate(w / 2 + offsetX * w, h / 2 + offsetY * h);
+    if (rotation) target.rotate((rotation * Math.PI) / 180);
+    target.scale(scaleX, scaleY);
+    if (filter) target.filter = filter;
+    target.drawImage(drawSource, drawCrop.sx, drawCrop.sy, drawCrop.sw, drawCrop.sh, -dw / 2, -dh / 2, dw, dh);
   }
-  target.drawImage(drawSource, drawCrop.sx, drawCrop.sy, drawCrop.sw, drawCrop.sh, -dw / 2, -dh / 2, dw, dh);
   target.filter = "none";
+  target.restore();
 
-  // Color wheels — приближение: подсветка теней (lift) и светов (gain).
+  // Selection coordinates come from the visible composition, so inpainting
+  // happens after cover/contain/transform geometry rather than in source space.
+  applyObjectRemovalToLayer(target, clip, w, h);
+
+  // Color wheels — приближение lift/gain поверх изолированного слоя.
   const wheels = clip.color?.colorWheels;
   if (wheels) {
     const liftStrength = Math.abs(wheels.lift.r) + Math.abs(wheels.lift.g) + Math.abs(wheels.lift.b);
     const gainStrength = Math.abs(wheels.gain.r) + Math.abs(wheels.gain.g) + Math.abs(wheels.gain.b);
     if (liftStrength > 0.001) {
-      target.globalCompositeOperation = "lighter";
-      target.globalAlpha = clamp(liftStrength * 0.25, 0, 0.5) * opacity;
+      target.save();
+      target.globalCompositeOperation = "source-atop";
+      target.globalAlpha = clamp(liftStrength * 0.25, 0, 0.5);
       target.fillStyle = `rgb(${clamp(128 + wheels.lift.r * 127, 0, 255)},${clamp(128 + wheels.lift.g * 127, 0, 255)},${clamp(128 + wheels.lift.b * 127, 0, 255)})`;
-      target.fillRect(-dw / 2, -dh / 2, dw, dh);
+      target.fillRect(0, 0, w, h);
+      target.restore();
     }
     if (gainStrength > 0.001) {
+      target.save();
       target.globalCompositeOperation = "overlay";
-      target.globalAlpha = clamp(gainStrength * 0.3, 0, 0.6) * opacity;
+      target.globalAlpha = clamp(gainStrength * 0.3, 0, 0.6);
       target.fillStyle = `rgb(${clamp(128 + wheels.gain.r * 127, 0, 255)},${clamp(128 + wheels.gain.g * 127, 0, 255)},${clamp(128 + wheels.gain.b * 127, 0, 255)})`;
-      target.fillRect(-dw / 2, -dh / 2, dw, dh);
+      target.fillRect(0, 0, w, h);
+      target.restore();
     }
   }
-  target.restore();
 
-  if (needsMask && clip.mask) {
-    const maskCtx = target;
+  applyOpticalEffects(target, clip, w, h);
+  applyVignette(target, clip, w, h);
+
+  if (clip.mask?.enabled) {
     const mx = evalParam(clip.mask.x, localTime) * w;
     const my = evalParam(clip.mask.y, localTime) * h;
     const mw = evalParam(clip.mask.width, localTime) * w;
     const mh = evalParam(clip.mask.height, localTime) * h;
-    maskCtx.save();
-    maskCtx.globalCompositeOperation = clip.mask.inverted ? "destination-out" : "destination-in";
-    if (clip.mask.feather > 0) maskCtx.filter = `blur(${clip.mask.feather}px)`;
-    maskCtx.fillStyle = "#ffffff";
+    target.save();
+    target.globalCompositeOperation = clip.mask.inverted ? "destination-out" : "destination-in";
+    if (clip.mask.feather > 0) target.filter = `blur(${clip.mask.feather}px)`;
+    target.fillStyle = "#ffffff";
     if (clip.mask.shape === "ellipse") {
-      maskCtx.beginPath();
-      maskCtx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
-      maskCtx.fill();
+      target.beginPath();
+      target.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+      target.fill();
     } else if (clip.mask.shape === "polygon" && clip.mask.points?.length) {
-      maskCtx.beginPath();
+      target.beginPath();
       clip.mask.points.forEach((p, i) => {
         const px = p.x * w;
         const py = p.y * h;
-        if (i === 0) maskCtx.moveTo(px, py);
-        else maskCtx.lineTo(px, py);
+        if (i === 0) target.moveTo(px, py);
+        else target.lineTo(px, py);
       });
-      maskCtx.closePath();
-      maskCtx.fill();
+      target.closePath();
+      target.fill();
     } else {
-      maskCtx.fillRect(mx, my, mw, mh);
+      target.fillRect(mx, my, mw, mh);
     }
-    maskCtx.restore();
-
-    ctx.save();
-    if (clip.blendMode && clip.blendMode !== "normal") {
-      ctx.globalCompositeOperation = BLEND_MAP[clip.blendMode] ?? "source-over";
-    }
-    ctx.drawImage(maskCtx.canvas, 0, 0);
-    ctx.restore();
-  }
-
-  if (clip.effects?.includes("vignette")) {
-    const gradient = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.max(w, h) * 0.75);
-    gradient.addColorStop(0, "rgba(0,0,0,0)");
-    gradient.addColorStop(1, "rgba(0,0,0,0.55)");
-    ctx.save();
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, w, h);
-    ctx.restore();
+    target.restore();
   }
 
   if (clip.effects?.includes("letterbox")) {
     const bar = h * 0.12;
-    ctx.save();
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, w, bar);
-    ctx.fillRect(0, h - bar, w, bar);
-    ctx.restore();
+    target.save();
+    target.globalCompositeOperation = "source-atop";
+    target.fillStyle = "#000";
+    target.fillRect(0, 0, w, bar);
+    target.fillRect(0, h - bar, w, bar);
+    target.restore();
   }
+
+  // Композитим изолированный слой в основной кадр только после всех VFX.
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = clip.blendMode && clip.blendMode !== "normal" ? BLEND_MAP[clip.blendMode] ?? "source-over" : "source-over";
+  ctx.drawImage(target.canvas, 0, 0);
+  ctx.restore();
 
   if (flash) {
     ctx.save();
@@ -458,7 +635,6 @@ function drawVisualClip(
     ctx.restore();
   }
 }
-
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split("\n")) {
@@ -617,10 +793,16 @@ export function renderFrame(
   ctx.fillRect(0, 0, w, h);
 
   const assetsById = new Map(project.assets.map((a) => [a.id, a] as const));
+  const layersEnabled = project.compositing?.enabled !== false;
+  let baseVideoTrackRendered = false;
 
   for (const track of project.tracks) {
     if (track.hidden) continue;
     if (track.type === "audio") continue;
+    if (track.type === "video") {
+      if (!layersEnabled && baseVideoTrackRendered) continue;
+      baseVideoTrackRendered = true;
+    }
     for (const clip of track.clips) {
       if (!isActiveAt(clip, time)) continue;
       if (clip.type === "video" || clip.type === "image") {

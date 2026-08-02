@@ -2,6 +2,7 @@ import type { AudioClip, ExportSettings, Project, TextClip, VideoClip } from "./
 import { paramToFfmpegExpr } from "./keyframes";
 import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, sanitizeGlyphs, transitionToXfade } from "./presets";
 import { speedRampToSetptsExpr } from "./speedRamp";
+import { mergeVfxSettings, motionBlurWeights } from "./editor/vfx";
 
 let uidCounter = 0;
 function id(prefix: string) {
@@ -46,6 +47,149 @@ function clamp(v: number, min: number, max: number) {
 interface ClipChainResult {
   label: string; // final output label (yuva420p stream)
   idx: number; // ffmpeg input index (for reusing embedded audio)
+}
+
+function effectEnabled(clip: VideoClip, id: string): boolean {
+  return clip.effects?.includes(id) === true;
+}
+
+function blendFilterMode(mode: string): string {
+  const map: Record<string, string> = {
+    normal: "normal",
+    multiply: "multiply",
+    screen: "screen",
+    overlay: "overlay",
+    darken: "darken",
+    lighten: "lighten",
+    colorDodge: "dodge",
+    colorBurn: "burn",
+    hardLight: "hardlight",
+    softLight: "softlight",
+    difference: "difference",
+    exclusion: "exclusion",
+    hue: "hue",
+    saturation: "saturation",
+    color: "color",
+    luminosity: "luminosity",
+  };
+  return map[mode] ?? "normal";
+}
+
+/** Добавляет экспортные эквиваленты всех VFX в цепочку одного клипа. */
+function appendVfxFilters(currentInput: string, clip: VideoClip, lines: string[], tag: string, canvasW: number, canvasH: number): string {
+  const vfx = mergeVfxSettings(clip.vfx);
+  if (effectEnabled(clip, "background-removal")) vfx.backgroundRemoval.enabled = true;
+  if (effectEnabled(clip, "object-removal")) vfx.objectRemoval.enabled = true;
+  if (effectEnabled(clip, "film-grain") || effectEnabled(clip, "noise")) vfx.filmGrain.enabled = true;
+  if (effectEnabled(clip, "lens-distortion")) {
+    vfx.lensDistortion.enabled = true;
+    if (Math.abs(vfx.lensDistortion.amount) < 0.0001) vfx.lensDistortion.amount = 0.35;
+  }
+  if (effectEnabled(clip, "sharpen")) vfx.sharpen.enabled = true;
+  if (effectEnabled(clip, "noise-reduction")) vfx.noiseReduction.enabled = true;
+  const motionBlur = { ...(clip.motionBlur ?? { enabled: false, samples: 8, shutterAngle: 180 }) };
+  if (effectEnabled(clip, "motion-blur")) motionBlur.enabled = true;
+  if (effectEnabled(clip, "lut-pipeline")) {
+    vfx.lutPipeline.enabled = true;
+    if (vfx.lutPipeline.preset === "none") vfx.lutPipeline.preset = "cinematic";
+  }
+
+  let current = currentInput;
+  const step = (filter: string, suffix = "") => {
+    const next = id(`c${tag}_${suffix}`);
+    lines.push(`[${current}]${filter}[${next}]`);
+    current = next;
+  };
+
+  if (vfx.backgroundRemoval.enabled) {
+    // В preview adaptive matte вычисляет reference по границе. FFmpeg не
+    // имеет доступа к произвольному кадру до запуска, поэтому export использует
+    // сохранённый sampleColor — тот же цвет задаётся кнопкой «Сэмплировать углы».
+    step(`format=yuva420p,colorkey=color=${vfx.backgroundRemoval.sampleColor}:similarity=${clamp(vfx.backgroundRemoval.threshold, 0.01, 0.99)}:blend=${clamp(vfx.backgroundRemoval.softness, 0.01, 0.99)}`, "bg_");
+  }
+
+  if (vfx.objectRemoval.enabled) {
+    const o = vfx.objectRemoval;
+    const x = Math.max(0, Math.round(clamp(o.x, 0, 1) * canvasW));
+    const y = Math.max(0, Math.round(clamp(o.y, 0, 1) * canvasH));
+    const width = Math.max(2, Math.round(clamp(o.width, 0.001, 1) * canvasW));
+    const height = Math.max(2, Math.round(clamp(o.height, 0.001, 1) * canvasH));
+    step(`delogo=x=${x}:y=${y}:w=${width}:h=${height}:show=0`, "object_");
+  }
+
+  if (vfx.noiseReduction.enabled) {
+    const n = 0.6 + clamp(vfx.noiseReduction.amount, 0, 1) * 3;
+    step(`hqdn3d=${n.toFixed(2)}:${n.toFixed(2)}:${(n * 1.5).toFixed(2)}:${(n * 1.5).toFixed(2)}`, "denoise_");
+  }
+  if (vfx.sharpen.enabled) {
+    const amount = clamp(vfx.sharpen.amount, 0.01, 2).toFixed(3);
+    step(`unsharp=lx=5:ly=5:la=${amount}:cx=5:cy=5:ca=0`, "sharpen_");
+  }
+  if (vfx.lensDistortion.enabled) {
+    const amount = clamp(vfx.lensDistortion.amount, -1, 1);
+    step(`lenscorrection=k1=${amount.toFixed(5)}:k2=${(amount * 0.12).toFixed(5)}:cx=0.5:cy=0.5`, "lens_");
+  }
+  if (motionBlur.enabled) {
+    const samples = Math.max(2, Math.min(32, Math.round(motionBlur.samples || 8)));
+    const weights = motionBlurWeights(samples).map(() => "1").join(" ");
+    step(`tmix=frames=${samples}:weights='${weights}':scale=${samples}`, "motion_");
+  }
+
+  const addBrightPass = (name: string, threshold: number, radius: number, intensity: number) => {
+    const main = id(`c${tag}_${name}_main_`);
+    const bright = id(`c${tag}_${name}_bright_`);
+    const blurred = id(`c${tag}_${name}_blur_`);
+    const out = id(`c${tag}_${name}_out_`);
+    lines.push(`[${current}]split=2[${main}][${bright}]`);
+    const cut = Math.round(clamp(threshold, 0, 1) * 255);
+    lines.push(`[${bright}]lut=y='if(gt(val\\,${cut})\\,val\\,0)',gblur=sigma=${Math.max(0.5, radius).toFixed(2)}[${blurred}]`);
+    lines.push(`[${main}][${blurred}]blend=all_mode=screen:all_opacity=${clamp(intensity, 0, 2).toFixed(3)}[${out}]`);
+    current = out;
+  };
+
+  if (vfx.glow.enabled || effectEnabled(clip, "glow")) addBrightPass("glow", vfx.glow.threshold, vfx.glow.radius, vfx.glow.intensity);
+  if (vfx.bloom.enabled || effectEnabled(clip, "bloom")) addBrightPass("bloom", vfx.bloom.threshold, vfx.bloom.radius, vfx.bloom.intensity);
+
+  if (vfx.lightRays.enabled || effectEnabled(clip, "light-rays")) {
+    const main = id(`c${tag}_rays_main_`);
+    const bright = id(`c${tag}_rays_bright_`);
+    const ray = id(`c${tag}_rays_streak_`);
+    const out = id(`c${tag}_rays_out_`);
+    // geq samples a point progressively farther from the ray origin. The
+    // bright pass is then blurred and screen-composited, producing directional
+    // streaks without relying on non-portable frei0r plugins.
+    const rayExpr = "lum(X+(X-W/2)*0.12\\,Y+(Y-H/2)*0.12)";
+    const rayCut = Math.round(clamp(vfx.lightRays.threshold, 0, 1) * 255);
+    lines.push(`[${current}]split=2[${main}][${bright}]`);
+    lines.push(`[${bright}]lut=y='if(gt(val\\,${rayCut})\\,val\\,0)',geq=lum='${rayExpr}',gblur=sigma=${Math.max(0.5, vfx.lightRays.length * 20).toFixed(2)}[${ray}]`);
+    lines.push(`[${main}][${ray}]blend=all_mode=screen:all_opacity=${clamp(vfx.lightRays.intensity, 0, 2).toFixed(3)}[${out}]`);
+    current = out;
+  }
+
+  if (vfx.filmGrain.enabled) {
+    step(`noise=alls=${Math.max(1, Math.round(clamp(vfx.filmGrain.amount, 0, 1) * 32))}:allf=t`, "grain_");
+  }
+  if (vfx.vignette.enabled || effectEnabled(clip, "vignette")) {
+    const intensity = effectEnabled(clip, "vignette") && !vfx.vignette.enabled ? 0.55 : clamp(vfx.vignette.intensity, 0, 1);
+    step(`vignette=angle=${(Math.PI * 0.35 * intensity).toFixed(5)}:mode=forward`, "vignette_");
+  }
+
+  if (vfx.lutPipeline.enabled && vfx.lutPipeline.preset !== "none") {
+    const original = id(`c${tag}_lut_original_`);
+    const graded = id(`c${tag}_lut_grade_`);
+    lines.push(`[${current}]split=2[${original}][${graded}]`);
+    current = graded;
+    for (const lutFilter of lutToFfmpeg(vfx.lutPipeline.preset)) {
+      const next = id(`c${tag}_lut_`);
+      lines.push(`[${current}]${lutFilter}[${next}]`);
+      current = next;
+    }
+    const blended = id(`c${tag}_lut_mix_`);
+    lines.push(`[${original}][${current}]blend=all_mode=normal:all_opacity=${clamp(vfx.lutPipeline.intensity, 0, 1).toFixed(3)}[${blended}]`);
+    current = blended;
+  }
+
+  return current;
 }
 
 /**
@@ -232,21 +376,31 @@ function buildVideoClipChain(
     current = next;
   }
 
+  current = appendVfxFilters(current, clip, lines, tag, canvasW, canvasH);
+
+  // Оставляем здесь только legacy-фильтры без параметризованного VFX pass.
+  const parameterizedEffects = new Set([
+    "glow",
+    "light-rays",
+    "film-grain",
+    "noise",
+    "lens-distortion",
+    "bloom",
+    "sharpen",
+    "noise-reduction",
+    "vignette",
+    "background-removal",
+    "object-removal",
+    "motion-blur",
+    "lut-pipeline",
+  ]);
   for (const effectId of clip.effects || []) {
-    if (effectId === "glow") {
-       const next = id(`c${tag}_`);
-       // FFmpeg Halation/Glow: split video, isolate highlights with colorlevels, blur them, and screen blend back
-       lines.push(`[${current}]split=2[${current}_main][${current}_glow]`);
-       lines.push(`[${current}_glow]colorlevels=rimin=0.8:gimin=0.8:bimin=0.8,gblur=sigma=12[${current}_glow_blurred]`);
-       lines.push(`[${current}_main][${current}_glow_blurred]blend=all_mode=screen:all_opacity=0.6[${next}]`);
-       current = next;
-    } else {
-       const preset = EFFECT_PRESETS.find((e) => e.id === effectId);
-       if (!preset) continue;
-       const next = id(`c${tag}_`);
-       lines.push(`[${current}]${preset.ffmpeg}[${next}]`);
-       current = next;
-    }
+    if (parameterizedEffects.has(effectId)) continue;
+    const preset = EFFECT_PRESETS.find((e) => e.id === effectId);
+    if (!preset?.ffmpeg) continue;
+    const next = id(`c${tag}_`);
+    lines.push(`[${current}]${preset.ffmpeg}[${next}]`);
+    current = next;
   }
 
   if (clip.mask.enabled) {
@@ -389,7 +543,7 @@ export function compileProjectToFfmpeg(
   const audioTracks = project.tracks.filter((t) => t.type === "audio" && !t.hidden);
 
   const baseTrack = videoTracks[0];
-  const overlayTracks = videoTracks.slice(1);
+  const overlayTracks = project.compositing?.enabled === false ? [] : videoTracks.slice(1);
 
   let composite: string | null = null;
   let totalDuration = project.duration;
@@ -484,14 +638,44 @@ export function compileProjectToFfmpeg(
       // the gate opens at t=start, the overlay stream has already played `start`
       // seconds ahead of its own content (or finished entirely for short clips).
       const label = id("ovshift_");
-      lines.push(`[${rawLabel}]setpts=PTS+${start}/TB[${label}]`);
       const xExpr = paramToFfmpegExpr(clip.x, `t-${start}`);
       const yExpr = paramToFfmpegExpr(clip.y, `t-${start}`);
-      const next = id("ov_");
-      lines.push(
-        `[${composite}][${label}]overlay=x='(main_w-overlay_w)/2+(${xExpr})*main_w/2':y='(main_h-overlay_h)/2+(${yExpr})*main_h/2':enable='between(t\\,${start}\\,${end})'[${next}]`,
-      );
-      composite = next;
+      const mode = blendFilterMode(clip.blendMode ?? "normal");
+      if (mode === "normal") {
+        lines.push(`[${rawLabel}]setpts=PTS+${start}/TB[${label}]`);
+        const next = id("ov_");
+        lines.push(
+          `[${composite}][${label}]overlay=x='(main_w-overlay_w)/2+(${xExpr})*main_w/2':y='(main_h-overlay_h)/2+(${yExpr})*main_h/2':enable='between(t\\,${start}\\,${end})'[${next}]`,
+        );
+        composite = next;
+      } else {
+        // Non-normal blend needs an alpha mask. We blend the full canvas and
+        // then maskedmerge only where the layer has pixels; transparent areas
+        // therefore never turn multiply/difference into a black full-frame pass.
+        const localX = paramToFfmpegExpr(clip.x, "t");
+        const localY = paramToFfmpegExpr(clip.y, "t");
+        const transparent = id("ov_transparent_");
+        const fullLayer = id("ov_full_");
+        const shifted = id("ov_shifted_");
+        const blended = id("ov_blended_");
+        const mask = id("ov_mask_");
+        const next = id("ov_masked_");
+        lines.push(`color=c=black@0.0:s=${W}x${H}:d=${Math.max(0.05, clip.duration)}:r=${fps},format=rgba[${transparent}]`);
+        lines.push(
+          `[${transparent}][${rawLabel}]overlay=x='(W-w)/2+(${localX})*W/2':y='(H-h)/2+(${localY})*H/2':enable='between(t\\,0\\,${clip.duration})'[${fullLayer}]`,
+        );
+        lines.push(`[${fullLayer}]setpts=PTS+${start}/TB[${shifted}]`);
+        const baseBlend = id("ov_base_blend_");
+        const baseKeep = id("ov_base_keep_");
+        const layerBlend = id("ov_layer_blend_");
+        const layerMask = id("ov_layer_mask_");
+        lines.push(`[${composite}]split=2[${baseBlend}][${baseKeep}]`);
+        lines.push(`[${shifted}]split=2[${layerBlend}][${layerMask}]`);
+        lines.push(`[${baseBlend}][${layerBlend}]blend=all_mode=${mode}:all_opacity=1:shortest=0[${blended}]`);
+        lines.push(`[${layerMask}]alphaextract[${mask}]`);
+        lines.push(`[${baseKeep}][${blended}][${mask}]maskedmerge[${next}]`);
+        composite = next;
+      }
 
       if (!clip.muted) {
         const audioLabel = buildAudioChain(

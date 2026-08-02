@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useProjectStore, timelineDuration } from "@/store/projectStore";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useProjectStore, findClip, timelineDuration } from "@/store/projectStore";
 import { renderFrame, syncVideoElements } from "@/lib/editor/compositor";
+import { mergeVfxSettings } from "@/lib/editor/vfx";
+import type { VideoClip } from "@/lib/types";
 import { audioMixer } from "@/lib/editor/audioMixer";
 import { mediaPool } from "@/lib/editor/resourcePool";
 
@@ -55,6 +57,66 @@ export default function PreviewCanvas() {
   const isPlaying = useProjectStore((s) => s.isPlaying);
   const [guides, setGuides] = useState(false);
   const [fit, setFit] = useState<{ width: number; height: number }>({ width: 640, height: 360 });
+  const [objectSelectMode, setObjectSelectMode] = useState(false);
+  const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const objectStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const requestSelection = () => {
+      objectStartRef.current = null;
+      setSelectionRect(null);
+      setObjectSelectMode(true);
+    };
+    window.addEventListener("montiq:vfx-object-select", requestSelection);
+    return () => window.removeEventListener("montiq:vfx-object-select", requestSelection);
+  }, []);
+
+  const pointerPosition = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width))),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height))),
+    };
+  }, []);
+
+  const onObjectPointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!objectSelectMode) return;
+    event.preventDefault();
+    const point = pointerPosition(event);
+    if (!point) return;
+    objectStartRef.current = point;
+    setSelectionRect({ x: point.x, y: point.y, width: 0, height: 0 });
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }, [objectSelectMode, pointerPosition]);
+
+  const onObjectPointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!objectSelectMode || !objectStartRef.current) return;
+    const point = pointerPosition(event);
+    if (!point) return;
+    const start = objectStartRef.current;
+    setSelectionRect({ x: Math.min(start.x, point.x), y: Math.min(start.y, point.y), width: Math.abs(point.x - start.x), height: Math.abs(point.y - start.y) });
+  }, [objectSelectMode, pointerPosition]);
+
+  const onObjectPointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!objectSelectMode || !objectStartRef.current) return;
+    const point = pointerPosition(event);
+    const start = objectStartRef.current;
+    objectStartRef.current = null;
+    setObjectSelectMode(false);
+    if (!point) return;
+    const rect = { x: Math.min(start.x, point.x), y: Math.min(start.y, point.y), width: Math.abs(point.x - start.x), height: Math.abs(point.y - start.y) };
+    setSelectionRect(rect);
+    if (rect.width < 0.01 || rect.height < 0.01) return;
+    const state = useProjectStore.getState();
+    const found = findClip(state.project, state.selectedClipId);
+    if (!found || (found.clip.type !== "video" && found.clip.type !== "image")) return;
+    state.updateClip(found.clip.id, (clip) => {
+      const visual = clip as VideoClip;
+      return { ...visual, effects: [...new Set([...(visual.effects ?? []), "object-removal"])], vfx: { ...mergeVfxSettings(visual.vfx), objectRemoval: { ...mergeVfxSettings(visual.vfx).objectRemoval, ...rect, enabled: true } } };
+    });
+  }, [objectSelectMode, pointerPosition]);
 
   /* --------------------------- render loop --------------------------- */
   useEffect(() => {
@@ -201,9 +263,23 @@ export default function PreviewCanvas() {
       <canvas
         ref={canvasRef}
         style={{ width: fit.width, height: fit.height }}
-        className="rounded-lg bg-black shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10"
+        className={`rounded-lg bg-black shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10 ${objectSelectMode ? "cursor-crosshair" : ""}`}
         aria-label="Окно предпросмотра"
+        onPointerDown={onObjectPointerDown}
+        onPointerMove={onObjectPointerMove}
+        onPointerUp={onObjectPointerUp}
       />
+
+      {objectSelectMode && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded border border-dashed border-amber-300/80 bg-amber-400/10 px-3 py-1 text-[10px] font-bold text-amber-100" style={{ width: fit.width, height: fit.height }}>
+          Потяните рамку Object Removal
+        </div>
+      )}
+      {selectionRect && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ width: fit.width, height: fit.height }}>
+          <div className={`absolute border ${objectSelectMode ? "border-amber-300/90 bg-amber-300/15" : "border-emerald-300/80 bg-emerald-300/10"}`} style={{ left: `${selectionRect.x * 100}%`, top: `${selectionRect.y * 100}%`, width: `${selectionRect.width * 100}%`, height: `${selectionRect.height * 100}%` }} />
+        </div>
+      )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2">
         <div className="pointer-events-auto rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-mono text-slate-300 backdrop-blur">

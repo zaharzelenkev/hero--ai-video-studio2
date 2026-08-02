@@ -5,6 +5,7 @@ import type { AudioClip, Clip, MediaAsset, Marker, Project, TextClip, Track, Tra
 import { saveProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import { createAudioClip, createTextClip, createVideoClip } from "@/lib/factories";
+import { mergeVfxSettings } from "@/lib/editor/vfx";
 import {
   analyzePictureLock,
   clipIsStructuralEdit,
@@ -237,11 +238,14 @@ function normalizeProject(p: Project): Project {
     markers: p.markers ?? [],
     tracks: (p.tracks ?? []).map((track) => ({
       ...track,
-      clips: sortClips(track.clips ?? []),
+      clips: sortClips(track.clips ?? []).map((clip) =>
+        clip.type === "video" || clip.type === "image" ? { ...clip, vfx: mergeVfxSettings((clip as VideoClip).vfx) } : clip,
+      ),
       hidden: track.hidden ?? false,
       muted: track.muted ?? false,
       locked: track.locked ?? false,
     })),
+    compositing: p.compositing ?? { enabled: true },
     exportSettings: p.exportSettings ?? {
       width: resolution.width,
       height: resolution.height,

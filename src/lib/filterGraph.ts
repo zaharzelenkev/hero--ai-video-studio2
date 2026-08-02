@@ -1032,20 +1032,38 @@ export function compileProjectToFfmpeg(
 }
 
 export function buildOutputArgs(exportSettings: ExportSettings, outputName: string, totalDuration?: number): string[] {
-  // Коротким роликам (≤45с, типично шортсы/рилсы) можно позволить более
-  // медленный/качественный x264 preset "fast" — кодирование всё равно быстрое.
-  // Для длинных видео берём "veryfast", чтобы не взорвать время рендера в wasm.
   const x264Preset = totalDuration != null && totalDuration <= 45 ? "fast" : "veryfast";
-  const codecArgs =
-    exportSettings.format === "webm"
-      ? ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(exportSettings.crf), "-c:a", "libopus"]
-      : exportSettings.format === "gif"
-        ? []
-        // high profile = B-frames+CABAC (бесплатные ~8% битрейта), preset выбирается по
-        // длительности ролика — баланс времени кодирования в wasm и плотности битрейта,
-        // +faststart — превью стартует мгновенно при реаплоаде (moov в начале файла).
-        : ["-c:v", "libx264", "-preset", x264Preset, "-profile:v", "high", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k"];
-  return [...codecArgs, "-r", String(exportSettings.fps), outputName];
+
+  if (exportSettings.audioOnly || exportSettings.format === "audio") {
+    const aCodec = exportSettings.audioCodec || "aac";
+    const aBit = exportSettings.audioBitrate || 192;
+    const ext = outputName.split(".").pop();
+    if (ext === "mp3" || exportSettings.audioFormat === "mp3") {
+      return ["-vn", "-c:a", "libmp3lame", "-b:a", `${aBit}k`, outputName];
+    }
+    if (ext === "wav" || exportSettings.audioFormat === "wav") {
+      return ["-vn", "-c:a", "pcm_s16le", outputName];
+    }
+    return ["-vn", "-c:a", aCodec === "opus" ? "libopus" : "aac", "-b:a", `${aBit}k`, outputName];
+  }
+
+  if (exportSettings.format === "webm") {
+    return ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(exportSettings.crf), "-c:a", "libopus", "-r", String(exportSettings.fps), outputName];
+  }
+  if (exportSettings.format === "gif") {
+    return ["-r", String(exportSettings.fps), outputName];
+  }
+  if (exportSettings.format === "mov") {
+    // ProRes or h264 mov (widely compatible)
+    const codec = (exportSettings.codec as any) || "h264";
+    if (codec === "prores" || codec === "h265") {
+      return ["-c:v", "prores_ks", "-profile:v", "3", "-c:a", "pcm_s16le", "-r", String(exportSettings.fps), outputName];
+    }
+    return ["-c:v", "libx264", "-preset", x264Preset, "-profile:v", "high", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k", "-r", String(exportSettings.fps), outputName];
+  }
+
+  // Default MP4
+  return ["-c:v", "libx264", "-preset", x264Preset, "-profile:v", "high", "-crf", String(exportSettings.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k", "-r", String(exportSettings.fps), outputName];
 }
 
 export { escFilterArg };

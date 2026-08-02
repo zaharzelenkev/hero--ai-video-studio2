@@ -734,7 +734,7 @@ export interface ExportSettings {
   width: number;
   height: number;
   fps: number;
-  format: "mp4" | "webm" | "gif" | "mov";
+  format: "mp4" | "webm" | "gif" | "mov" | "audio";
   
   // Video codec options
   codec?: "h264" | "h265" | "vp9" | "av1";
@@ -746,11 +746,23 @@ export interface ExportSettings {
   audioCodec?: "aac" | "opus" | "mp3";
   audioBitrate?: number; // kbps
   audioOnly?: boolean; // Export audio only
+  audioFormat?: "mp3" | "wav" | "aac";
   
   // Range export
   exportRange?: {
     start: number;
     end: number;
+  };
+
+  // Multi-format export support for queue
+  formats?: Array<"mp4" | "mov" | "webm" | "gif">;
+  
+  // Project export options
+  exportProject?: {
+    xml: boolean;
+    edl: boolean;
+    srt: boolean;
+    lut: boolean;
   };
 }
 

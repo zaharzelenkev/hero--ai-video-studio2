@@ -229,12 +229,15 @@ export async function renderProject(
     if (compiled.audioMapLabel) args.push("-map", `[${compiled.audioMapLabel}]`);
     else args.push("-an");
 
-    const outName = `output.${project.exportSettings.format}`;
+    let outExt = (project.exportSettings.format === "audio" || project.exportSettings.audioOnly)
+      ? (project.exportSettings.audioFormat || "mp3")
+      : (project.exportSettings.format === "mov" ? "mov" : project.exportSettings.format);
+    const outName = `output.${outExt}`;
     args.push("-t", String(compiled.totalDuration.toFixed(3)));
     args.push(...buildOutputArgs(project.exportSettings, outName, compiled.totalDuration));
 
     onLog?.(`Запуск: ffmpeg ${args.join(" ")}`);
-        const code = await ffmpeg.exec(args);
+    const code = await ffmpeg.exec(args);
     if (code !== 0) {
       console.error("FFmpeg Error! Args used:", args);
       console.error("Filter graph:", compiled.filterComplex);
@@ -242,12 +245,14 @@ export async function renderProject(
     }
     
     const data = await ffmpeg.readFile(outName);
-    const mime =
-      project.exportSettings.format === "webm"
-        ? "video/webm"
-        : project.exportSettings.format === "gif"
-          ? "image/gif"
-          : "video/mp4";
+    let mime = "video/mp4";
+    if (project.exportSettings.format === "webm") mime = "video/webm";
+    else if (project.exportSettings.format === "gif") mime = "image/gif";
+    else if (project.exportSettings.format === "mov") mime = "video/quicktime";
+    else if (project.exportSettings.audioOnly || project.exportSettings.format === "audio") {
+      const af = project.exportSettings.audioFormat || "mp3";
+      mime = af === "wav" ? "audio/wav" : af === "aac" ? "audio/aac" : "audio/mpeg";
+    }
     const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
     const blob = new Blob([new Uint8Array(bytes)], { type: mime });
 

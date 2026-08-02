@@ -31,7 +31,8 @@
     "test:motion-ffmpeg": "tsx scripts/test-motion-graphics-ffmpeg.mts",
     "test:hardening": "tsx scripts/test-render-hardening.mts",
     "test:normalize": "tsx scripts/test-render-normalization.mts",
-    "test:colormatch": "tsx scripts/test-color-match.mts"
+    "test:colormatch": "tsx scripts/test-color-match.mts",
+    "test:photosearch": "tsx scripts/test-photo-search.mts"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.6",

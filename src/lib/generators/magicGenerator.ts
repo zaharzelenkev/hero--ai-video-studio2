@@ -52,7 +52,7 @@ export async function generateMagicVideo(prompt: string, style: import("../types
 - imageType: "ai" или "real"
 - imagePrompt: 
    - Если imageType="ai", напиши детальный промпт для нейросети на АНГЛИЙСКОМ (например: "A cyberpunk city at night, neon lights, 8k resolution").
-   - Если imageType="real", напиши точный поисковый запрос на АНГЛИЙСКОМ (например: "Eiffel Tower", "Elon Musk", "Mount Everest").
+   - Если imageType="real", напиши точный поисковый запрос на АНГЛИЙСКОМ для поиска НАСТОЯЩЕГО фото, обязательно с названием места И локацией (страна/город), например: "Eiffel Tower, Paris, France", "Taj Mahal, Agra, India", "Elon Musk", "Mount Everest, Nepal". Не выдумывай объект — это реальная достопримечательность, её фото есть в интернете.
 - motion: короткое описание ДВИЖЕНИЯ в кадре на АНГЛИЙСКОМ для видео-нейросети (движение камеры + движение объекта, например: "slow cinematic dolly-in, mist drifting between skyscrapers" или "drone orbit shot, waves crashing in slow motion"). Всегда заполняй!
 
 Ответь строго в JSON формате:
@@ -218,23 +218,32 @@ async function buildSceneMedia(
 
     let imgUrl = "";
 
-    if (!imageAsset && scene.imageType === "real") {
-      try {
-        const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(scene.imagePrompt)}&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url&format=json&origin=*`;
-        const wikiRes = await fetch(wikiUrl);
-        if (wikiRes.ok) {
-          const wikiData = await wikiRes.json();
-          const pages = wikiData.query?.pages;
-          if (pages) {
-            imgUrl = (Object.values(pages) as any)[0].imageinfo[0].url;
-          }
+    // РЕАЛЬНОЕ ФОТО ИЗ ИНТЕРНЕТА: сцена про существующий объект (достопримечательность,
+    // город, страна, известное место) — генерировать выдумку нельзя, ищем настоящее фото.
+    // Срабатывает и когда LLM пометил сцену imageType="real", и когда промпт явно
+    // указывает на реальный объект (страховка для режима без ключа / ошибки LLM).
+    // Сцена явно помечена как реальная (LLM решил: объект существует) — если фото
+    // не найдётся, выдумку НЕ генерируем (пользователь просил настоящее). Для
+    // сцен, которые лишь детектор счёл реальными (ai-сцена), ИИ-фоллбэк допустим.
+    const explicitlyReal = scene.imageType === "real";
+
+    if (!imageAsset) {
+      const { looksLikeRealWorldSubject } = await import("../realSubjectDetector");
+      const wantsReal = explicitlyReal || looksLikeRealWorldSubject(scene.imagePrompt);
+      if (wantsReal) {
+        try {
+          const { searchRealPhoto } = await import("../realImageSearch");
+          const real = await searchRealPhoto(scene.imagePrompt, w, h);
+          if (real) imgUrl = real.url;
+          else console.warn("Реальное фото не найдено для:", scene.imagePrompt);
+        } catch (e) {
+          console.warn("Real photo search failed", e);
         }
-      } catch (e) {
-        console.warn("Wiki search failed", e);
       }
     }
 
-    if (!imageAsset && !imgUrl) {
+    // ИИ-фоллбэк только там, где это допустимо (не для явно реальных объектов).
+    if (!imageAsset && !imgUrl && !explicitlyReal) {
       // Детерминированный сид: тот же сценарий (та же сцена, тот же заголовок) —
       // тот же кадр. Math.random() делал повторную генерацию непредсказуемой и
       // ломал воспроизводимость превью/экспорта.
@@ -247,7 +256,10 @@ async function buildSceneMedia(
       if (imgRes.ok) {
         const imgBlob = await imgRes.blob();
         const imgKey = uid("blob");
-        const file = new File([imgBlob], `Scene ${i + 1}`, { type: "image/jpeg" });
+        // Реальные фото бывают не только JPEG (PNG/WebP и т.п.) — берём MIME из
+        // ответа, чтобы расширение файла и рендер не путали формат.
+        const mime = /^image\//.test(imgBlob.type) ? imgBlob.type : "image/jpeg";
+        const file = new File([imgBlob], `Scene ${i + 1}`, { type: mime });
         await saveBlob(imgKey, file);
         filesByAssetId.set(imgKey, file);
 
@@ -255,7 +267,7 @@ async function buildSceneMedia(
           id: imgKey,
           name: `Scene ${i + 1}`,
           kind: "image",
-          mime: "image/jpeg",
+          mime,
           blobKey: imgKey,
           duration: audioDuration + 0.5,
           width: w, height: h,

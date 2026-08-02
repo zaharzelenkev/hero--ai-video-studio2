@@ -36,6 +36,12 @@ export interface GroqResult {
   /** internal flag only — do not surface to the user */
   usedRemote: boolean;
   status?: number;
+  /**
+   * true when the model stopped because it hit max_tokens
+   * (finish_reason === "length") — the answer is cut off and must not be
+   * treated as a complete response.
+   */
+  truncated?: boolean;
 }
 
 export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
@@ -62,6 +68,10 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
   if (responseFormat) body.response_format = responseFormat;
 
   let lastErr: unknown = null;
+  // When Groq answers 429 we must wait for its Retry-After window (TPM/RPM
+  // rate limits) instead of the generic backoff — otherwise every retry just
+  // hits the same 429 again.
+  let retryAfterMs: number | null = null;
   const maxAttempts = 1 + Math.max(0, maxRetries);
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -82,17 +92,32 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
 
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as any;
-        const text: string = data?.choices?.[0]?.message?.content ?? "";
+        const choice = data?.choices?.[0];
+        const text: string =
+          typeof choice?.message?.content === "string" ? choice.message.content : "";
         if (text && text.trim().length > 0) {
-          return { ok: true, text, usedRemote: true, status: res.status };
+          const truncated = choice?.finish_reason === "length";
+          if (truncated) {
+            console.warn(
+              "[groq] response truncated at max_tokens (finish_reason=length) — " +
+                "answer is cut off, caller must not treat it as complete"
+            );
+          }
+          return { ok: true, text, usedRemote: true, status: res.status, truncated };
         }
         // Empty response → treat as transient, retry.
         lastErr = new Error("empty response");
       } else {
         const text = await res.text().catch(() => "");
         lastErr = new Error(`groq ${res.status}: ${text.slice(0, 200)}`);
-        // Fatal client errors (other than 429) → don't retry.
-        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+        // 429 (rate limit) is transient but only after Groq's Retry-After window.
+        if (res.status === 429) {
+          const ra = parseFloat(res.headers.get("retry-after") || "");
+          retryAfterMs =
+            Number.isFinite(ra) && ra > 0 ? Math.min(Math.ceil(ra) * 1000, 60_000) : null;
+          console.warn("[groq] rate limited (429), retry-after:", ra);
+        } else if (res.status >= 400 && res.status < 500) {
+          // Fatal client errors → don't retry.
           console.warn("[groq] fatal client error", res.status, text.slice(0, 200));
           clearTimeout(timer);
           return { ok: false, text: "", usedRemote: false, status: res.status };
@@ -108,7 +133,7 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
     }
 
     if (attempt < maxAttempts - 1) {
-      const delay = AI_CONFIG.retryBaseDelayMs * Math.pow(2, attempt);
+      const delay = retryAfterMs ?? AI_CONFIG.retryBaseDelayMs * Math.pow(2, attempt);
       await new Promise((r) => setTimeout(r, delay));
     }
   }

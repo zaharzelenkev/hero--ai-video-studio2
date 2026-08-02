@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useState, useRef, useEffect } from "react";
-import { uid } from "@/lib/id";
+import { useCallback, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 
 /**

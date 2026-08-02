@@ -1,6 +1,7 @@
 "use client";
 
 import { addKeyframe, evalParam, removeKeyframe } from "@/lib/keyframes";
+import { Icon } from "@/components/ui/Icon";
 import type { AnimParam } from "@/lib/types";
 
 export default function ParamControl({
@@ -48,6 +49,7 @@ export default function ParamControl({
   const clearKfs = () => onChange({ value, keyframes: [] });
 
   const displayValue = displayFn ? displayFn(value) : format ? format(value) : value.toFixed(2) + (unit || "");
+  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
 
   return (
     <div className="mb-3">
@@ -58,13 +60,13 @@ export default function ParamControl({
           <button
             title="Добавить ключевой кадр на плейхеде"
             onClick={addKf}
-            className={`text-xs ${animated ? "text-amber-400" : "text-slate-500 hover:text-amber-300"}`}
+            className={`flex h-5 w-5 items-center justify-center rounded-md transition ${animated ? "bg-amber-500/20 text-amber-300" : "text-slate-500 hover:bg-amber-500/15 hover:text-amber-300"}`}
           >
-            ◆
+            <Icon name="diamond" size={10} strokeWidth={2} />
           </button>
           {animated && (
-            <button title="Убрать анимацию" onClick={clearKfs} className="text-[10px] text-slate-500 hover:text-red-300">
-              ✕
+            <button title="Убрать анимацию" onClick={clearKfs} className="flex h-5 w-5 items-center justify-center rounded-md text-slate-500 hover:bg-rose-500/15 hover:text-red-300">
+              <Icon name="x" size={10} strokeWidth={2} />
             </button>
           )}
         </div>
@@ -76,7 +78,8 @@ export default function ParamControl({
         step={step}
         value={value}
         onChange={(e) => handleSlide(parseFloat(e.target.value))}
-        className="h-1 w-full accent-violet-500"
+        className="h-4 w-full"
+        style={{ ["--range-pct" as string]: `${Math.max(0, Math.min(100, pct))}%` }}
       />
       {animated && (
         <div className="relative mt-1 h-3 rounded bg-white/5">

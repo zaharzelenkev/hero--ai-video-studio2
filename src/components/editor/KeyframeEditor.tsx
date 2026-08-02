@@ -6,6 +6,7 @@ import { addKeyframe, evalParam, removeKeyframe } from "@/lib/keyframes";
 import { defaultColorGrade, param } from "@/lib/types";
 import type { AnimParam, AudioClip, Clip, Easing, Keyframe, TextClip, VideoClip } from "@/lib/types";
 import { PanelSection, EmptyHint, ToggleButton, SelectField } from "./panels/ui";
+import { Icon } from "@/components/ui/Icon";
 
 interface ParamBinding {
   key: string;
@@ -152,14 +153,14 @@ function KeyframeLane({
             onClick={() => updateClip(clip.id, (c) => binding.set(c, addKeyframe(binding.get(c), Math.max(0, localTime), evalParam(binding.get(c), localTime))))}
             className="rounded bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-200 hover:bg-amber-500/35"
           >
-            ◆
+            <Icon name="diamond" size={10} strokeWidth={2} />
           </button>
           <button
             title="Убрать всю анимацию параметра"
             onClick={() => updateClip(clip.id, (c) => binding.set(c, { value: evalParam(binding.get(c), localTime), keyframes: [] }))}
             className="rounded bg-white/5 px-1.5 text-[10px] text-slate-400 hover:bg-rose-500/20 hover:text-rose-200"
           >
-            ✕
+            <Icon name="x" size={10} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -256,7 +257,7 @@ export default function KeyframeEditor() {
                 setSelected(null);
               }}
             >
-              🗑 Удалить ключ
+              <Icon name="trash" size={11} />Удалить ключ
             </ToggleButton>
           </div>
         </PanelSection>

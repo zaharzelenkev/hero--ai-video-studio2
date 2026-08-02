@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProjectStore, timelineDuration } from "@/store/projectStore";
 import { audioMixer } from "@/lib/editor/audioMixer";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 export function formatTimecode(time: number, fps = 30): string {
   const safe = Math.max(0, time);
@@ -16,32 +16,27 @@ export function formatTimecode(time: number, fps = 30): string {
 }
 
 function TransportButton({
-  label,
+  icon,
   title,
   onClick,
   active,
-  wide,
+  disabled,
 }: {
-  label: string;
+  icon: IconName;
   title: string;
   onClick: () => void;
   active?: boolean;
-  wide?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`flex h-8 items-center justify-center rounded-lg border text-[11px] font-bold transition ${
-        wide ? "w-12" : "w-8"
-      } ${
-        active
-          ? "border-violet-400/50 bg-violet-500/25 text-violet-100"
-          : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white"
-      }`}
+      disabled={disabled}
+      className={`transport-btn ${active ? "transport-btn-active" : ""}`}
     >
-      {label}
+      <Icon name={icon} size={14} />
     </button>
   );
 }
@@ -111,29 +106,31 @@ export default function Transport() {
     setPlayhead(h * 3600 + m * 60 + s + f / fps);
   };
 
+  const volumePct = volume * 100;
+
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-white/10 bg-[#0b0b13] px-3 py-2">
+    <div className="transport-bar flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 sm:gap-2 sm:px-3">
+      {/* Транспорт */}
       <div className="flex items-center gap-1">
-        <TransportButton label="⏮" title="В начало (Home)" onClick={() => setPlayhead(inPoint ?? 0)} />
-        <TransportButton label="⏪" title="Предыдущая склейка (↑)" onClick={goPrevEdit} />
-        <TransportButton label="◀|" title="Кадр назад (←)" onClick={() => setPlayhead(Math.max(0, playhead - 1 / fps))} />
+        <TransportButton icon="skip-back" title="В начало (Home)" onClick={() => setPlayhead(inPoint ?? 0)} />
+        <TransportButton icon="chevrons-left" title="Предыдущая склейка" onClick={goPrevEdit} />
+        <TransportButton icon="frame-back" title="Кадр назад (←)" onClick={() => setPlayhead(Math.max(0, playhead - 1 / fps))} />
         <button
           onClick={() => setPlaying(!isPlaying)}
           title={isPlaying ? "Пауза (Space)" : "Воспроизведение (Space)"}
           aria-label={isPlaying ? "Пауза" : "Воспроизведение"}
-          className={`btn btn-primary h-8 w-14 !rounded-lg !px-0 text-sm ${
-            isPlaying ? "!bg-gradient-to-b from-rose-500 to-rose-600 shadow-[0_6px_18px_-6px_rgba(248,113,113,0.5)]" : ""
-          }`}
+          className={`transport-btn transport-play ${isPlaying ? "!bg-gradient-to-b from-rose-500 to-rose-600 !shadow-[0_6px_18px_-6px_rgba(248,113,113,0.5)]" : ""}`}
         >
-          {isPlaying ? <Icon name="pause" size={14} /> : <Icon name="play" size={14} />}
+          {isPlaying ? <Icon name="pause" size={15} /> : <Icon name="play" size={15} />}
         </button>
-        <TransportButton label="|▶" title="Кадр вперёд (→)" onClick={() => setPlayhead(Math.min(duration, playhead + 1 / fps))} />
-        <TransportButton label="⏩" title="Следующая склейка (↓)" onClick={goNextEdit} />
-        <TransportButton label="⏭" title="В конец (End)" onClick={() => setPlayhead(outPoint ?? duration)} />
+        <TransportButton icon="frame-forward" title="Кадр вперёд (→)" onClick={() => setPlayhead(Math.min(duration, playhead + 1 / fps))} />
+        <TransportButton icon="chevrons-right" title="Следующая склейка" onClick={goNextEdit} />
+        <TransportButton icon="skip-forward" title="В конец (End)" onClick={() => setPlayhead(outPoint ?? duration)} />
       </div>
 
-      <div className="mx-1 h-6 w-px bg-white/10" />
+      <div className="mx-0.5 h-6 w-px bg-white/[0.08]" />
 
+      {/* Таймкод */}
       {editing ? (
         <input
           autoFocus
@@ -144,7 +141,7 @@ export default function Transport() {
             if (e.key === "Enter") commitTimecode();
             if (e.key === "Escape") setEditing(false);
           }}
-          className="w-[132px] rounded-lg border border-violet-400/40 bg-black/60 px-2 py-1 text-center font-mono text-xs text-violet-100 outline-none"
+          className="timecode w-[128px] rounded-lg border border-violet-400/40 bg-black/60 px-2 py-1.5 text-center text-violet-100 outline-none"
           aria-label="Ввести таймкод"
         />
       ) : (
@@ -154,7 +151,7 @@ export default function Transport() {
             setEditing(true);
           }}
           title="Кликните, чтобы ввести таймкод"
-          className="rounded-lg border border-white/10 bg-black/40 px-3 py-1 font-mono text-xs tabular-nums text-violet-200 hover:border-violet-400/40"
+          className="timecode rounded-lg border border-white/[0.08] bg-black/40 px-2.5 py-1.5 text-violet-200 transition hover:border-violet-400/40 hover:bg-black/60"
         >
           {formatTimecode(playhead, fps)}
           <span className="mx-1 text-slate-600">/</span>
@@ -162,24 +159,26 @@ export default function Transport() {
         </button>
       )}
 
-      <div className="mx-1 h-6 w-px bg-white/10" />
+      <div className="mx-0.5 h-6 w-px bg-white/[0.08]" />
 
+      {/* Диапазон и маркеры */}
       <div className="flex items-center gap-1">
-        <TransportButton label="[" title="Отметить начало диапазона (I)" onClick={() => setInPoint(playhead)} active={inPoint !== null} />
-        <TransportButton label="]" title="Отметить конец диапазона (O)" onClick={() => setOutPoint(playhead)} active={outPoint !== null} />
-        <TransportButton label="✕" title="Сбросить диапазон" onClick={clearRange} />
-        <TransportButton label="⚑" title="Поставить маркер (M)" onClick={() => addMarker(playhead)} />
-        <TransportButton label="⟳" title="Зациклить воспроизведение (L)" onClick={() => setLoop(!loop)} active={loop} />
+        <TransportButton icon="bracket-left" title="Отметить начало диапазона (I)" onClick={() => setInPoint(playhead)} active={inPoint !== null} />
+        <TransportButton icon="bracket-right" title="Отметить конец диапазона (O)" onClick={() => setOutPoint(playhead)} active={outPoint !== null} />
+        <TransportButton icon="x" title="Сбросить диапазон" onClick={clearRange} />
+        <TransportButton icon="flag" title="Поставить маркер (M)" onClick={() => addMarker(playhead)} />
+        <TransportButton icon="repeat" title="Зациклить воспроизведение (L)" onClick={() => setLoop(!loop)} active={loop} />
       </div>
 
-      <div className="mx-1 h-6 w-px bg-white/10" />
+      <div className="mx-0.5 h-6 w-px bg-white/[0.08]" />
 
-      <label className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-        Скорость
+      {/* Скорость */}
+      <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+        <Icon name="gauge" size={12} className="text-slate-500" />
         <select
           value={rate}
           onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-          className="rounded-lg border border-white/10 bg-black/40 px-1.5 py-1 text-[11px] text-slate-200 outline-none"
+          className="rounded-lg border border-white/[0.08] bg-black/40 px-1.5 py-1.5 text-[11px] text-slate-200 outline-none transition hover:border-white/20"
           aria-label="Скорость воспроизведения"
         >
           {[0.25, 0.5, 1, 1.5, 2].map((r) => (
@@ -190,16 +189,15 @@ export default function Transport() {
         </select>
       </label>
 
+      {/* Громкость */}
       <div className="ml-auto flex items-center gap-2">
-        <div className="flex h-3 w-24 overflow-hidden rounded-full border border-white/10 bg-black/60" title="Уровень звука">
+        <div className="flex h-3 w-24 overflow-hidden rounded-full border border-white/[0.08] bg-black/60" title="Уровень звука">
           <div
             className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 transition-[width] duration-75"
             style={{ width: `${Math.min(100, level * 130)}%` }}
           />
         </div>
-        <span className="text-sm" aria-hidden>
-          🔊
-        </span>
+        <Icon name={volume <= 0 ? "volume-x" : volume < 0.5 ? "volume" : "volume-2"} size={14} className="shrink-0 text-slate-400" />
         <input
           type="range"
           min={0}
@@ -207,7 +205,8 @@ export default function Transport() {
           step={0.01}
           value={volume}
           onChange={(e) => setVolume(parseFloat(e.target.value))}
-          className="h-1 w-24 accent-violet-500"
+          className="h-4 w-20 sm:w-24"
+          style={{ ["--range-pct" as string]: `${volumePct}%` }}
           aria-label="Громкость предпросмотра"
         />
       </div>

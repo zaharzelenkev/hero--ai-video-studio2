@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useProjectStore } from "@/store/projectStore";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 function ImageCard({ prompt, label }: { prompt: string; label: string }) {
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?nologo=true&width=512&height=288&seed=42`;
@@ -20,10 +21,13 @@ function ImageCard({ prompt, label }: { prompt: string; label: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, children, icon }: { title: string; children: ReactNode; icon?: IconName }) {
   return (
     <section className="rounded-xl bg-gradient-to-b from-[#0d0d16] to-[#0a0a12] border border-white/10 p-3 shadow-inner mb-3">
-      <h3 className="text-xs font-bold text-violet-300 mb-2 flex items-center gap-2">{title}</h3>
+      <h3 className="text-xs font-bold text-violet-300 mb-2 flex items-center gap-2">
+        {icon && <Icon name={icon} size={13} className="text-violet-300" />}
+        {title}
+      </h3>
       {children}
     </section>
   );
@@ -73,7 +77,7 @@ export default function PreProductionPanelV2() {
 
   return (
     <div className="space-y-3">
-      <Section title="🎯 Генерация идеи (AI)">
+      <Section title="Генерация идеи (AI)" icon="lightbulb">
         <div className="flex gap-2 mb-2">
           <textarea
             value={idea}
@@ -94,7 +98,7 @@ export default function PreProductionPanelV2() {
         {idea && <div className="rounded-lg bg-[#08060c] border border-white/5 p-2 text-[11px] text-slate-200 leading-relaxed whitespace-pre-wrap">{idea}</div>}
       </Section>
 
-      <Section title="📄 Логлайн (AI)">
+      <Section title="Логлайн (AI)" icon="file-text">
         <button
           onClick={() => callAI("logline", setLogline)}
           disabled={loading === "logline"}
@@ -106,7 +110,7 @@ export default function PreProductionPanelV2() {
         {logline && <div className="rounded-lg bg-[#08060c] border border-white/5 p-2 text-xs text-violet-200 font-medium whitespace-pre-wrap">{logline}</div>}
       </Section>
 
-      <Section title="🎬 Сценарий (AI)">
+      <Section title="Сценарий (AI)" icon="script">
         <button
           onClick={() => callAI("script", setScript)}
           disabled={loading === "script"}
@@ -118,7 +122,7 @@ export default function PreProductionPanelV2() {
         {script && <div className="rounded-lg bg-[#08060c] border border-white/5 p-2 text-[11px] text-slate-200 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">{script}</div>}
       </Section>
 
-      <Section title="🖼 Раскадровка / Storyboard (AI + изображения)">
+      <Section title="Раскадровка / Storyboard (AI + изображения)" icon="storyboard">
         <p className="text-[10px] text-slate-400 mb-2">AI генерирует описания + изображения через Pollinations.</p>
         <button
           onClick={() => callAI("storyboard", setStoryboardText)}
@@ -136,7 +140,7 @@ export default function PreProductionPanelV2() {
         </div>
       </Section>
 
-      <Section title="📋 Shot List / Список кадров (AI)">
+      <Section title="Shot List / Список кадров (AI)" icon="clipboard">
         <button
           onClick={() => callAI("shotlist", setShotlistText)}
           disabled={loading === "shotlist"}
@@ -148,7 +152,7 @@ export default function PreProductionPanelV2() {
         {shotlistText && <div className="rounded-lg bg-[#08060c] border border-white/5 p-2 text-[11px] text-slate-200 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">{shotlistText}</div>}
       </Section>
 
-      <Section title="🎥 Рекомендации по съёмке (AI)">
+      <Section title="Рекомендации по съёмке (AI)" icon="camera">
         <button
           onClick={() => callAI("recommendations", setRecs)}
           disabled={loading === "recommendations"}

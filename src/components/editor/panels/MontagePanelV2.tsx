@@ -6,16 +6,17 @@ import type { AnimParam, AudioClip, CameraMotion, Clip, TextClip, Track, Transit
 import { TRANSITIONS } from "@/lib/presets";
 import { isPictureLocked } from "@/lib/pictureLock";
 import ParamControl from "../ParamControl";
+import { Icon } from "@/components/ui/Icon";
 import { PanelSection, NumberField, SelectField, ToggleButton, EmptyHint } from "./ui";
 
 const CAMERA_MOTIONS: { id: CameraMotion; label: string }[] = [
   { id: "none", label: "Статика" },
   { id: "zoom-in", label: "Наезд" },
   { id: "zoom-out", label: "Отъезд" },
-  { id: "pan-left", label: "Панорама ←" },
-  { id: "pan-right", label: "Панорама →" },
-  { id: "pan-up", label: "Панорама ↑" },
-  { id: "pan-down", label: "Панорама ↓" },
+  { id: "pan-left", label: "Панорама влево" },
+  { id: "pan-right", label: "Панорама вправо" },
+  { id: "pan-up", label: "Панорама вверх" },
+  { id: "pan-down", label: "Панорама вниз" },
 ];
 
 export default function MontagePanelV2() {
@@ -102,12 +103,12 @@ export default function MontagePanelV2() {
           </div>
         )}
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <ToggleButton onClick={() => splitClipAt(clip.id, playhead)}>✂ Разрезать</ToggleButton>
-          <ToggleButton onClick={() => duplicateClip(clip.id)}>⧉ Дублировать</ToggleButton>
-          <ToggleButton onClick={alignSelectedToPlayhead}>⇥ К плейхеду</ToggleButton>
-          {clip.type === "video" && <ToggleButton onClick={() => detachAudio(clip.id)}>🎚 Отделить звук</ToggleButton>}
+          <ToggleButton onClick={() => splitClipAt(clip.id, playhead)}><Icon name="scissors" size={11} />Разрезать</ToggleButton>
+          <ToggleButton onClick={() => duplicateClip(clip.id)}><Icon name="copy" size={11} />Дублировать</ToggleButton>
+          <ToggleButton onClick={alignSelectedToPlayhead}><Icon name="move-horizontal" size={11} />К плейхеду</ToggleButton>
+          {clip.type === "video" && <ToggleButton onClick={() => detachAudio(clip.id)}><Icon name="unlink" size={11} />Отделить звук</ToggleButton>}
           <ToggleButton tone="danger" onClick={() => removeClip(clip.id)}>
-            🗑 Удалить
+            <Icon name="trash" size={11} />Удалить
           </ToggleButton>
         </div>
       </PanelSection>
@@ -132,7 +133,7 @@ export default function MontagePanelV2() {
           {clip.type === "video" && (
             <div className="mt-2 flex gap-1.5">
               <ToggleButton active={!!media.reversed} onClick={() => patch((c) => ({ ...(c as VideoClip), reversed: !(c as VideoClip).reversed }) as Clip)}>
-                ⏪ Реверс
+                <Icon name="skip-back" size={11} />Реверс
               </ToggleButton>
               <ToggleButton
                 active={!!media.motionBlur?.enabled}
@@ -146,7 +147,7 @@ export default function MontagePanelV2() {
                   })
                 }
               >
-                ✷ Motion blur
+                <Icon name="waves" size={11} />Motion blur
               </ToggleButton>
             </div>
           )}
@@ -155,7 +156,7 @@ export default function MontagePanelV2() {
 
       {isVisual && (
         <>
-          <PanelSection title="Трансформация" subtitle="◆ — ключевой кадр на плейхеде">
+          <PanelSection title="Трансформация" subtitle="ключевой кадр — на плейхеде">
             <ParamControl
               label="Позиция X"
               param={media.x ?? param(0)}
@@ -204,17 +205,17 @@ export default function MontagePanelV2() {
             />
             <div className="mt-1 flex flex-wrap gap-1.5">
               <ToggleButton active={!!media.flipH} onClick={() => patch((c) => ({ ...(c as VideoClip), flipH: !(c as VideoClip).flipH }) as Clip)}>
-                ⇋ Отразить H
+                <Icon name="flip-horizontal" size={11} />Отразить H
               </ToggleButton>
               <ToggleButton active={!!media.flipV} onClick={() => patch((c) => ({ ...(c as VideoClip), flipV: !(c as VideoClip).flipV }) as Clip)}>
-                ⇵ Отразить V
+                <Icon name="flip-vertical" size={11} />Отразить V
               </ToggleButton>
               <ToggleButton
                 onClick={() =>
                   patch((c) => ({ ...(c as VideoClip), x: param(0), y: param(0), scale: param(1), rotation: param(0), opacity: param(1) }) as Clip)
                 }
               >
-                ↺ Сброс
+                <Icon name="rotate-ccw" size={11} />Сброс
               </ToggleButton>
             </div>
           </PanelSection>
@@ -231,7 +232,7 @@ export default function MontagePanelV2() {
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               <ToggleButton active={!!media.blurPad} onClick={() => patch((c) => ({ ...(c as VideoClip), blurPad: !(c as VideoClip).blurPad }) as Clip)}>
-                ⬛ Размытые поля
+                <Icon name="filter" size={11} />Размытые поля
               </ToggleButton>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -269,7 +270,7 @@ export default function MontagePanelV2() {
             <SelectField
               label="Вход"
               value={media.transitionIn?.type ?? "cut"}
-              options={TRANSITIONS.map((t) => ({ value: t.type, label: `${t.icon} ${t.label}` }))}
+              options={TRANSITIONS.map((t) => ({ value: t.type, label: t.label }))}
               onChange={(v) =>
                 patch((c) => {
                   const vc = c as VideoClip;
@@ -293,7 +294,7 @@ export default function MontagePanelV2() {
             <SelectField
               label="Выход"
               value={media.transitionOut?.type ?? "cut"}
-              options={TRANSITIONS.map((t) => ({ value: t.type, label: `${t.icon} ${t.label}` }))}
+              options={TRANSITIONS.map((t) => ({ value: t.type, label: t.label }))}
               onChange={(v) =>
                 patch((c) => {
                   const vc = c as VideoClip;
@@ -333,7 +334,7 @@ export default function MontagePanelV2() {
               </div>
               <div className="mt-2">
                 <ToggleButton active={!!media.muted} onClick={() => patch((c) => ({ ...(c as VideoClip), muted: !(c as VideoClip).muted }) as Clip)}>
-                  {media.muted ? "🔇 Звук выключен" : "🔊 Звук включён"}
+                  {media.muted ? (<><Icon name="volume-x" size={11} /> Звук выключен</>) : (<><Icon name="volume" size={11} /> Звук включён</>)}
                 </ToggleButton>
               </div>
             </PanelSection>
@@ -346,7 +347,7 @@ export default function MontagePanelV2() {
           <div className="mb-2 text-[11px] text-slate-400">
             Громкость {(audio.volume?.value ?? 1).toFixed(2)} · fade {audio.fadeIn?.toFixed(2)}/{audio.fadeOut?.toFixed(2)}с
           </div>
-          <ToggleButton onClick={() => setActivePage("sound")}>🎵 Открыть микшер</ToggleButton>
+          <ToggleButton onClick={() => setActivePage("sound")}><Icon name="music" size={11} />Открыть микшер</ToggleButton>
         </PanelSection>
       )}
 
@@ -359,7 +360,7 @@ export default function MontagePanelV2() {
             className="w-full resize-none rounded-lg border border-white/10 bg-black/40 p-2 text-xs text-slate-100 outline-none focus:border-violet-400/50"
           />
           <div className="mt-2">
-            <ToggleButton onClick={() => setActivePage("text")}>📝 Открыть редактор титров</ToggleButton>
+            <ToggleButton onClick={() => setActivePage("text")}><Icon name="type" size={11} />Открыть редактор титров</ToggleButton>
           </div>
         </PanelSection>
       )}
@@ -392,7 +393,7 @@ function LockedMontageNotice({ clip, track }: { clip: Clip; track: Track }) {
     <div className="space-y-3">
       <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl">🔒</span>
+          <Icon name="lock" size={18} className="shrink-0 text-emerald-300" />
           <div>
             <div className="text-xs font-black uppercase tracking-wider text-emerald-300">Picture Lock — монтаж зафиксирован</div>
             <div className="mt-0.5 text-[10px] leading-relaxed text-slate-400">
@@ -404,7 +405,7 @@ function LockedMontageNotice({ clip, track }: { clip: Clip; track: Track }) {
           onClick={() => setActivePage("lock")}
           className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-500/20 px-2 py-1 text-[10px] font-bold text-emerald-100 transition hover:bg-emerald-500/30"
         >
-          📋 Открыть отчёт Picture Lock
+          <Icon name="clipboard" size={11} />Открыть отчёт Picture Lock
         </button>
       </div>
 

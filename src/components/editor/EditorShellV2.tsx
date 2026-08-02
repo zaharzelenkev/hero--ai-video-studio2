@@ -94,11 +94,11 @@ const PANEL_COMPONENTS: Record<EditorPage, ComponentType> = {
 /** Отложенная очистка медиапула (переживает StrictMode-перемонтирование). */
 let disposeTimer: number | null = null;
 
-const LEFT_MIN = 200;
+const LEFT_MIN = 210;
 const LEFT_MAX = 460;
-const RIGHT_MIN = 280;
-const RIGHT_MAX = 620;
-const TIMELINE_MIN = 170;
+const RIGHT_MIN = 300;
+const RIGHT_MAX = 640;
+const TIMELINE_MIN = 180;
 
 function useDragSize(initial: number, min: number, max: number, axis: "x" | "y", invert = false) {
   const [size, setSize] = useState(initial);
@@ -135,7 +135,7 @@ function VDivider(props: ComponentProps<"div">) {
   return (
     <div
       {...props}
-      className="hidden w-1.5 shrink-0 cursor-col-resize bg-white/[0.04] transition-colors hover:bg-violet-500/40 lg:block"
+      className="panel-divider hidden w-1.5 shrink-0 cursor-col-resize lg:block"
       role="separator"
       aria-orientation="vertical"
     />
@@ -146,7 +146,7 @@ function HDivider(props: ComponentProps<"div">) {
   return (
     <div
       {...props}
-      className="h-1.5 shrink-0 cursor-row-resize bg-white/[0.04] transition-colors hover:bg-violet-500/40"
+      className="panel-divider h-1.5 shrink-0 cursor-row-resize"
       role="separator"
       aria-orientation="horizontal"
     />
@@ -183,8 +183,21 @@ export default function EditorShellV2() {
   const [dropActive, setDropActive] = useState(false);
 
   const left = useDragSize(268, LEFT_MIN, LEFT_MAX, "x");
-  const right = useDragSize(376, RIGHT_MIN, RIGHT_MAX, "x", true);
-  const timeline = useDragSize(288, TIMELINE_MIN, 720, "y", true);
+  const right = useDragSize(384, RIGHT_MIN, RIGHT_MAX, "x", true);
+  const timeline = useDragSize(284, TIMELINE_MIN, 720, "y", true);
+
+  // Адаптивные размеры панелей при первом открытии: на ноутбуке/планшете
+  // панели уже, чтобы предпросмотр оставался главным.
+  useEffect(() => {
+    if (window.innerHeight < 720 && timeline.size > Math.round(window.innerHeight * 0.3)) {
+      timeline.setSize(Math.max(TIMELINE_MIN, Math.round(window.innerHeight * 0.3)));
+    }
+    if (window.innerWidth < 1360) {
+      left.setSize(Math.min(left.size, 240));
+      right.setSize(Math.min(right.size, 340));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const duration = timelineDuration(project);
   const clipCount = useMemo(
@@ -434,8 +447,7 @@ export default function EditorShellV2() {
 
   return (
     <div
-      className="relative flex h-screen flex-col overflow-hidden bg-[#0a0a12] text-slate-100"
-      style={{ backgroundColor: "var(--bg-base)" }}
+      className="editor-root relative flex h-dvh flex-col overflow-hidden text-slate-100"
       onDragEnter={onDragEnter}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
@@ -444,10 +456,10 @@ export default function EditorShellV2() {
       onDrop={onDrop}
     >
       {/* ------------------------------ header ------------------------------ */}
-      <header className="z-50 flex shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#0b0b12]/90 px-3 py-2 shadow-lg backdrop-blur-xl">
+      <header className="editor-header z-50 flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 sm:gap-2 sm:px-3">
         <Link
           href="/"
-          className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-white/5"
+          className="flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-white/5"
           title="На главную"
         >
           <span
@@ -456,29 +468,29 @@ export default function EditorShellV2() {
           >
             <Icon name="clapper" size={17} strokeWidth={1.6} className="text-white" />
           </span>
-          <span className="hidden bg-gradient-to-b from-white to-[#a99dff] bg-clip-text text-[15px] font-extrabold tracking-tight text-transparent xl:inline">
+          <span className="hidden bg-gradient-to-b from-white to-[#a99dff] bg-clip-text text-[15px] font-extrabold tracking-tight text-transparent lg:inline">
             MONTIQ
           </span>
         </Link>
 
-        <div className="mr-1 flex items-center gap-0.5 border-r border-white/[0.08] pr-1.5">
+        <div className="mr-0.5 flex shrink-0 items-center gap-0.5 border-r border-white/[0.08] pr-1.5">
           <button
             onClick={undo}
             disabled={past === 0}
             aria-label="Отменить"
             title="Отменить (Ctrl+Z)"
-            className="icon-btn"
+            className="icon-btn !h-8 !w-8"
           >
-            <Icon name="undo" size={16} />
+            <Icon name="undo" size={15} />
           </button>
           <button
             onClick={redo}
             disabled={future === 0}
             aria-label="Повторить"
             title="Повторить (Ctrl+Shift+Z)"
-            className="icon-btn"
+            className="icon-btn !h-8 !w-8"
           >
-            <Icon name="redo" size={16} />
+            <Icon name="redo" size={15} />
           </button>
         </div>
 
@@ -487,9 +499,9 @@ export default function EditorShellV2() {
           onClick={() => void importFromDevice()}
           disabled={importing}
           title="Загрузить видео, аудио или фото с устройства"
-          className="btn btn-primary h-8 shrink-0 px-3 text-[11px]"
+          className="btn btn-primary h-8 shrink-0 px-2.5 text-[11px] sm:px-3"
         >
-          <Icon name="plus" size={15} />
+          <Icon name="plus" size={14} />
           <span className="hidden sm:inline">{importing ? "Импорт…" : "Добавить медиа"}</span>
         </button>
 
@@ -515,7 +527,7 @@ export default function EditorShellV2() {
         ) : null}
 
         {/* Desktop nav */}
-        <nav className="no-scrollbar hidden flex-1 items-center justify-center gap-0.5 overflow-x-auto md:flex">
+        <nav className="no-scrollbar hidden min-w-0 flex-1 items-center justify-center gap-0.5 overflow-x-auto lg:flex">
           {PAGES.map((p) => (
             <button
               key={p.id}
@@ -525,24 +537,21 @@ export default function EditorShellV2() {
               }`}
               title={p.desc}
             >
-              <Icon name={p.icon} size={15} />
-              <span className="hidden lg:inline">
-                {p.label}
-                {locked && p.id === "montage" ? " 🔒" : ""}
-              </span>
+              <Icon name={p.icon} size={14} />
+              <span className="hidden xl:inline">{p.label}</span>
             </button>
           ))}
         </nav>
 
-        {/* Mobile page toggle */}
+        {/* Tablet / mobile page toggle */}
         <button
-          className="nav-item md:hidden"
+          className="nav-item shrink-0 lg:hidden"
           onClick={() => setMobileNavOpen((v) => !v)}
           aria-label="Меню разделов"
         >
           <Icon name={page.icon} size={16} />
-          <span className="max-w-[80px] truncate text-xs">{page.label}</span>
-          <Icon name="menu" size={14} className="text-slate-500" />
+          <span className="max-w-[76px] truncate text-xs">{page.label}</span>
+          <Icon name="chevron-down" size={13} className="text-slate-500" />
         </button>
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -565,7 +574,7 @@ export default function EditorShellV2() {
           <button
             onClick={() => void persist()}
             disabled={!dirty}
-            className="btn btn-ghost h-8 px-3 text-xs"
+            className="btn btn-ghost h-8 px-2.5 text-xs sm:px-3"
             aria-label="Сохранить"
             title="Сохранить (Ctrl+S)"
           >
@@ -574,11 +583,11 @@ export default function EditorShellV2() {
           </button>
           <button
             onClick={() => setShortcutsOpen(true)}
-            className="icon-btn hidden lg:flex"
+            className="icon-btn !h-8 !w-8 hidden lg:flex"
             title="Горячие клавиши"
             aria-label="Горячие клавиши"
           >
-            <Icon name="settings" size={16} />
+            <Icon name="keyboard" size={16} />
           </button>
         </div>
       </header>
@@ -632,7 +641,7 @@ export default function EditorShellV2() {
 
       {/* Mobile nav dropdown */}
       {mobileNavOpen && (
-        <div className="z-40 grid grid-cols-3 gap-1.5 border-b border-white/[0.06] bg-[#0d0d16]/95 px-3 py-2 shadow-2xl backdrop-blur-xl md:hidden">
+        <div className="animate-pop z-40 grid grid-cols-3 gap-1.5 border-b border-white/[0.06] bg-[#0d0d16]/95 px-3 py-2 shadow-2xl backdrop-blur-xl lg:hidden">
           {PAGES.map((p) => (
             <button
               key={p.id}
@@ -655,7 +664,7 @@ export default function EditorShellV2() {
 
       {/* ------------------------------ body ------------------------------ */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Media pool */}
+        {/* Media pool — desktop/tablet */}
         {leftOpen && (
           <>
             <aside
@@ -663,17 +672,20 @@ export default function EditorShellV2() {
               style={{ width: left.size }}
             >
               <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
-                <span className="eyebrow">Медиатека</span>
+                <span className="eyebrow flex items-center gap-1.5">
+                  <Icon name="film" size={12} className="text-violet-300" />
+                  Медиатека
+                </span>
                 <button
                   onClick={() => setLeftOpen(false)}
                   className="icon-btn !h-6 !w-6"
                   title="Скрыть медиатеку"
                   aria-label="Скрыть медиатеку"
                 >
-                  <Icon name="arrow-left" size={13} />
+                  <Icon name="chevron-left" size={13} />
                 </button>
               </div>
-              <div className="min-h-0 flex-1">
+              <div className="animate-panel-in min-h-0 flex-1">
                 <MediaPool />
               </div>
             </aside>
@@ -695,7 +707,7 @@ export default function EditorShellV2() {
         {/* Preview + transport + timeline */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="relative min-h-0 flex-1 bg-gradient-to-b from-[#08080f] to-[#0a0a12]">
+            <div className="relative min-h-0 flex-1">
               <PreviewCanvas />
             </div>
             <Transport />
@@ -708,7 +720,7 @@ export default function EditorShellV2() {
           </div>
         </div>
 
-        {/* Inspector */}
+        {/* Inspector — desktop/tablet */}
         {rightOpen && (
           <>
             <VDivider {...right.handlers} />
@@ -718,26 +730,28 @@ export default function EditorShellV2() {
             >
               <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#0d0d16]/90 px-3 py-2 backdrop-blur-xl">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
-                  <Icon name={page.icon} size={15} />
+                  <Icon name={page.icon} size={14} />
                 </span>
                 <span className="text-xs font-bold text-slate-100">{page.label}</span>
-                <span className="truncate text-[10px] text-slate-500">{page.desc}</span>
+                <span className="hidden truncate text-[10px] text-slate-500 xl:inline">{page.desc}</span>
                 <button
                   onClick={() => setRightOpen(false)}
                   className="icon-btn !h-6 !w-6 ml-auto"
                   title="Скрыть инспектор"
                   aria-label="Скрыть инспектор"
                 >
-                  <Icon name="arrow-right" size={13} />
+                  <Icon name="chevron-right" size={13} />
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
-                <Panel />
-                {activePage !== "animation" && selectedClipIds.length > 0 && (
-                  <div className="mt-4 border-t border-white/[0.06] pt-3">
-                    <KeyframeEditor />
-                  </div>
-                )}
+                <div key={activePage} className="animate-fade-in">
+                  <Panel />
+                  {activePage !== "animation" && selectedClipIds.length > 0 && (
+                    <div className="mt-4 border-t border-white/[0.06] pt-3">
+                      <KeyframeEditor />
+                    </div>
+                  )}
+                </div>
               </div>
             </aside>
           </>
@@ -773,8 +787,8 @@ export default function EditorShellV2() {
       </footer>
 
       {/* ------------------------------ mobile inspector ------------------- */}
-      <div className="shrink-0 border-t border-white/[0.06] bg-[#0d0d16]/95 backdrop-blur-xl lg:hidden">
-        <div className="flex items-center justify-between px-3 py-2">
+      <div className="mobile-sheet shrink-0 lg:hidden">
+        <div className="flex items-center justify-between px-3 pt-2">
           <span className="flex items-center gap-2 text-xs font-bold text-slate-100">
             <Icon name={page.icon} size={15} className="text-violet-300" />
             {page.label}
@@ -785,12 +799,15 @@ export default function EditorShellV2() {
             aria-label="Открыть панель"
           >
             {mobilePanelOpen ? "Свернуть" : "Панель"}
-            <Icon name={mobilePanelOpen ? "arrow-right" : "sliders"} size={13} />
+            <Icon name={mobilePanelOpen ? "chevron-down" : "sliders"} size={13} />
           </button>
         </div>
         {mobilePanelOpen && (
-          <div className="h-[45vh] overflow-y-auto border-t border-white/[0.06] bg-[#0d0d16] p-3 custom-scrollbar">
-            <Panel />
+          <div className="animate-sheet-up h-[42vh] overflow-y-auto border-t border-white/[0.06] bg-[#0d0d16] p-3 custom-scrollbar">
+            <div className="sheet-handle mb-2" />
+            <div key={activePage} className="animate-panel-in">
+              <Panel />
+            </div>
           </div>
         )}
       </div>
@@ -819,7 +836,7 @@ export default function EditorShellV2() {
           >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-100">
-                <Icon name="settings" size={15} className="text-violet-300" />
+                <Icon name="keyboard" size={15} className="text-violet-300" />
                 Горячие клавиши
               </h3>
               <button
@@ -834,9 +851,7 @@ export default function EditorShellV2() {
               {SHORTCUTS.map(([keys, label]) => (
                 <div key={keys} className="flex items-center justify-between gap-3 border-b border-white/[0.05] py-1.5">
                   <span className="text-slate-400">{label}</span>
-                  <kbd className="rounded-md border border-white/[0.08] bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-200">
-                    {keys}
-                  </kbd>
+                  <kbd>{keys}</kbd>
                 </div>
               ))}
             </div>

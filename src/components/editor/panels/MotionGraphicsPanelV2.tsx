@@ -3,15 +3,26 @@
 import { useProjectStore, findClip } from "@/store/projectStore";
 import { param } from "@/lib/types";
 import type { Clip, MotionGraphicConfig, MotionGraphicKind, TextClip } from "@/lib/types";
-import {
-  MG_KIND_MAP,
-  MG_KINDS,
-  defaultMotionGraphic,
-  mgIcon,
-  mgLabel,
-} from "@/lib/motionGraphics";
+import { MG_KINDS, MG_KIND_MAP, defaultMotionGraphic, mgLabel } from "@/lib/motionGraphics";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { TEXT_FONTS } from "@/lib/presets";
 import { PanelSection, ToggleButton, EmptyHint, SliderField, SelectField, ColorField, NumberField, CheckboxField, TextField } from "./ui";
+
+/** Иконка вида моушн-графики — единый набор вместо эмодзи. */
+const MG_KIND_ICONS: Record<MotionGraphicKind, IconName> = {
+  title: "type",
+  lowerThird: "captions",
+  callout: "chat",
+  progressBar: "trending-up",
+  animatedCaptions: "captions",
+  logoReveal: "star",
+  intro: "film",
+  outro: "flag",
+  cta: "target",
+  subtitle: "captions",
+  trackingText: "move-horizontal",
+  kinetic: "zap",
+};
 
 const ANIM_OPTIONS: { value: string; label: string }[] = [
   { value: "none", label: "Без анимации" },
@@ -135,7 +146,7 @@ export default function MotionGraphicsPanelV2() {
                 className="group rounded-xl border border-white/10 bg-white/[0.03] p-2 text-left transition hover:border-violet-400/40 hover:bg-violet-500/10"
               >
                 <div className="flex items-center gap-1.5 text-[13px]">
-                  <span>{kind.icon}</span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200"><Icon name={MG_KIND_ICONS[kind.id]} size={16} /></span>
                   <span className="truncate text-[11px] font-bold text-slate-100">{kind.label}</span>
                 </div>
                 <p className="mt-1 line-clamp-2 text-[9px] leading-snug text-slate-500 group-hover:text-slate-400">{kind.desc}</p>
@@ -150,7 +161,7 @@ export default function MotionGraphicsPanelV2() {
             <div className="flex flex-wrap gap-1.5">
               {mgClips.map((c) => (
                 <ToggleButton key={c.id} onClick={() => selectClip(c.id)} title={`${c.start.toFixed(2)}s — ${(c.start + c.duration).toFixed(2)}s`}>
-                  {mgIcon(c.motionGraphic!.kind)} {mgLabel(c.motionGraphic!.kind)} · {(c.text || "").slice(0, 14) || c.name}
+                  <Icon name={MG_KIND_ICONS[c.motionGraphic!.kind]} size={11} className="text-fuchsia-300" />{mgLabel(c.motionGraphic!.kind)} · {(c.text || "").slice(0, 14) || c.name}
                 </ToggleButton>
               ))}
             </div>
@@ -164,7 +175,7 @@ export default function MotionGraphicsPanelV2() {
             </EmptyHint>
             <div className="mt-2">
               <ToggleButton tone="accent" onClick={() => patchConvert(setActivePage)}>
-                🪄 Преобразовать в моушн-графику
+                <Icon name="wand" size={11} />Преобразовать в моушн-графику
               </ToggleButton>
             </div>
           </PanelSection>
@@ -183,7 +194,7 @@ export default function MotionGraphicsPanelV2() {
         // Основной текст сохраняется, остальное — дефолты нового вида.
         motionGraphic: fresh,
         fontSize: MG_KIND_MAP[k].fontSize,
-        name: `${mgIcon(k)} ${mgLabel(k)}`,
+        name: mgLabel(k),
       };
     });
   };
@@ -197,7 +208,7 @@ export default function MotionGraphicsPanelV2() {
         <SelectField
           label="Тип моушн-графики"
           value={kind}
-          options={MG_KINDS.map((k) => ({ value: k.id, label: `${k.icon} ${k.label}` }))}
+          options={MG_KINDS.map((k) => ({ value: k.id, label: k.label }))}
           onChange={(v) => setKind(v as MotionGraphicKind)}
         />
         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -325,10 +336,10 @@ export default function MotionGraphicsPanelV2() {
                 }))
               }
             >
-              ⚡ Анимировать 0 → 100%
+              <Icon name="zap" size={11} />Анимировать 0 → 100%
             </ToggleButton>
             <ToggleButton onClick={() => patchCfg((cfg) => ({ ...cfg, progress: param(mg.progress.value ?? 0.4) }))}>
-              ↺ Убрать ключи
+              <Icon name="rotate-ccw" size={11} />Убрать ключи
             </ToggleButton>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -389,11 +400,11 @@ export default function MotionGraphicsPanelV2() {
         <SliderField label="Масштаб" value={clip.scale?.value ?? 1} min={0.2} max={3} onChange={(v) => patch((c) => ({ ...c, scale: param(v) }))} />
         <SliderField label="Прозрачность" value={clip.opacity?.value ?? 1} min={0} max={1} onChange={(v) => patch((c) => ({ ...c, opacity: param(v) }))} />
         <div className="flex flex-wrap gap-1.5">
-          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(-0.3) }))}>↑ Верх</ToggleButton>
+          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(-0.3) }))}><Icon name="chevron-up" size={11} />Верх</ToggleButton>
           <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(0) }))}>• Центр</ToggleButton>
-          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(0.34) }))}>↓ Низ</ToggleButton>
-          <ToggleButton onClick={() => patch((c) => ({ ...c, x: param(-0.42) }))}>← Лево</ToggleButton>
-          <ToggleButton onClick={() => patch((c) => ({ ...c, x: param(0.42) }))}>→ Право</ToggleButton>
+          <ToggleButton onClick={() => patch((c) => ({ ...c, y: param(0.34) }))}><Icon name="chevron-down" size={11} />Низ</ToggleButton>
+          <ToggleButton onClick={() => patch((c) => ({ ...c, x: param(-0.42) }))}><Icon name="chevron-left" size={11} />Лево</ToggleButton>
+          <ToggleButton onClick={() => patch((c) => ({ ...c, x: param(0.42) }))}><Icon name="chevron-right" size={11} />Право</ToggleButton>
         </div>
       </PanelSection>
 
@@ -401,13 +412,13 @@ export default function MotionGraphicsPanelV2() {
       <PanelSection title="Клип">
         <div className="flex flex-wrap gap-1.5">
           <ToggleButton onClick={() => duplicateClip(clip.id)}>⧉ Дублировать</ToggleButton>
-          <ToggleButton tone="danger" onClick={() => removeClip(clip.id)}>🗑 Удалить</ToggleButton>
+          <ToggleButton tone="danger" onClick={() => removeClip(clip.id)}><Icon name="trash" size={11} />Удалить</ToggleButton>
         </div>
         {mgClips.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {mgClips.filter((c) => c.id !== clip.id).map((c) => (
               <ToggleButton key={c.id} onClick={() => selectClip(c.id)}>
-                {mgIcon(c.motionGraphic!.kind)} {mgLabel(c.motionGraphic!.kind)}
+                <Icon name={MG_KIND_ICONS[c.motionGraphic!.kind]} size={11} className="text-fuchsia-300" />{mgLabel(c.motionGraphic!.kind)}
               </ToggleButton>
             ))}
           </div>
@@ -429,7 +440,7 @@ function patchConvert(setActivePage: (page: "motion") => void) {
     const clip = c as TextClip;
     const converted: TextClip = {
       ...clip,
-      name: `${mgIcon("title")} ${mgLabel("title")}`,
+      name: mgLabel("title"),
       motionGraphic: { ...cfg, kicker: "НОВЫЙ ПРОЕКТ", subtext: "" },
       style: {
         ...(clip.style ?? { fontFamily: clip.fontFamily, fontSize: clip.fontSize, color: clip.color, backgroundColor: "transparent" }),

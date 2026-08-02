@@ -10,25 +10,26 @@ import {
   type SoundDesignSettings,
 } from "@/lib/soundDesign";
 import ParamControl from "../ParamControl";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { PanelSection, ToggleButton, EmptyHint, SliderField, CheckboxField, NumberField } from "./ui";
 import { useState, useCallback } from "react";
 
 // ─── Preset definitions ────────────────────────────────────────────────────
-const PRESETS: { id: SoundDesignPreset; label: string; icon: string }[] = [
-  { id: "podcast",       label: "Подкаст",         icon: "🎙️" },
-  { id: "youtube",       label: "YouTube",         icon: "📺" },
-  { id: "cinematic",     label: "Кино",            icon: "🎬" },
-  { id: "interview",     label: "Интервью",        icon: "🗣️" },
-  { id: "documentary",   label: "Документалка",    icon: "📹" },
-  { id: "social-short",  label: "Reels/Shorts",    icon: "📱" },
-  { id: "voiceover",     label: "Озвучка",         icon: "🎤" },
-  { id: "music-video",   label: "Клип",            icon: "🎵" },
-  { id: "ambient",       label: "Эмбиент",         icon: "🌊" },
+const PRESETS: { id: SoundDesignPreset; label: string; icon: IconName }[] = [
+  { id: "podcast",       label: "Подкаст",         icon: "mic" },
+  { id: "youtube",       label: "YouTube",         icon: "monitor" },
+  { id: "cinematic",     label: "Кино",            icon: "film" },
+  { id: "interview",     label: "Интервью",        icon: "mic" },
+  { id: "documentary",   label: "Документалка",    icon: "camera" },
+  { id: "social-short",  label: "Reels/Shorts",    icon: "smartphone" },
+  { id: "voiceover",     label: "Озвучка",         icon: "mic" },
+  { id: "music-video",   label: "Клип",            icon: "music" },
+  { id: "ambient",       label: "Эмбиент",         icon: "waves" },
 ];
 
 // ─── Section Toggle (defined outside render to avoid re-creation) ────────
-function SectionToggle({ id, title, subtitle, enabled, expandedSection, setExpandedSection, onToggle, children }: {
-  id: string; title: string; subtitle?: string; enabled: boolean;
+function SectionToggle({ id, title, subtitle, enabled, expandedSection, setExpandedSection, onToggle, icon, children }: {
+  id: string; title: string; subtitle?: string; enabled: boolean; icon?: IconName;
   expandedSection: string | null;
   setExpandedSection: (v: string | null) => void;
   onToggle: () => void;
@@ -42,7 +43,8 @@ function SectionToggle({ id, title, subtitle, enabled, expandedSection, setExpan
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
         onClick={() => setExpandedSection(isOpen ? null : id)}
       >
-        <span className={`h-2 w-2 rounded-full ${enabled ? "bg-emerald-400" : "bg-slate-600"}`} />
+        <span className={`h-2 w-2 rounded-full ${enabled ? "bg-emerald-400" : "bg-slate-600"}`} style={enabled ? { boxShadow: "0 0 8px rgba(52,211,153,0.8)" } : undefined} />
+        {icon && <Icon name={icon} size={12} className="shrink-0 text-violet-300" />}
         <span className="flex-1 text-[11px] font-semibold text-slate-200">{title}</span>
         {subtitle && <span className="text-[9px] text-slate-500">{subtitle}</span>}
         <button
@@ -52,7 +54,7 @@ function SectionToggle({ id, title, subtitle, enabled, expandedSection, setExpan
         >
           {enabled ? "ON" : "OFF"}
         </button>
-        <span className="text-[10px] text-slate-500">{isOpen ? "▲" : "▼"}</span>
+        <Icon name={isOpen ? "chevron-up" : "chevron-down"} size={12} className="shrink-0 text-slate-500" />
       </button>
       {isOpen && <div className="border-t border-white/5 px-3 pb-3 pt-2">{children}</div>}
     </div>
@@ -124,14 +126,14 @@ export default function SoundPanelV2() {
       </PanelSection>
 
       {/* ─── Пресеты ───────────────────────────────────────────────────── */}
-      <PanelSection title="🎛️ Sound Design — Пресеты" subtitle="Одно нажатие — профессиональная обработка">
+      <PanelSection title="Sound Design — Пресеты" subtitle="Одно нажатие — профессиональная обработка" icon="equalizer">
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((p) => (
             <ToggleButton
               key={p.id}
               onClick={() => applyPreset(p.id)}
             >
-              {p.icon} {p.label}
+              <Icon name={p.icon} size={11} />{p.label}
             </ToggleButton>
           ))}
         </div>
@@ -147,7 +149,7 @@ export default function SoundPanelV2() {
       </PanelSection>
 
       {/* ─── AI Noise Removal ──────────────────────────────────────────── */}
-      <SectionToggle id="noiseRemoval" title="🧹 AI Noise Removal" subtitle="Шумоподавление" enabled={sd.noiseRemoval.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("noiseRemoval" as keyof SoundDesignSettings)}>
+      <SectionToggle id="noiseRemoval" title="AI Noise Removal" icon="broom" subtitle="Шумоподавление" enabled={sd.noiseRemoval.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("noiseRemoval" as keyof SoundDesignSettings)}>
         <SliderField
           label="Интенсивность"
           value={sd.noiseRemoval.amount}
@@ -179,7 +181,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Voice Enhancement ─────────────────────────────────────────── */}
-      <SectionToggle id="voiceEnhance" title="🗣️ Voice Enhancement" subtitle="Читаемость голоса" enabled={sd.voiceEnhance.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("voiceEnhance" as keyof SoundDesignSettings)}>
+      <SectionToggle id="voiceEnhance" title="Voice Enhancement" icon="mic" subtitle="Читаемость голоса" enabled={sd.voiceEnhance.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("voiceEnhance" as keyof SoundDesignSettings)}>
         <SliderField
           label="Присутствие (3.5 кГц)"
           value={sd.voiceEnhance.presence}
@@ -218,7 +220,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Voice Isolation ───────────────────────────────────────────── */}
-      <SectionToggle id="voiceIsolation" title="🎯 Voice Isolation" subtitle="Изоляция голоса" enabled={sd.voiceIsolation.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("voiceIsolation" as keyof SoundDesignSettings)}>
+      <SectionToggle id="voiceIsolation" title="Voice Isolation" icon="target" subtitle="Изоляция голоса" enabled={sd.voiceIsolation.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("voiceIsolation" as keyof SoundDesignSettings)}>
         <SliderField
           label="Сила изоляции"
           value={sd.voiceIsolation.strength}
@@ -243,7 +245,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Auto Compressor ───────────────────────────────────────────── */}
-      <SectionToggle id="compressor" title="📊 Auto Compressor" subtitle="Динамическая компрессия" enabled={sd.compressor.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("compressor" as keyof SoundDesignSettings)}>
+      <SectionToggle id="compressor" title="Auto Compressor" icon="activity" subtitle="Динамическая компрессия" enabled={sd.compressor.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("compressor" as keyof SoundDesignSettings)}>
         <SliderField
           label="Порог"
           value={sd.compressor.threshold}
@@ -289,7 +291,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Limiter ───────────────────────────────────────────────────── */}
-      <SectionToggle id="limiter" title="🔒 Limiter" subtitle="True-peak защита" enabled={sd.limiter.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("limiter" as keyof SoundDesignSettings)}>
+      <SectionToggle id="limiter" title="Limiter" icon="shield" subtitle="True-peak защита" enabled={sd.limiter.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("limiter" as keyof SoundDesignSettings)}>
         <SliderField
           label="Ceiling"
           value={sd.limiter.ceiling}
@@ -307,7 +309,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Loudness Normalization ────────────────────────────────────── */}
-      <SectionToggle id="loudnessNorm" title="📈 Loudness Normalization" subtitle="EBU R128 / LUFS" enabled={sd.loudnessNorm.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("loudnessNorm" as keyof SoundDesignSettings)}>
+      <SectionToggle id="loudnessNorm" title="Loudness Normalization" icon="trending-up" subtitle="EBU R128 / LUFS" enabled={sd.loudnessNorm.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("loudnessNorm" as keyof SoundDesignSettings)}>
         <SliderField
           label="Целевая громкость"
           value={sd.loudnessNorm.targetLufs}
@@ -335,7 +337,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Ducking ───────────────────────────────────────────────────── */}
-      <SectionToggle id="ducking" title="🔉 Ducking" subtitle="Музыка под голос" enabled={sd.ducking.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("ducking" as keyof SoundDesignSettings)}>
+      <SectionToggle id="ducking" title="Ducking" icon="volume" subtitle="Музыка под голос" enabled={sd.ducking.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("ducking" as keyof SoundDesignSettings)}>
         <SliderField
           label="Глубина"
           value={sd.ducking.depth}
@@ -365,12 +367,12 @@ export default function SoundPanelV2() {
           display={(v) => `${v} дБ`}
         />
         <ToggleButton active={duckingPreview} onClick={() => setDuckingPreview(!duckingPreview)}>
-          {duckingPreview ? "👁️ Превью кривой" : "👁️ Превью кривой"}
+          <><Icon name="eye" size={11} /> Превью кривой</>
         </ToggleButton>
       </SectionToggle>
 
       {/* ─── EQ ────────────────────────────────────────────────────────── */}
-      <SectionToggle id="eq" title="🎚️ EQ" subtitle="6-полосный параметрический" enabled={sd.eq.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("eq" as keyof SoundDesignSettings)}>
+      <SectionToggle id="eq" title="EQ" icon="equalizer" subtitle="6-полосный параметрический" enabled={sd.eq.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("eq" as keyof SoundDesignSettings)}>
         {sd.eq.bands.map((band, i) => (
           <div key={i} className="mb-2 rounded border border-white/5 p-2">
             <div className="mb-1 flex items-center gap-2">
@@ -445,7 +447,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Stereo Enhancement ────────────────────────────────────────── */}
-      <SectionToggle id="stereoEnhance" title="🔊 Stereo Enhancement" subtitle="Стерео-картина" enabled={sd.stereoEnhance.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("stereoEnhance" as keyof SoundDesignSettings)}>
+      <SectionToggle id="stereoEnhance" title="Stereo Enhancement" icon="volume-2" subtitle="Стерео-картина" enabled={sd.stereoEnhance.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("stereoEnhance" as keyof SoundDesignSettings)}>
         <SliderField
           label="Ширина стерео"
           value={sd.stereoEnhance.width}
@@ -470,7 +472,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Foley ─────────────────────────────────────────────────────── */}
-      <SectionToggle id="foley" title="🎬 Foley" subtitle="Звуковые эффекты" enabled={sd.foley.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("foley" as keyof SoundDesignSettings)}>
+      <SectionToggle id="foley" title="Foley" icon="music-note" subtitle="Звуковые эффекты" enabled={sd.foley.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("foley" as keyof SoundDesignSettings)}>
         <div className="flex flex-wrap gap-1.5">
           {(["footstep", "door", "whoosh", "click", "typing", "paper", "glass", "notification", "transition"] as const).map((type) => (
             <ToggleButton
@@ -495,7 +497,8 @@ export default function SoundPanelV2() {
                   type="range"
                   min={0} max={1} step={0.05}
                   value={ev.volume}
-                  className="flex-1"
+                  className="h-4 flex-1"
+                  style={{ ["--range-pct" as string]: `${ev.volume * 100}%` }}
                   onChange={(e) => {
                     const events = [...sd.foley.events];
                     events[i] = { ...events[i], volume: parseFloat(e.target.value) };
@@ -510,7 +513,7 @@ export default function SoundPanelV2() {
                     patchSd({ foley: { enabled: sd.foley.enabled, events } });
                   }}
                 >
-                  ✕
+                  <Icon name="x" size={9} />
                 </button>
               </div>
             ))}
@@ -519,7 +522,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── Room Tone ─────────────────────────────────────────────────── */}
-      <SectionToggle id="roomTone" title="🏠 Room Tone" subtitle="Фон помещения" enabled={sd.roomTone.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("roomTone" as keyof SoundDesignSettings)}>
+      <SectionToggle id="roomTone" title="Room Tone" icon="home" subtitle="Фон помещения" enabled={sd.roomTone.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("roomTone" as keyof SoundDesignSettings)}>
         <div className="flex flex-wrap gap-1.5">
           {(["studio", "office", "room", "hall", "outdoor", "cafe"] as const).map((room) => (
             <ToggleButton
@@ -541,7 +544,7 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── AI Music Selection ────────────────────────────────────────── */}
-      <SectionToggle id="musicSelection" title="🎵 AI Music Selection" subtitle="Автоподбор музыки" enabled={sd.musicSelection.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("musicSelection" as keyof SoundDesignSettings)}>
+      <SectionToggle id="musicSelection" title="AI Music Selection" icon="music" subtitle="Автоподбор музыки" enabled={sd.musicSelection.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("musicSelection" as keyof SoundDesignSettings)}>
         <CheckboxField
           label="Автоподбор под настроение"
           checked={sd.musicSelection.autoMatch}
@@ -567,14 +570,14 @@ export default function SoundPanelV2() {
       </SectionToggle>
 
       {/* ─── AI Beat Sync ──────────────────────────────────────────────── */}
-      <SectionToggle id="beatSync" title="🥁 AI Beat Sync" subtitle="Привязка к биту" enabled={sd.beatSync.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("beatSync" as keyof SoundDesignSettings)}>
+      <SectionToggle id="beatSync" title="AI Beat Sync" icon="audio-lines" subtitle="Привязка к биту" enabled={sd.beatSync.enabled} expandedSection={expandedSection} setExpandedSection={setExpandedSection} onToggle={() => toggle("beatSync" as keyof SoundDesignSettings)}>
         <CheckboxField
-          label="Переходы → downbeat"
+          label="Переходы к downbeat"
           checked={sd.beatSync.snapTransitions}
           onChange={(v) => patchSd({ beatSync: { ...sd.beatSync, snapTransitions: v } })}
         />
         <CheckboxField
-          label="Речь → бит"
+          label="Речь к биту"
           checked={sd.beatSync.snapSpeechStart}
           onChange={(v) => patchSd({ beatSync: { ...sd.beatSync, snapSpeechStart: v } })}
         />
@@ -652,16 +655,16 @@ export default function SoundPanelV2() {
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <ToggleButton active={audioClip.muted} onClick={() => patchAudio((c) => ({ ...c, muted: !c.muted }))}>
-                {audioClip.muted ? "🔇 Выключен" : "🔊 Включён"}
+                {audioClip.muted ? (<><Icon name="volume-x" size={11} /> Выключен</>) : (<><Icon name="volume" size={11} /> Включён</>)}
               </ToggleButton>
               <ToggleButton active={!!audioClip.loop} onClick={() => patchAudio((c) => ({ ...c, loop: !c.loop }))}>
-                🔁 Зациклить
+                <Icon name="repeat" size={11} />Зациклить
               </ToggleButton>
               <ToggleButton active={!!audioClip.normalize} onClick={() => patchAudio((c) => ({ ...c, normalize: !c.normalize }))}>
-                📈 Нормализация
+                <Icon name="trending-up" size={11} />Нормализация
               </ToggleButton>
               <ToggleButton active={audioClip.denoise} onClick={() => patchAudio((c) => ({ ...c, denoise: !c.denoise }))}>
-                🧹 Шумоподавление
+                <Icon name="broom" size={11} />Шумоподавление
               </ToggleButton>
             </div>
           </PanelSection>

@@ -11,6 +11,7 @@ import { vfxBrush } from "@/lib/editor/vfxBrush";
 import { bgRemovalService, interactiveSegmentService, type VfxModelStatus } from "@/lib/editor/mediaPipeVfx";
 import { LUT_PRESETS_WITH_CUBE } from "@/lib/editor/lut";
 import { PanelSection, ToggleButton, EmptyHint, SliderField, SelectField, ColorField, CheckboxField } from "./ui";
+import { Icon } from "@/components/ui/Icon";
 
 const BLEND_MODES: BlendMode[] = [
   "normal",
@@ -160,7 +161,7 @@ export default function EffectsPanelV2() {
             <SliderField label="Мягкость края" value={clip.chroma?.blend ?? 0.12} min={0.01} max={0.6} step={0.01} onChange={(v) => patch((c) => ({ ...c, chroma: { ...c.chroma, blend: v } }))} />
             <SliderField label="Деспилл (убрать ореол)" value={clip.chroma?.despill ?? 0.35} min={0} max={1} step={0.01} onChange={(v) => patch((c) => ({ ...c, chroma: { ...c.chroma, despill: v } }))} />
             <div className="mt-1 flex gap-1.5">
-              <ToggleButton onClick={pickKeyColor}>💧 Взять цвет из кадра</ToggleButton>
+              <ToggleButton onClick={pickKeyColor}><Icon name="droplet" size={11} />Взять цвет из кадра</ToggleButton>
               <ToggleButton
                 onClick={() =>
                   patch((c) => ({
@@ -169,7 +170,7 @@ export default function EffectsPanelV2() {
                   }))
                 }
               >
-                ↺ Сброс
+                <Icon name="rotate-ccw" size={11} />Сброс
               </ToggleButton>
             </div>
           </>
@@ -211,7 +212,7 @@ export default function EffectsPanelV2() {
                   );
                 }}
               >
-                ⬇ Загрузить модель
+                <Icon name="download" size={11} />Загрузить модель
               </ToggleButton>
             </div>
           </>
@@ -229,14 +230,14 @@ export default function EffectsPanelV2() {
           <>
             <div className="mb-1 flex flex-wrap gap-1.5">
               <ToggleButton tone={brushActive ? "accent" : "default"} onClick={() => (brushActive ? vfxBrush.setActive(null) : vfxBrush.setActive(clip.id))}>
-                {brushActive ? "🖌 Кисть активна — рисуйте по превью" : "🖌 Рисовать кистью"}
+                {brushActive ? (<><Icon name="brush" size={11} /> Кисть активна — рисуйте по превью</>) : (<><Icon name="brush" size={11} /> Рисовать кистью</>)}
               </ToggleButton>
               <ToggleButton
                 onClick={() =>
                   setVfx((f) => ({ ...f, objectRemoval: { ...f.objectRemoval, strokes: [], region: undefined } }))
                 }
               >
-                🧹 Очистить
+                <Icon name="broom" size={11} />Очистить
               </ToggleButton>
             </div>
             <SliderField
@@ -267,9 +268,9 @@ export default function EffectsPanelV2() {
                   showNote("Кликните по объекту в превью — AI выделит его контур");
                 }}
               >
-                🎯 AI-выделение (клик по объекту)
+                <Icon name="target" size={11} />AI-выделение (клик по объекту)
               </ToggleButton>
-              <ToggleButton onClick={() => (vfxBrush.state.aiPickClipId = null)}>✕ Отмена AI</ToggleButton>
+              <ToggleButton onClick={() => (vfxBrush.state.aiPickClipId = null)}><Icon name="x" size={11} />Отмена AI</ToggleButton>
             </div>
             <ModelStatus status={vfx.objectRemoval.modelStatus ?? interactiveSegmentService.status} />
             <div className="mt-1 text-[10px] text-slate-500">
@@ -378,7 +379,7 @@ export default function EffectsPanelV2() {
             <SliderField label="Количество" value={vfx.filmGrain.amount} min={0} max={1} step={0.01} onChange={(v) => setVfx((f) => ({ ...f, filmGrain: { ...f.filmGrain, amount: v } }))} />
             <SliderField label="Крупность, px" value={vfx.filmGrain.size} min={1} max={16} step={0.5} onChange={(v) => setVfx((f) => ({ ...f, filmGrain: { ...f.filmGrain, size: v } }))} />
             <CheckboxField label="Монохромное (только яркость)" checked={vfx.filmGrain.monochrome} onChange={(v) => setVfx((f) => ({ ...f, filmGrain: { ...f.filmGrain, monochrome: v } }))} />
-            <ToggleButton onClick={() => setVfx((f) => ({ ...f, filmGrain: { ...f.filmGrain, seed: Math.floor(Math.random() * 100000) } }))}>🎲 Новый узор</ToggleButton>
+            <ToggleButton onClick={() => setVfx((f) => ({ ...f, filmGrain: { ...f.filmGrain, seed: Math.floor(Math.random() * 100000) } }))}><Icon name="dice" size={11} />Новый узор</ToggleButton>
           </>
         )}
       </PanelSection>

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useProjectStore, findClip } from "@/store/projectStore";
 import { defaultColorGrade, param } from "@/lib/types";
 import type { AnimParam, Clip, ColorGrade, VideoClip, ColorPresetId } from "@/lib/types";
 import { renderFrame } from "@/lib/editor/compositor";
 import ParamControl from "../ParamControl";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { PanelSection, ToggleButton, EmptyHint, SliderField } from "./ui";
 import { COLOR_PRESETS, getPreset, applyPresetToParams } from "@/lib/colorPresets";
 import { autoGrade, type ColorGradeParams, type AutoGradeResult, type RGBCurvesDef } from "@/lib/colorGrade";
@@ -26,7 +27,17 @@ const LUTS: { id: string; label: string }[] = [
   { id: "film-noir", label: "Film Noir" },
 ];
 
-let gradeClipboard: ColorGrade | null = null;
+/** Буфер обмена грейда. Мутации вынесены в модульные функции, чтобы
+ *  react-compiler не считал их side-effect'ами во время рендера. */
+const gradeClipboard: { current: ColorGrade | null } = { current: null };
+
+function copyGradeToClipboard(grade: ColorGrade): void {
+  gradeClipboard.current = JSON.parse(JSON.stringify(grade));
+}
+
+function readGradeFromClipboard(): ColorGrade | null {
+  return gradeClipboard.current ? (JSON.parse(JSON.stringify(gradeClipboard.current)) as ColorGrade) : null;
+}
 
 /* ------------------------------------------------------------------ */
 /* Scopes: гистограмма + vectorscope-подобная визуализация             */
@@ -150,10 +161,13 @@ function MiniCurvesEditor({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragging = useRef<number | null>(null);
 
-  const current = curves?.[activeChannel] ?? [
-    { x: 0, y: 0 },
-    { x: 1, y: 1 },
-  ];
+  const current = useMemo(
+    () => curves?.[activeChannel] ?? [
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+    ],
+    [curves, activeChannel],
+  );
 
   const handlePointer = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
@@ -554,13 +568,13 @@ export default function ColorPanelV2() {
   /* Tabs                                                            */
   /* -------------------------------------------------------------- */
 
-  const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: "basic", label: "Basic", icon: "⚙" },
-    { id: "curves", label: "Curves", icon: "📈" },
-    { id: "wheels", label: "Wheels", icon: "🎨" },
-    { id: "presets", label: "Presets", icon: "✨" },
-    { id: "lut", label: "LUT", icon: "🎞" },
-    { id: "ai", label: "AI", icon: "🤖" },
+  const tabs: { id: TabId; label: string; icon: IconName }[] = [
+    { id: "basic", label: "Basic", icon: "settings" },
+    { id: "curves", label: "Curves", icon: "trending-up" },
+    { id: "wheels", label: "Wheels", icon: "palette" },
+    { id: "presets", label: "Presets", icon: "sparkles" },
+    { id: "lut", label: "LUT", icon: "film" },
+    { id: "ai", label: "AI", icon: "brain" },
   ];
 
   /* -------------------------------------------------------------- */
@@ -587,31 +601,32 @@ export default function ColorPanelV2() {
           {/* ---- Quick Actions ---- */}
           <div className="flex flex-wrap gap-1.5">
             <ToggleButton tone="accent" onClick={autoBalance}>
-              ⚡ Авто-баланс
+              <Icon name="zap" size={11} />Авто-баланс
             </ToggleButton>
             <ToggleButton tone="accent" onClick={runAiAutoGrade}>
-              🤖 AI Auto Grade
+              <Icon name="brain" size={11} />AI Auto Grade
             </ToggleButton>
-            <ToggleButton onClick={applyToAll}>≡ Применить ко всем</ToggleButton>
+            <ToggleButton onClick={applyToAll}><Icon name="layers" size={11} />Применить ко всем</ToggleButton>
             <ToggleButton
               onClick={() => {
-                gradeClipboard = JSON.parse(JSON.stringify(color));
+                copyGradeToClipboard(color);
                 setMessage("Грейд скопирован");
                 setTimeout(() => setMessage(""), 1800);
               }}
             >
-              ⧉ Копировать
+              <Icon name="copy" size={11} />Копировать
             </ToggleButton>
             <ToggleButton
               onClick={() => {
-                if (!gradeClipboard) return;
-                setColor(() => JSON.parse(JSON.stringify(gradeClipboard)) as ColorGrade);
+                const pasted = readGradeFromClipboard();
+                if (!pasted) return;
+                setColor(() => pasted);
               }}
             >
-              ⤵ Вставить
+              <Icon name="clipboard" size={11} />Вставить
             </ToggleButton>
             <ToggleButton onClick={() => setColor(() => defaultColorGrade())}>
-              ↺ Сброс
+              <Icon name="rotate-ccw" size={11} />Сброс
             </ToggleButton>
           </div>
           {message && (
@@ -623,7 +638,7 @@ export default function ColorPanelV2() {
           {/* AI result info */}
           {color.aiAutoGrade && (
             <div className="rounded-lg border border-violet-500/20 bg-violet-500/10 px-2 py-1.5 text-[10px] text-violet-200">
-              🤖 AI определил: <strong>{color.aiAutoGrade.sceneType}</strong> · уверенность {(
+              <Icon name="brain" size={11} className="mr-1 inline-block" />AI определил: <strong>{color.aiAutoGrade.sceneType}</strong> · уверенность {(
                 color.aiAutoGrade.confidence * 100
               ).toFixed(0)}%
             </div>
@@ -641,7 +656,7 @@ export default function ColorPanelV2() {
                     : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
                 }`}
               >
-                {tab.icon} {tab.label}
+                <Icon name={tab.icon} size={11} />{tab.label}
               </button>
             ))}
           </div>
@@ -757,7 +772,7 @@ export default function ColorPanelV2() {
 
               <PanelSection title="Баланс белого">
                 <ParamControl
-                  label="Температура (тёплый ↔ холодный)"
+                  label="Температура (тёплый — холодный)"
                   param={color.temperature}
                   localTime={localTime}
                   clipDuration={clip.duration}
@@ -766,7 +781,7 @@ export default function ColorPanelV2() {
                   onChange={(p) => setParam("temperature", p)}
                 />
                 <ParamControl
-                  label="Тинт (зелёный ↔ пурпурный)"
+                  label="Тинт (зелёный — пурпурный)"
                   param={color.tint}
                   localTime={localTime}
                   clipDuration={clip.duration}
@@ -907,7 +922,7 @@ export default function ColorPanelV2() {
                   }))
                 }
               >
-                ↺ Сбросить все колёса
+                <Icon name="rotate-ccw" size={11} />Сбросить все колёса
               </ToggleButton>
             </PanelSection>
           )}
@@ -933,12 +948,12 @@ export default function ColorPanelV2() {
                 if (catPresets.length === 0) return null;
                 const catLabel =
                   cat === "cinematic"
-                    ? "🎬 Кинематографичные"
+                    ? "Кинематографичные"
                     : cat === "platform"
-                      ? "📱 Платформы"
+                      ? "Платформы"
                       : cat === "style"
-                        ? "🎨 Стили"
-                        : "🌡 Настроения";
+                        ? "Стили"
+                        : "Настроения";
                 return (
                   <div key={cat} className="mb-3">
                     <div className="mb-1.5 text-[10px] font-bold uppercase text-slate-400">
@@ -1000,7 +1015,7 @@ export default function ColorPanelV2() {
             <PanelSection title="AI Auto Grade" subtitle="Искусственный интеллект анализирует сцену и подбирает цвет">
               <div className="space-y-3">
                 <ToggleButton tone="accent" onClick={runAiAutoGrade}>
-                  🤖 Запустить AI Auto Grade
+                  <Icon name="brain" size={11} />Запустить AI Auto Grade
                 </ToggleButton>
 
                 {aiResult && (
@@ -1066,7 +1081,7 @@ export default function ColorPanelV2() {
           {/* ---- Skin Tone Protection indicator ---- */}
           {(color.skinToneProtection ?? 0) > 0 && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
-              🛡 Skin Tone Protection активна:{" "}
+              <Icon name="shield" size={11} className="mr-1 inline-block" />Skin Tone Protection активна:{" "}
               {((color.skinToneProtection ?? 0) * 100).toFixed(0)}%
             </div>
           )}

@@ -6,6 +6,7 @@ import { mediaPool } from "@/lib/editor/resourcePool";
 import { importFilesAsAssets } from "@/lib/editor/mediaImport";
 import { isPictureLocked } from "@/lib/pictureLock";
 import { mgLabel } from "@/lib/motionGraphics";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import type { AudioClip, Clip, MediaAsset, TextClip, Track, VideoClip } from "@/lib/types";
 
 const mgKindLabel = mgLabel;
@@ -35,6 +36,14 @@ function rulerStep(pxPerSecond: number): number {
   }
   return 900;
 }
+
+/** Текстовые метки дорожек без эмодзи. */
+const TRACK_ICONS: Record<string, IconName> = {
+  video: "video",
+  audio: "music",
+  text: "type",
+  subtitle: "captions",
+};
 
 interface DragState {
   kind: "move" | "trim-in" | "trim-out" | "scrub" | "marquee";
@@ -107,7 +116,7 @@ function Waveform({ clip, asset, width, height }: { clip: AudioClip; asset: Medi
   }
   return (
     <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden>
-      <polygon points={points} fill="rgba(253, 230, 138, 0.55)" />
+      <polygon points={points} fill="rgba(253, 230, 138, 0.5)" />
     </svg>
   );
 }
@@ -134,14 +143,14 @@ function ClipBlock({
   const isMg = (clip as TextClip).motionGraphic != null;
 
   const palette = isAudio
-    ? "from-amber-600/40 to-amber-800/50 border-amber-300/40"
+    ? "from-amber-500/30 to-amber-800/40 border-amber-300/30"
     : isMg
-      ? "from-fuchsia-600/40 to-violet-800/50 border-fuchsia-300/40"
+      ? "from-fuchsia-500/30 to-violet-800/40 border-fuchsia-300/30"
       : clip.type === "text" || clip.type === "subtitle"
-        ? "from-emerald-600/40 to-teal-800/50 border-emerald-300/40"
+        ? "from-emerald-500/30 to-teal-800/40 border-emerald-300/30"
         : (clip as VideoClip).reversed
-          ? "from-rose-700/50 to-rose-900/60 border-rose-300/40"
-          : "from-sky-600/40 to-indigo-800/50 border-sky-300/40";
+          ? "from-rose-600/35 to-rose-900/45 border-rose-300/30"
+          : "from-sky-500/30 to-indigo-800/40 border-sky-300/30";
 
   return (
     <div
@@ -150,28 +159,49 @@ function ClipBlock({
       onPointerDown={(e) => onPointerDown(e, clip, "body")}
       style={{ left: clip.start * pxPerSecond, width, height, top: 4 }}
       title={`${clip.name}\n${clip.start.toFixed(2)}s → ${(clip.start + clip.duration).toFixed(2)}s (${clip.duration.toFixed(2)}s)`}
-      className={`group absolute overflow-hidden rounded-md border bg-gradient-to-b ${palette} ${
-        selected ? "shadow-[0_0_0_2px_rgba(167,139,250,0.95)] z-20" : "z-10 hover:brightness-110"
-      } ${track.locked ? "opacity-60" : ""}`}
+      className={`tln-clip group absolute overflow-hidden rounded-[6px] border bg-gradient-to-b ${palette} ${
+        selected ? "tln-clip-selected" : "z-10"
+      } ${track.locked ? "cursor-default opacity-60" : "cursor-grab active:cursor-grabbing"}`}
     >
       {isVideo && <Filmstrip clip={clip as VideoClip} asset={asset} width={width} />}
       {isAudio && <Waveform clip={clip as AudioClip} asset={asset} width={width} height={height} />}
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1 bg-black/45 px-1.5 py-[2px] backdrop-blur-[2px]">
+      {/* Название клипа */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1 bg-black/50 px-1.5 py-[2px] backdrop-blur-[2px]">
+        {isMg ? (
+          <Icon name="wand" size={9} strokeWidth={2} className="shrink-0 text-fuchsia-300" />
+        ) : clip.type === "text" ? (
+          <Icon name="type" size={9} strokeWidth={2} className="shrink-0 text-emerald-300" />
+        ) : clip.type === "subtitle" ? (
+          <Icon name="captions" size={9} strokeWidth={2} className="shrink-0 text-emerald-300" />
+        ) : null}
         <span className="truncate text-[10px] font-semibold text-white/90">
           {isMg
-            ? `🪄 ${mgKindLabel((clip as TextClip).motionGraphic!.kind)} · ${(clip as TextClip).text?.slice(0, 18) || ""}`
+            ? `${mgKindLabel((clip as TextClip).motionGraphic!.kind)} · ${(clip as TextClip).text?.slice(0, 18) || ""}`
             : clip.type === "text"
-              ? `T · ${(clip as TextClip).text?.slice(0, 24) || "Текст"}`
+              ? `${(clip as TextClip).text?.slice(0, 24) || "Текст"}`
               : clip.name}
         </span>
         <span className="ml-auto shrink-0 font-mono text-[9px] text-white/60">{clip.duration.toFixed(1)}s</span>
       </div>
 
-      {(clip as VideoClip).transitionIn && (clip as VideoClip).transitionIn?.duration > 0 && (
+      {/* Переходы — мягкая штриховка по краю */}
+      {((clip as VideoClip).transitionIn?.duration ?? 0) > 0 && (
         <div
-          className="pointer-events-none absolute inset-y-0 left-0 bg-gradient-to-r from-white/45 to-transparent"
-          style={{ width: Math.min(width, ((clip as VideoClip).transitionIn.duration || 0) * pxPerSecond) }}
+          className="pointer-events-none absolute inset-y-0 left-0"
+          style={{
+            width: Math.min(width, ((clip as VideoClip).transitionIn?.duration || 0) * pxPerSecond),
+            background: "repeating-linear-gradient(135deg, rgba(255,255,255,0.28) 0 4px, transparent 4px 8px)",
+          }}
+        />
+      )}
+      {((clip as VideoClip).transitionOut?.duration ?? 0) > 0 && (
+        <div
+          className="pointer-events-none absolute inset-y-0 right-0"
+          style={{
+            width: Math.min(width, ((clip as VideoClip).transitionOut?.duration || 0) * pxPerSecond),
+            background: "repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0 4px, transparent 4px 8px)",
+          }}
         />
       )}
 
@@ -179,12 +209,12 @@ function ClipBlock({
         <>
           <div
             onPointerDown={(e) => onPointerDown(e, clip, "in")}
-            className="absolute inset-y-0 left-0 z-30 cursor-ew-resize bg-white/0 transition group-hover:bg-white/25"
+            className="tln-clip-handle absolute inset-y-0 left-0 z-30 cursor-ew-resize bg-white/0"
             style={{ width: TRIM_HANDLE }}
           />
           <div
             onPointerDown={(e) => onPointerDown(e, clip, "out")}
-            className="absolute inset-y-0 right-0 z-30 cursor-ew-resize bg-white/0 transition group-hover:bg-white/25"
+            className="tln-clip-handle absolute inset-y-0 right-0 z-30 cursor-ew-resize bg-white/0"
             style={{ width: TRIM_HANDLE }}
           />
         </>
@@ -209,7 +239,6 @@ function TrackHeader({ track, index, total }: { track: Track; index: number; tot
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(track.name);
 
-  const icon = track.type === "video" ? "🎞" : track.type === "audio" ? "🎵" : track.type === "text" ? "𝐓" : "💬";
   const active = selectedTrackId === track.id;
 
   const startResize = (e: React.PointerEvent) => {
@@ -227,21 +256,21 @@ function TrackHeader({ track, index, total }: { track: Track; index: number; tot
   };
 
   const toggleClass = (on: boolean, tone: string) =>
-    `flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold transition ${
-      on ? tone : "bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300"
+    `flex h-5 w-5 items-center justify-center rounded-md text-[9px] font-bold transition-all ${
+      on ? tone : "bg-white/[0.04] text-slate-500 hover:bg-white/10 hover:text-slate-300 active:scale-90"
     }`;
 
   return (
     <div
       onClick={() => selectTrack(track.id)}
       style={{ height: trackHeight(track) }}
-      className={`relative flex w-[176px] shrink-0 flex-col justify-center gap-1 border-b border-r border-white/10 px-2 ${
-        active ? "bg-violet-500/10" : "bg-[#0d0d16]"
+      className={`relative flex w-[176px] shrink-0 flex-col justify-center gap-1 border-b border-r border-white/[0.08] px-2 transition-colors ${
+        active ? "bg-violet-500/[0.12]" : "bg-[#0d0d16]"
       }`}
     >
       <div className="flex items-center gap-1.5">
-        <span className="text-xs" aria-hidden>
-          {icon}
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-slate-400">
+          <Icon name={TRACK_ICONS[track.type] ?? "film"} size={11} strokeWidth={1.9} />
         </span>
         {renaming ? (
           <input
@@ -266,63 +295,81 @@ function TrackHeader({ track, index, total }: { track: Track; index: number; tot
               setDraft(track.name);
               setRenaming(true);
             }}
-            className="truncate text-left text-[11px] font-bold text-slate-200"
+            className="truncate text-left text-[11px] font-bold text-slate-200 transition hover:text-white"
             title="Двойной клик — переименовать"
           >
             {track.name}
           </button>
         )}
-        <span className="ml-auto font-mono text-[9px] text-slate-500">{track.clips.length}</span>
+        <span className="ml-auto shrink-0 rounded-full bg-white/[0.06] px-1.5 font-mono text-[9px] text-slate-500">
+          {track.clips.length}
+        </span>
       </div>
 
-      <div className="flex items-center gap-1">
-        <button onClick={() => toggleTrackProp(track.id, "hidden")} className={toggleClass(track.hidden, "bg-slate-500/40 text-white")} title="Видимость дорожки">
-          👁
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={() => toggleTrackProp(track.id, "hidden")}
+          className={toggleClass(track.hidden, "bg-slate-500/50 text-white")}
+          title="Видимость дорожки"
+        >
+          <Icon name={track.hidden ? "eye-off" : "eye"} size={11} />
         </button>
-        <button onClick={() => toggleTrackProp(track.id, "muted")} className={toggleClass(track.muted, "bg-rose-500/40 text-white")} title="Заглушить (M)">
-          M
+        <button
+          onClick={() => toggleTrackProp(track.id, "muted")}
+          className={toggleClass(track.muted, "bg-rose-500/50 text-white")}
+          title="Заглушить (M)"
+        >
+          <Icon name={track.muted ? "volume-x" : "volume"} size={11} />
         </button>
-        <button onClick={() => toggleTrackProp(track.id, "solo")} className={toggleClass(track.solo === true, "bg-amber-500/50 text-black")} title="Solo">
-          S
+        <button
+          onClick={() => toggleTrackProp(track.id, "solo")}
+          className={toggleClass(track.solo === true, "bg-amber-500/60 text-black")}
+          title="Solo"
+        >
+          <Icon name="headphones" size={11} />
         </button>
-        <button onClick={() => toggleTrackProp(track.id, "locked")} className={toggleClass(track.locked, "bg-violet-500/40 text-white")} title="Заблокировать">
-          🔒
+        <button
+          onClick={() => toggleTrackProp(track.id, "locked")}
+          className={toggleClass(track.locked, "bg-violet-500/50 text-white")}
+          title="Заблокировать"
+        >
+          <Icon name="lock" size={11} />
         </button>
         <div className="ml-auto flex items-center gap-0.5">
           <button
             onClick={() => closeGaps(track.id)}
-            className="flex h-5 w-5 items-center justify-center rounded bg-white/5 text-[9px] text-slate-400 hover:bg-white/10 hover:text-white"
+            className="flex h-5 w-5 items-center justify-center rounded-md bg-white/[0.04] text-slate-400 transition hover:bg-white/10 hover:text-white active:scale-90"
             title="Убрать пустоты на дорожке"
           >
-            ⇥
+            <Icon name="indent" size={10} />
           </button>
           <button
             onClick={() => moveTrack(track.id, -1)}
             disabled={index === 0}
-            className="flex h-5 w-5 items-center justify-center rounded bg-white/5 text-[9px] text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
+            className="flex h-5 w-5 items-center justify-center rounded-md bg-white/[0.04] text-slate-400 transition hover:bg-white/10 hover:text-white active:scale-90 disabled:opacity-25"
             title="Выше"
           >
-            ▲
+            <Icon name="chevron-up" size={10} />
           </button>
           <button
             onClick={() => moveTrack(track.id, 1)}
             disabled={index === total - 1}
-            className="flex h-5 w-5 items-center justify-center rounded bg-white/5 text-[9px] text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
+            className="flex h-5 w-5 items-center justify-center rounded-md bg-white/[0.04] text-slate-400 transition hover:bg-white/10 hover:text-white active:scale-90 disabled:opacity-25"
             title="Ниже"
           >
-            ▼
+            <Icon name="chevron-down" size={10} />
           </button>
           <button
             onClick={() => removeTrack(track.id)}
-            className="flex h-5 w-5 items-center justify-center rounded bg-white/5 text-[9px] text-rose-300 hover:bg-rose-500/20"
+            className="flex h-5 w-5 items-center justify-center rounded-md bg-white/[0.04] text-rose-300/80 transition hover:bg-rose-500/20 hover:text-rose-200 active:scale-90"
             title="Удалить дорожку"
           >
-            ✕
+            <Icon name="x" size={10} />
           </button>
         </div>
       </div>
 
-      <div onPointerDown={startResize} className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize hover:bg-violet-500/40" title="Высота дорожки" />
+      <div onPointerDown={startResize} className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize transition-colors hover:bg-violet-500/40" title="Высота дорожки" />
     </div>
   );
 }
@@ -350,87 +397,101 @@ function TimelineToolbar({ onFit }: { onFit: () => void }) {
   const pxPerSecond = useProjectStore((s) => s.pxPerSecond);
   const setZoom = useProjectStore((s) => s.setZoom);
 
-  const btn = (active: boolean) =>
-    `flex h-7 items-center gap-1 rounded-lg border px-2 text-[10px] font-bold transition ${
-      active
-        ? "border-violet-400/50 bg-violet-500/25 text-violet-100"
-        : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white"
-    }`;
+  const zoomPct = ((pxPerSecond - 4) / (600 - 4)) * 100;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-[#0b0b13] px-2 py-1.5">
-      <button onClick={() => setTool("select")} className={btn(tool === "select")} title="Выделение (V)">
-        ⬉ Выбор
+    <div className="tln-toolbar flex flex-wrap items-center gap-1 px-2 py-1.5">
+      {/* Инструменты */}
+      <div className="flex items-center gap-1">
+        <button onClick={() => setTool("select")} className={`tln-btn ${tool === "select" ? "tln-btn-active" : ""}`} title="Выделение (V)">
+          <Icon name="cursor" size={13} />
+          <span className="hidden sm:inline">Выбор</span>
+        </button>
+        <button onClick={() => setTool("razor")} className={`tln-btn ${tool === "razor" ? "tln-btn-active" : ""}`} title="Лезвие — резать клипы (C)">
+          <Icon name="scissors" size={13} />
+          <span className="hidden sm:inline">Лезвие</span>
+        </button>
+        <button onClick={() => setTool("hand")} className={`tln-btn ${tool === "hand" ? "tln-btn-active" : ""}`} title="Панорамирование таймлайна (H)">
+          <Icon name="hand" size={13} />
+          <span className="hidden sm:inline">Рука</span>
+        </button>
+      </div>
+
+      <div className="mx-1 h-5 w-px bg-white/10" />
+
+      <button onClick={toggleSnapping} className={`tln-btn ${snapping ? "tln-btn-active" : ""}`} title="Магнит (N)">
+        <Icon name="magnet" size={13} />
+        <span className="hidden md:inline">Магнит</span>
       </button>
-      <button onClick={() => setTool("razor")} className={btn(tool === "razor")} title="Лезвие — резать клипы (C)">
-        ✂ Лезвие
-      </button>
-      <button onClick={() => setTool("hand")} className={btn(tool === "hand")} title="Панорамирование таймлайна (H)">
-        ✋ Рука
+      <button onClick={toggleRipple} className={`tln-btn ${ripple ? "tln-btn-active" : ""}`} title="Ripple: сдвигать соседние клипы при удалении">
+        <Icon name="waves" size={13} />
+        <span className="hidden md:inline">Ripple</span>
       </button>
 
       <div className="mx-1 h-5 w-px bg-white/10" />
 
-      <button onClick={toggleSnapping} className={btn(snapping)} title="Магнит (N)">
-        🧲 Магнит
+      <button onClick={splitAtPlayhead} className="tln-btn" title="Разрезать на плейхеде (S)">
+        <Icon name="scissors" size={13} />
+        <span className="hidden md:inline">Разрез</span>
       </button>
-      <button onClick={toggleRipple} className={btn(ripple)} title="Ripple: сдвигать соседние клипы при удалении">
-        ⇹ Ripple
+      <button onClick={() => (ripple ? rippleDeleteSelected() : removeSelected())} className="tln-btn" title="Удалить выделенное (Del)">
+        <Icon name="trash" size={13} />
+        <span className="hidden md:inline">Удалить</span>
       </button>
-
-      <div className="mx-1 h-5 w-px bg-white/10" />
-
-      <button onClick={splitAtPlayhead} className={btn(false)} title="Разрезать на плейхеде (S)">
-        ✂ Разрез
+      <button onClick={() => selectedClipId && duplicateClip(selectedClipId)} className="tln-btn" title="Дублировать (Ctrl+D)">
+        <Icon name="copy" size={13} />
+        <span className="hidden xl:inline">Дубль</span>
       </button>
-      <button onClick={() => (ripple ? rippleDeleteSelected() : removeSelected())} className={btn(false)} title="Удалить выделенное (Del)">
-        🗑 Удалить
-      </button>
-      <button onClick={() => selectedClipId && duplicateClip(selectedClipId)} className={btn(false)} title="Дублировать (Ctrl+D)">
-        ⧉ Дубль
-      </button>
-      <button onClick={() => selectedClipId && detachAudio(selectedClipId)} className={btn(false)} title="Отделить звук от видео">
-        🎚 Отделить звук
+      <button onClick={() => selectedClipId && detachAudio(selectedClipId)} className="tln-btn" title="Отделить звук от видео">
+        <Icon name="unlink" size={13} />
+        <span className="hidden xl:inline">Отделить звук</span>
       </button>
 
       <div className="mx-1 h-5 w-px bg-white/10" />
 
-      <button onClick={() => createTrack("video")} className={btn(false)} title="Добавить видеодорожку">
-        + Видео
+      <button onClick={() => createTrack("video")} className="tln-btn" title="Добавить видеодорожку">
+        <Icon name="plus" size={13} />
+        <span className="hidden md:inline">Видео</span>
       </button>
-      <button onClick={() => createTrack("audio")} className={btn(false)} title="Добавить аудиодорожку">
-        + Аудио
+      <button onClick={() => createTrack("audio")} className="tln-btn" title="Добавить аудиодорожку">
+        <Icon name="music" size={13} />
+        <span className="hidden md:inline">Аудио</span>
       </button>
-      <button onClick={() => addTextClip()} className={btn(false)} title="Добавить титр на плейхеде">
-        + Титр
+      <button onClick={() => addTextClip()} className="tln-btn" title="Добавить титр на плейхеде">
+        <Icon name="type" size={13} />
+        <span className="hidden md:inline">Титр</span>
       </button>
       <button
         onClick={() => setActivePage("motion")}
-        className={`${btn(false)} border-fuchsia-400/30 text-fuchsia-300`}
+        className="tln-btn !border-fuchsia-400/25 !text-fuchsia-300 hover:!bg-fuchsia-500/10"
         title="Моушн-графика: титры, lower thirds, CTA, интро/аутро, kinetic-типографика"
       >
-        🪄 Motion
+        <Icon name="wand" size={13} />
+        <span className="hidden md:inline">Motion</span>
       </button>
 
       <div className="ml-auto flex items-center gap-1.5">
-        <button onClick={() => setZoom(pxPerSecond / 1.4)} className={btn(false)} title="Отдалить (Ctrl+−)">
-          −
+        <button onClick={() => setZoom(pxPerSecond / 1.4)} className="tln-btn !px-1.5" title="Отдалить (Ctrl+−)">
+          <Icon name="minus" size={12} />
         </button>
         <input
           type="range"
           min={4}
-          max={400}
+          max={600}
           step={1}
           value={pxPerSecond}
           onChange={(e) => setZoom(parseFloat(e.target.value))}
-          className="h-1 w-28 accent-violet-500"
+          className="h-4 w-20 sm:w-28"
+          style={{ ["--range-pct" as string]: `${zoomPct}%` }}
           aria-label="Масштаб таймлайна"
         />
-        <button onClick={() => setZoom(pxPerSecond * 1.4)} className={btn(false)} title="Приблизить (Ctrl+=)">
-          +
+        <span className="hidden w-9 text-right font-mono text-[9px] text-slate-500 md:inline">{Math.round(pxPerSecond)} px/s</span>
+        <button onClick={() => setZoom(pxPerSecond * 1.4)} className="tln-btn !px-1.5" title="Приблизить (Ctrl+=)">
+          <Icon name="plus" size={12} />
         </button>
-        <button onClick={onFit} className={btn(false)} title="Вместить проект (Shift+Z)">
-          ⤢ Вместить
+        <button onClick={onFit} className="tln-btn" title="Вместить проект (Shift+Z)">
+          <Icon name="maximize" size={12} />
+          <span className="hidden xl:inline">Вместить</span>
         </button>
       </div>
     </div>
@@ -774,6 +835,7 @@ export default function TimelineV2() {
 
   const step = rulerStep(pxPerSecond);
   const tickCount = Math.ceil(contentSeconds / step) + 1;
+  const clipCount = project.tracks.reduce((n: number, t: Track) => n + t.clips.length, 0);
 
   return (
     <div className="relative flex h-full flex-col bg-[#08080f]">
@@ -781,35 +843,38 @@ export default function TimelineV2() {
 
       {isPictureLocked(project) && (
         <div className="flex shrink-0 items-center gap-1.5 border-b border-emerald-400/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
-          🔒 Picture Lock — таймлайн зафиксирован (доступны: цвет, звук, титры, эффекты)
+          <Icon name="lock" size={10} />
+          Picture Lock — таймлайн зафиксирован (доступны: цвет, звук, титры, эффекты)
         </div>
       )}
 
-      <div ref={scrollRef} className="relative flex-1 overflow-auto">
+      <div ref={scrollRef} className="relative flex-1 overflow-auto custom-scrollbar">
         <div className="relative" style={{ width: HEADER_WIDTH + contentWidth, minWidth: "100%" }}>
           {/* Ruler */}
-          <div className="sticky top-0 z-30 flex bg-[#0b0b13]" style={{ height: RULER_HEIGHT }}>
-            <div className="sticky left-0 z-40 flex w-[176px] shrink-0 items-center border-b border-r border-white/10 bg-[#0b0b13] px-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">
+          <div className="tln-ruler sticky top-0 z-30 flex" style={{ height: RULER_HEIGHT }}>
+            <div className="sticky left-0 z-40 flex w-[176px] shrink-0 items-center border-b border-r border-white/[0.08] bg-[#0b0b13] px-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">
+              <Icon name="clock" size={10} strokeWidth={1.9} className="mr-1.5 text-slate-600" />
               Timeline
             </div>
             <div
               ref={rulerRef}
               onPointerDown={onRulerPointerDown}
-              className="relative shrink-0 cursor-col-resize border-b border-white/10"
+              className="relative shrink-0 cursor-col-resize border-b border-white/[0.08]"
               style={{ width: contentWidth, height: RULER_HEIGHT }}
             >
               {inPoint !== null && outPoint !== null && outPoint > inPoint && (
                 <div
-                  className="absolute inset-y-0 bg-violet-500/20"
+                  className="absolute inset-y-0 bg-violet-500/[0.16]"
                   style={{ left: inPoint * pxPerSecond, width: (outPoint - inPoint) * pxPerSecond }}
                 />
               )}
               {Array.from({ length: tickCount }).map((_, i) => {
                 const t = i * step;
+                const major = i % 2 === 0;
                 return (
                   <div key={i} className="absolute inset-y-0" style={{ left: t * pxPerSecond }}>
-                    <div className="h-full w-px bg-white/15" />
-                    <span className="absolute left-1 top-0.5 select-none font-mono text-[9px] text-slate-500">{shortTime(t)}</span>
+                    <div className={`h-full w-px ${major ? "tln-ruler-tick-major" : "tln-ruler-tick"}`} />
+                    <span className="absolute left-1 top-1 select-none font-mono text-[9px] text-slate-500">{shortTime(t)}</span>
                   </div>
                 );
               })}
@@ -822,8 +887,8 @@ export default function TimelineV2() {
                     else useProjectStore.getState().setPlayhead(marker.time);
                   }}
                   title={`${marker.label} — клик: перейти, Alt+клик: удалить`}
-                  className="absolute bottom-0 z-20 h-3 w-3 -translate-x-1/2 rounded-sm"
-                  style={{ left: marker.time * pxPerSecond, background: marker.color || "#f59e0b" }}
+                  className="tln-marker absolute bottom-0 z-20 h-2.5 w-2.5"
+                  style={{ left: marker.time * pxPerSecond, background: marker.color || "#f59e0b", color: marker.color || "#f59e0b" }}
                 />
               ))}
             </div>
@@ -843,7 +908,7 @@ export default function TimelineV2() {
                   e.dataTransfer.dropEffect = "copy";
                 }}
                 onDrop={(e) => void handleDrop(e, track.id)}
-                className={`relative shrink-0 border-b border-white/[0.06] ${
+                className={`tln-lane relative shrink-0 border-b border-white/[0.05] ${
                   track.hidden ? "opacity-40" : ""
                 } ${index % 2 === 0 ? "bg-[#0a0a12]" : "bg-[#0b0b14]"}`}
                 style={{ width: contentWidth, height: trackHeight(track) }}
@@ -852,10 +917,18 @@ export default function TimelineV2() {
                 <div
                   className="pointer-events-none absolute inset-0 opacity-40"
                   style={{
-                    backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px)",
-                    backgroundSize: `${step * pxPerSecond}px 100%`,
+                    backgroundImage:
+                      "linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(to right, rgba(124,108,246,0.07) 1px, transparent 1px)",
+                    backgroundSize: `${(step * pxPerSecond).toFixed(2)}px 100%, ${((step / 5) * pxPerSecond).toFixed(2)}px 100%`,
                   }}
                 />
+                {track.clips.length === 0 && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span className="rounded-full border border-dashed border-white/[0.08] px-3 py-1 text-[9px] font-medium uppercase tracking-widest text-slate-600">
+                      Перетащите медиа сюда
+                    </span>
+                  </div>
+                )}
                 {track.clips.map((clip) => (
                   <ClipBlock
                     key={clip.id}
@@ -873,17 +946,17 @@ export default function TimelineV2() {
 
           {/* Playhead */}
           <div
-            className="pointer-events-none absolute bottom-0 top-0 z-40 w-px bg-violet-400"
+            className="tln-playhead pointer-events-none absolute bottom-0 top-0 z-40 w-px"
             style={{ left: HEADER_WIDTH + playhead * pxPerSecond }}
           >
-            <div className="absolute -left-[5px] top-0 h-3 w-[11px] rounded-b-sm bg-violet-400" />
+            <div className="tln-playhead-handle absolute -left-[5px] top-0 h-3.5 w-[11px] rounded-b-[4px]" />
           </div>
         </div>
       </div>
 
       {marquee && (
         <div
-          className="pointer-events-none fixed z-50 border border-violet-400/70 bg-violet-500/15"
+          className="pointer-events-none fixed z-50 rounded-sm border border-violet-400/70 bg-violet-500/15"
           style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }}
         />
       )}
@@ -894,16 +967,21 @@ export default function TimelineV2() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 border-t border-white/10 bg-[#0b0b13] px-3 py-1 text-[10px] text-slate-500">
+      <div className="flex items-center gap-3 border-t border-white/[0.07] bg-[#0b0b13] px-3 py-1 text-[10px] text-slate-500">
         <span>
           Клипов:{" "}
-          <b className="text-slate-300">{project.tracks.reduce((n: number, t: Track) => n + t.clips.length, 0)}</b>
+          <b className="text-slate-300">{clipCount}</b>
         </span>
         <span>
           Длительность: <b className="text-slate-300">{duration.toFixed(2)}s</b>
         </span>
         <span className="hidden sm:inline">Shift+тяга — рамка выделения · Ctrl+колесо — зум · перетащите файл на дорожку</span>
-        {tool === "razor" && <span className="text-rose-300">Режим лезвия: клик по клипу режет его</span>}
+        {tool === "razor" && (
+          <span className="ml-auto flex items-center gap-1 text-rose-300">
+            <Icon name="scissors" size={10} />
+            Режим лезвия: клик по клипу режет его
+          </span>
+        )}
       </div>
     </div>
   );

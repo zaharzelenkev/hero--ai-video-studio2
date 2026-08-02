@@ -10,6 +10,7 @@ import type {
 import { flattenSections } from "@/lib/production";
 import { buildOfflinePreprod } from "@/lib/brain/offlinePreprod";
 import { uid } from "@/lib/id";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 /**
  * CONVERSATIONAL AI Director.
@@ -27,7 +28,7 @@ type WizardPhase = "interview" | "generating" | "ready";
 
 interface Question {
   id: "idea" | "goal" | "audience" | "platform" | "location" | "mood" | "materials";
-  icon: string;
+  icon: IconName;
   ask: string;
   field: keyof DirectorBrief;
   chips?: string[];
@@ -37,14 +38,14 @@ interface Question {
 const QUESTIONS: Question[] = [
   {
     id: "idea",
-    icon: "💡",
+    icon: "lightbulb",
     ask: "О чём ролик?",
     field: "idea",
     placeholder: "Например: показываю, как за 3 шага приготовить кофе как в кофейне…",
   },
   {
     id: "goal",
-    icon: "🎯",
+    icon: "target",
     ask: "Что должно произойти после просмотра?",
     field: "goal",
     chips: ["Продажи / заявки", "Подписчики", "Обучение", "Вдохновение", "Развлечение"],
@@ -52,7 +53,7 @@ const QUESTIONS: Question[] = [
   },
   {
     id: "audience",
-    icon: "👥",
+    icon: "casting",
     ask: "Для кого снимаем?",
     field: "audience",
     chips: ["Молодёжь 16–25", "Взрослые 25–45", "Бизнес / B2B", "Широкая аудитория"],
@@ -60,7 +61,7 @@ const QUESTIONS: Question[] = [
   },
   {
     id: "platform",
-    icon: "📱",
+    icon: "monitor",
     ask: "Куда выложим?",
     field: "platform",
     chips: ["TikTok", "Reels / Shorts", "YouTube", "VK Клипы", "Презентация"],
@@ -68,7 +69,7 @@ const QUESTIONS: Question[] = [
   },
   {
     id: "location",
-    icon: "📍",
+    icon: "map-pin",
     ask: "Где происходит действие?",
     field: "location",
     chips: ["Улица / город", "Дом / интерьер", "Офис", "Студия", "Природа"],
@@ -76,7 +77,7 @@ const QUESTIONS: Question[] = [
   },
   {
     id: "mood",
-    icon: "🎭",
+    icon: "sparkles",
     ask: "Какое настроение у ролика?",
     field: "mood",
     chips: ["Драйв", "Тепло и уют", "Ностальгия", "Вдохновение", "Юмор"],
@@ -84,7 +85,7 @@ const QUESTIONS: Question[] = [
   },
   {
     id: "materials",
-    icon: "🎞",
+    icon: "film",
     ask: "Материалы уже есть?",
     field: "materials",
     chips: ["Да, съёмка есть", "Сниму сам(а)", "Возьму стоки", "Частично есть"],
@@ -379,10 +380,13 @@ export default function DirectorWizard({
   return (
     <div className="grid gap-6 lg:grid-cols-12">
       <section className="lg:col-span-7">
-        <div className="flex h-full min-h-[560px] flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.025] shadow-xl backdrop-blur-xl">
+        <div className="surface-card flex h-full min-h-[560px] flex-col overflow-hidden rounded-[20px]">
           <div className="flex items-center gap-3 border-b border-white/[0.06] bg-white/[0.02] px-4 py-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400 text-lg shadow-lg shadow-violet-900/30">
-              🎬
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-xl"
+              style={{ background: "linear-gradient(180deg,#8b7cff,#5c4bd8)", boxShadow: "0 6px 18px -4px rgba(124,108,246,0.5)" }}
+            >
+              <Icon name="clapper" size={18} strokeWidth={1.6} className="text-white" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-bold tracking-tight text-slate-100">AI Director</div>
@@ -391,7 +395,8 @@ export default function DirectorWizard({
               </div>
             </div>
             {phase === "ready" && (
-              <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
+              <span className="badge badge-ok">
+                <Icon name="check" size={11} />
                 Готово
               </span>
             )}
@@ -403,13 +408,14 @@ export default function DirectorWizard({
                 <div
                   className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${
                     m.role === "user"
-                      ? "bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white"
+                      ? "bg-gradient-to-br from-[#6d5cf0] to-[#5c4bd8] text-white"
                       : "border border-white/10 bg-white/[0.04] text-slate-200"
                   }`}
                 >
                   {m.role === "director" && (
-                    <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-amber-300/90">
-                      РЕЖИССЁР
+                    <div className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-violet-300/90">
+                      <Icon name="compass" size={10} />
+                      Режиссёр
                     </div>
                   )}
                   <div className="whitespace-pre-wrap">{m.text}</div>
@@ -431,9 +437,13 @@ export default function DirectorWizard({
             {phase === "interview" && question && !thinking && (
               <div className="flex justify-start">
                 <div className="max-w-[85%] rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 shadow-sm">
-                  <div className="mb-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-300/90">РЕЖИССЁР</div>
-                  <div className="text-[13px] font-semibold leading-relaxed text-slate-100">
-                    {question.icon} {question.ask}
+                  <div className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-violet-300/90">
+                    <Icon name="compass" size={10} />
+                    Режиссёр
+                  </div>
+                  <div className="flex items-start gap-2 text-[13px] font-semibold leading-relaxed text-slate-100">
+                    <Icon name={question.icon} size={15} className="mt-0.5 shrink-0 text-violet-300" />
+                    {question.ask}
                   </div>
                 </div>
               </div>
@@ -455,7 +465,7 @@ export default function DirectorWizard({
                         key={c}
                         disabled={!interactive}
                         onClick={() => void handleAnswer(c)}
-                        className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 text-[11px] font-semibold text-slate-300 transition hover:border-violet-400/40 hover:bg-violet-500/10 hover:text-violet-100 disabled:opacity-40"
+                        className="chip hover:!border-violet-400/40 hover:!bg-violet-500/10 hover:!text-violet-100 disabled:opacity-40"
                       >
                         {c}
                       </button>
@@ -474,14 +484,15 @@ export default function DirectorWizard({
                     }}
                     rows={1}
                     placeholder={question?.placeholder || "Ваш ответ…"}
-                    className="flex-1 resize-none rounded-xl border border-white/10 bg-black/30 p-3 text-[13px] text-slate-100 outline-none transition focus:border-violet-400/50"
+                    className="input flex-1 resize-none !py-3 !text-[13px]"
                   />
                   <button
                     onClick={() => void handleAnswer(input)}
                     disabled={!input.trim() || !interactive}
-                    className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-violet-900/20 transition hover:brightness-110 disabled:opacity-40"
+                    aria-label="Отправить"
+                    className="btn btn-primary h-11 w-11 !rounded-xl !p-0 disabled:opacity-40"
                   >
-                    ↑
+                    <Icon name="arrow-up-right" size={17} />
                   </button>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-600">
@@ -523,8 +534,8 @@ export default function DirectorWizard({
           <BlueprintReady preprod={preprod} brief={brief} onGoToEditor={onGoToEditor} onOpenPro={onOpenPro} onRestart={restart} />
         ) : (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 backdrop-blur-xl">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Как это работает</div>
+            <div className="surface-card rounded-[18px] p-5">
+              <div className="eyebrow mb-2.5">Как это работает</div>
               <ul className="space-y-2 text-[12px] leading-relaxed text-slate-400">
                 <li>Режиссёр задаёт один вопрос за раз — как на питчинге.</li>
                 <li>После каждого ответа он сразу обновляет все документы проекта.</li>
@@ -532,8 +543,8 @@ export default function DirectorWizard({
                 <li>Любой этап потом можно открыть и доработать в профессиональном режиме.</li>
               </ul>
             </div>
-            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 backdrop-blur-xl">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Уже знаю</div>
+            <div className="surface-card rounded-[18px] p-5">
+              <div className="eyebrow mb-2.5">Уже знаю</div>
               <div className="space-y-1.5">
                 {(["idea","goal","audience","platform","location","mood"] as const).map((k) => {
                   const labels: Record<string,string> = { idea:"Идея", goal:"Цель", audience:"Аудитория", platform:"Платформа", location:"Локация", mood:"Настроение" };
@@ -598,17 +609,14 @@ function BlueprintReady({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-gradient-to-br from-violet-950/40 via-[#0d0d18]/80 to-amber-950/20 p-5 shadow-xl backdrop-blur-xl">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className="surface-card relative overflow-hidden rounded-[20px] p-5">
+        <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-violet-600/20 blur-[80px]" />
+        <div className="relative flex flex-wrap items-start justify-between gap-2">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Production Blueprint</div>
-            <h2 className="truncate text-lg font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100">
-              {preprod.treatment.title || brief.idea || "Проект"}
-            </h2>
+            <div className="eyebrow">Production Blueprint</div>
+            <h2 className="title mt-1 truncate text-lg">{preprod.treatment.title || brief.idea || "Проект"}</h2>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium text-slate-300">
-            {readiness}%
-          </span>
+          <span className="badge badge-primary">{readiness}%</span>
         </div>
 
         <p className="mt-3 text-[13px] leading-relaxed text-slate-300">{preprod.logline.primary}</p>
@@ -621,31 +629,31 @@ function BlueprintReady({
           {preprod.treatment.genre && <Chip>{preprod.treatment.genre}</Chip>}
         </div>
 
-        <div className="mt-4 h-1 w-full overflow-hidden rounded-full bg-white/10">
+        <div className="mt-4 h-1 w-full overflow-hidden rounded-full bg-white/[0.08]">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 transition-all"
-            style={{ width: `${Math.max(2, Math.min(100, readiness))}%` }}
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${Math.max(2, Math.min(100, readiness))}%`, background: "linear-gradient(90deg,#7c6cf6,#a78bfa)" }}
           />
         </div>
 
-        <button
-          onClick={onGoToEditor}
-          className="mt-5 w-full rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 px-5 py-3 text-sm font-extrabold tracking-wide text-black shadow-xl transition hover:brightness-110 active:scale-[0.99]"
-        >
-          Перейти в монтаж →
+        <button onClick={onGoToEditor} className="btn btn-primary mt-5 h-11 w-full text-sm">
+          Перейти в монтаж
+          <Icon name="arrow-right" size={15} />
         </button>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button
             onClick={onOpenPro}
-            className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-white/[0.07]"
+            className="btn btn-ghost px-4 py-2 text-[11px]"
           >
+            <Icon name="layout" size={13} />
             Рабочий стол
           </button>
           <button
             onClick={onRestart}
-            className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-[11px] font-bold text-slate-300 transition hover:bg-white/[0.07]"
+            className="btn btn-ghost px-4 py-2 text-[11px]"
           >
+            <Icon name="refresh" size={13} />
             Пройти заново
           </button>
         </div>

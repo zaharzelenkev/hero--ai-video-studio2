@@ -85,7 +85,7 @@ export default function PreProductionPanelV2() {
           <button
             onClick={() => callAI("idea", setIdea)}
             disabled={loading === "idea"}
-            className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 transition disabled:opacity-50"
+            className="btn btn-primary px-3 py-2 text-xs"
             aria-label="Сгенерировать идею"
           >
             {loading === "idea" ? "..." : "Генерировать"}
@@ -98,7 +98,7 @@ export default function PreProductionPanelV2() {
         <button
           onClick={() => callAI("logline", setLogline)}
           disabled={loading === "logline"}
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 transition disabled:opacity-50 mb-2"
+          className="btn btn-primary mb-2 px-4 py-2 text-xs"
           aria-label="Сгенерировать логлайн"
         >
           {loading === "logline" ? "Генерация..." : "Создать логлайн из идеи"}
@@ -110,7 +110,7 @@ export default function PreProductionPanelV2() {
         <button
           onClick={() => callAI("script", setScript)}
           disabled={loading === "script"}
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 transition disabled:opacity-50 mb-2"
+          className="btn btn-primary mb-2 px-4 py-2 text-xs"
           aria-label="Сгенерировать сценарий"
         >
           {loading === "script" ? "Генерация..." : "Написать сценарий"}
@@ -123,7 +123,7 @@ export default function PreProductionPanelV2() {
         <button
           onClick={() => callAI("storyboard", setStoryboardText)}
           disabled={loading === "storyboard"}
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 transition disabled:opacity-50 mb-2"
+          className="btn btn-primary mb-2 px-4 py-2 text-xs"
           aria-label="Сгенерировать раскадровку"
         >
           {loading === "storyboard" ? "Генерация..." : "Генерировать раскадровку"}
@@ -140,7 +140,7 @@ export default function PreProductionPanelV2() {
         <button
           onClick={() => callAI("shotlist", setShotlistText)}
           disabled={loading === "shotlist"}
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 transition disabled:opacity-50 mb-2"
+          className="btn btn-primary mb-2 px-4 py-2 text-xs"
           aria-label="Сгенерировать список кадров"
         >
           {loading === "shotlist" ? "Генерация..." : "Создать список кадров"}
@@ -152,7 +152,7 @@ export default function PreProductionPanelV2() {
         <button
           onClick={() => callAI("recommendations", setRecs)}
           disabled={loading === "recommendations"}
-          className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:brightness-110 transition disabled:opacity-50 mb-2"
+          className="btn btn-primary mb-2 px-4 py-2 text-xs"
           aria-label="Получить рекомендации"
         >
           {loading === "recommendations" ? "Генерация..." : "Получить полный план препродакшн"}

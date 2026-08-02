@@ -1,5 +1,23 @@
 "use client";
 
+import { Icon, type IconName } from "@/components/ui/Icon";
+
+/** legacy emoji → professional icon */
+const ICON_MAP: Record<string, IconName> = {
+  "💡": "lightbulb",
+  "🎯": "target",
+  "📍": "map-pin",
+  "🎭": "casting",
+  "💬": "chat",
+  "🗓": "calendar",
+  "⚠️": "alert",
+  "📜": "script",
+  "📋": "clipboard",
+  "🖼": "storyboard",
+  "📖": "book",
+  "🎬": "vision",
+};
+
 interface Props {
   icon: string;
   title: string;
@@ -11,12 +29,13 @@ interface Props {
 }
 
 export default function StageShell({ icon, title, subtitle, onRegenerate, busy, children, actions }: Props) {
+  const iconName: IconName = ICON_MAP[icon] ?? "sparkles";
   return (
-    <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-6 shadow-2xl backdrop-blur-2xl">
+    <section className="surface-card rounded-[24px] p-6">
       <div className="mb-5 flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-violet-500/20 via-fuchsia-500/10 to-amber-400/20 text-xl shadow-inner">
-            {icon}
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 text-violet-200">
+            <Icon name={iconName} size={19} />
           </div>
           <div>
             <h2 className="text-lg font-extrabold tracking-tight text-slate-100">{title}</h2>
@@ -29,10 +48,11 @@ export default function StageShell({ icon, title, subtitle, onRegenerate, busy, 
             <button
               onClick={onRegenerate}
               disabled={busy}
-              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-bold text-slate-200 transition hover:bg-white/[0.08] disabled:opacity-50"
+              className="btn btn-ghost px-3 py-1.5 text-[10px]"
               title="Перегенерировать этот раздел с учётом актуального состояния проекта"
             >
-              ↻ AI пересоздаст
+              <Icon name="refresh" size={12} />
+              AI пересоздаст
             </button>
           )}
         </div>
@@ -88,7 +108,7 @@ export function TextArea({
       onChange={(e) => onChange(e.target.value)}
       rows={rows}
       placeholder={placeholder}
-      className="w-full resize-y rounded-xl border border-white/[0.08] bg-black/25 px-4 py-3 text-[13px] leading-relaxed text-slate-200 placeholder:text-slate-600 outline-none transition focus:border-violet-400/50 focus:bg-black/40"
+      className="input resize-y !py-3 !text-[13px] leading-relaxed"
     />
   );
 }

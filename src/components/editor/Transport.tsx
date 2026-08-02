@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProjectStore, timelineDuration } from "@/store/projectStore";
 import { audioMixer } from "@/lib/editor/audioMixer";
+import { Icon } from "@/components/ui/Icon";
 
 export function formatTimecode(time: number, fps = 30): string {
   const safe = Math.max(0, time);
@@ -120,13 +121,11 @@ export default function Transport() {
           onClick={() => setPlaying(!isPlaying)}
           title={isPlaying ? "Пауза (Space)" : "Воспроизведение (Space)"}
           aria-label={isPlaying ? "Пауза" : "Воспроизведение"}
-          className={`flex h-8 w-14 items-center justify-center rounded-lg text-sm font-black shadow-lg transition ${
-            isPlaying
-              ? "bg-gradient-to-r from-rose-500 to-orange-500 text-white"
-              : "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:brightness-110"
+          className={`btn btn-primary h-8 w-14 !rounded-lg !px-0 text-sm ${
+            isPlaying ? "!bg-gradient-to-b from-rose-500 to-rose-600 shadow-[0_6px_18px_-6px_rgba(248,113,113,0.5)]" : ""
           }`}
         >
-          {isPlaying ? "⏸" : "▶"}
+          {isPlaying ? <Icon name="pause" size={14} /> : <Icon name="play" size={14} />}
         </button>
         <TransportButton label="|▶" title="Кадр вперёд (→)" onClick={() => setPlayhead(Math.min(duration, playhead + 1 / fps))} />
         <TransportButton label="⏩" title="Следующая склейка (↓)" onClick={goNextEdit} />

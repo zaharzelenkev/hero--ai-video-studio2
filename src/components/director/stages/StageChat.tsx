@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import StageShell from "./StageShell";
 import type { ChatMessage, DirectorBrief, PreProduction, PreprodStage } from "@/lib/production";
 import { uid } from "@/lib/id";
+import { Icon } from "@/components/ui/Icon";
 
 interface Props {
   brief: DirectorBrief;
@@ -89,11 +90,14 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
             <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[82%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${
                 m.role === "user"
-                  ? "bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white"
+                  ? "bg-gradient-to-br from-[#6d5cf0] to-[#5c4bd8] text-white"
                   : "border border-white/10 bg-white/[0.04] text-slate-200"
               }`}>
                 {m.role === "director" && (
-                  <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-amber-300/90">РЕЖИССЁР</div>
+                  <div className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-violet-300/90">
+                    <Icon name="compass" size={10} />
+                    Режиссёр
+                  </div>
                 )}
                 <div className="whitespace-pre-wrap">{m.text}</div>
               </div>
@@ -104,8 +108,8 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
               <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[12px] text-slate-400">
                 <span className="inline-flex gap-1">
                   <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" style={{ animationDelay: "0ms" }} />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-fuchsia-400" style={{ animationDelay: "120ms" }} />
-                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-amber-400" style={{ animationDelay: "240ms" }} />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" style={{ animationDelay: "120ms" }} />
+                  <i className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" style={{ animationDelay: "240ms" }} />
                 </span>
                 Обдумываю…
               </div>
@@ -132,14 +136,15 @@ export default function StageChat({ brief, preprod, updatePreprod }: Props) {
               }}
               rows={2}
               placeholder="Спросите про хук, сцену, монтаж, свет, игру актёра, цвет…"
-              className="flex-1 resize-none rounded-xl border border-white/10 bg-black/30 p-3 text-[13px] text-slate-100 outline-none focus:border-violet-400/50"
+              className="input flex-1 resize-none !py-3 !text-[13px]"
             />
             <button
               onClick={send}
               disabled={!input.trim() || thinking}
-              className="h-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50"
+              aria-label="Отправить"
+              className="btn btn-primary h-full min-w-[44px] !rounded-xl !px-4 py-3 disabled:opacity-50"
             >
-              ↑
+              <Icon name="arrow-up-right" size={16} />
             </button>
           </div>
         </div>

@@ -33,24 +33,25 @@ import PictureLockPanelV2 from "./panels/PictureLockPanelV2";
 import DirectorRedirectPanel from "./DirectorRedirectPanel";
 import KeyframeEditor from "./KeyframeEditor";
 import { isPictureLocked } from "@/lib/pictureLock";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 /* ------------------------------------------------------------------ */
 /* pages                                                               */
 /* ------------------------------------------------------------------ */
 
-const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
-  { id: "media", label: "Медиа", icon: "🎞", desc: "Медиатека и параметры проекта" },
-  { id: "montage", label: "Монтаж", icon: "✂️", desc: "Клип, скорость, кадрирование, переходы" },
-  { id: "color", label: "Цвет", icon: "🎨", desc: "Колесо цвета, LUT, скопы" },
-  { id: "effects", label: "Эффекты", icon: "✨", desc: "VFX: хромакей, удаление фона/объекта, LUT, bloom, лучи, зерно и др." },
-  { id: "sound", label: "Звук", icon: "🎵", desc: "Микшер, EQ, компрессор, панорама" },
-  { id: "text", label: "Текст", icon: "📝", desc: "Титры, шрифты, анимация" },
-  { id: "motion", label: "Motion", icon: "🪄", desc: "Моушн-графика: титры, lower thirds, callouts, CTA, интро/аутро, kinetic" },
-  { id: "animation", label: "Кадры", icon: "🎬", desc: "Ключевые кадры и кривые" },
-  { id: "ai", label: "AI", icon: "🤖", desc: "AI Director" },
-  { id: "offline", label: "Черновик", icon: "✂️", desc: "Offline Edit: дубли, чистка речи, драматургия" },
-  { id: "lock", label: "Picture Lock", icon: "🔒", desc: "Финальная сборка: проверка и фиксация монтажа" },
-  { id: "export", label: "Экспорт", icon: "🚀", desc: "MP4 / WebM / GIF" },
+const PAGES: { id: EditorPage; label: string; icon: IconName; desc: string }[] = [
+  { id: "media", label: "Медиа", icon: "film", desc: "Медиатека и параметры проекта" },
+  { id: "montage", label: "Монтаж", icon: "scissors", desc: "Клип, скорость, кадрирование, переходы" },
+  { id: "color", label: "Цвет", icon: "palette", desc: "Колесо цвета, LUT, скопы" },
+  { id: "effects", label: "Эффекты", icon: "sparkles", desc: "VFX: хромакей, удаление фона/объекта, LUT, bloom, лучи, зерно и др." },
+  { id: "sound", label: "Звук", icon: "music", desc: "Микшер, EQ, компрессор, панорама" },
+  { id: "text", label: "Текст", icon: "type", desc: "Титры, шрифты, анимация" },
+  { id: "motion", label: "Motion", icon: "wand", desc: "Моушн-графика: титры, lower thirds, callouts, CTA, интро/аутро, kinetic" },
+  { id: "animation", label: "Кадры", icon: "keyframe", desc: "Ключевые кадры и кривые" },
+  { id: "ai", label: "AI", icon: "brain", desc: "AI Director" },
+  { id: "offline", label: "Черновик", icon: "draft", desc: "Offline Edit: дубли, чистка речи, драматургия" },
+  { id: "lock", label: "Picture Lock", icon: "lock", desc: "Финальная сборка: проверка и фиксация монтажа" },
+  { id: "export", label: "Экспорт", icon: "rocket", desc: "MP4 / WebM / GIF" },
 ];
 
 /** Страница «Медиа»: на узких экранах внутрь инспектора кладём и саму медиатеку. */
@@ -400,23 +401,27 @@ export default function EditorShellV2() {
 
   if (!project) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#0a0a12] text-slate-200">
-        <div className="rounded-2xl border border-white/10 bg-[#0d0d16] px-6 py-8 text-center shadow-2xl">
-          <div className="mb-3 text-5xl">🎬</div>
-          <h2 className="mb-1 text-xl font-bold">Проект не загружен</h2>
-          <p className="mb-4 text-sm text-slate-400">Создайте или выберите проект для начала работы.</p>
+      <div className="app-bg flex h-screen items-center justify-center text-slate-200">
+        <div className="surface-card animate-scale-in px-8 py-9 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-200">
+            <Icon name="clapper" size={30} strokeWidth={1.5} />
+          </div>
+          <h2 className="title mb-1 text-xl">Проект не загружен</h2>
+          <p className="mb-5 text-sm text-slate-400">Создайте или выберите проект для начала работы.</p>
           <div className="flex flex-col gap-2">
             <Link
               href="/"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110"
+              className="btn btn-ghost px-5 py-2.5 text-sm"
             >
-              🏠 На главную
+              <Icon name="home" size={15} />
+              На главную
             </Link>
             <button
               onClick={() => useProjectStore.getState().loadProject(createEmptyProject("Новый проект"))}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition hover:brightness-110"
+              className="btn btn-primary px-5 py-2.5 text-sm"
             >
-              ➕ Создать проект
+              <Icon name="plus" size={15} />
+              Создать проект
             </button>
           </div>
         </div>
@@ -430,6 +435,7 @@ export default function EditorShellV2() {
   return (
     <div
       className="relative flex h-screen flex-col overflow-hidden bg-[#0a0a12] text-slate-100"
+      style={{ backgroundColor: "var(--bg-base)" }}
       onDragEnter={onDragEnter}
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
@@ -438,38 +444,41 @@ export default function EditorShellV2() {
       onDrop={onDrop}
     >
       {/* ------------------------------ header ------------------------------ */}
-      <header className="z-50 flex shrink-0 items-center gap-2 border-b border-white/10 bg-gradient-to-r from-[#0d0d16] to-[#0a0a12] px-3 py-2 shadow-lg">
+      <header className="z-50 flex shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#0b0b12]/90 px-3 py-2 shadow-lg backdrop-blur-xl">
         <Link
           href="/"
-          className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-bold transition-colors hover:bg-white/5"
+          className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-white/5"
           title="На главную"
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-base shadow-lg shadow-violet-500/30">
-            🎬
+          <span
+            className="flex h-8 w-8 items-center justify-center rounded-lg"
+            style={{ background: "linear-gradient(180deg,#8b7cff,#5c4bd8)", boxShadow: "0 6px 18px -4px rgba(124,108,246,0.5)" }}
+          >
+            <Icon name="clapper" size={17} strokeWidth={1.6} className="text-white" />
           </span>
-          <span className="hidden bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent xl:inline">
+          <span className="hidden bg-gradient-to-b from-white to-[#a99dff] bg-clip-text text-[15px] font-extrabold tracking-tight text-transparent xl:inline">
             MONTIQ
           </span>
         </Link>
 
-        <div className="mr-1 flex items-center gap-1 border-r border-white/10 pr-2">
+        <div className="mr-1 flex items-center gap-0.5 border-r border-white/[0.08] pr-1.5">
           <button
             onClick={undo}
             disabled={past === 0}
             aria-label="Отменить"
             title="Отменить (Ctrl+Z)"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-slate-400 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-25"
+            className="icon-btn"
           >
-            ↩
+            <Icon name="undo" size={16} />
           </button>
           <button
             onClick={redo}
             disabled={future === 0}
             aria-label="Повторить"
             title="Повторить (Ctrl+Shift+Z)"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-slate-400 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-25"
+            className="icon-btn"
           >
-            ↪
+            <Icon name="redo" size={16} />
           </button>
         </div>
 
@@ -478,9 +487,9 @@ export default function EditorShellV2() {
           onClick={() => void importFromDevice()}
           disabled={importing}
           title="Загрузить видео, аудио или фото с устройства"
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-2 text-[11px] font-extrabold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110 disabled:opacity-50"
+          className="btn btn-primary h-8 shrink-0 px-3 text-[11px]"
         >
-          <span className="text-sm leading-none">＋</span>
+          <Icon name="plus" size={15} />
           <span className="hidden sm:inline">{importing ? "Импорт…" : "Добавить медиа"}</span>
         </button>
 
@@ -488,18 +497,20 @@ export default function EditorShellV2() {
         {locked ? (
           <button
             onClick={() => setActivePage("lock")}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-extrabold text-emerald-300 shadow-lg shadow-emerald-900/20 transition hover:bg-emerald-500/20"
+            className="badge badge-ok h-8 shrink-0 px-3 transition hover:bg-emerald-500/20"
             title="Picture Lock подтверждён — монтаж зафиксирован. Доступны: цвет, звук, титры, эффекты."
           >
-            🔒 <span className="hidden sm:inline">Picture Lock</span>
+            <Icon name="lock" size={13} />
+            <span className="hidden sm:inline">Picture Lock</span>
           </button>
         ) : lockStage === "review" ? (
           <button
             onClick={() => setActivePage("lock")}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] font-extrabold text-amber-300 shadow-lg shadow-amber-900/20 transition hover:bg-amber-500/20"
+            className="badge badge-warn h-8 shrink-0 px-3 transition hover:bg-amber-500/20"
             title="Режим финальной сборки: проверьте отчёт Picture Lock"
           >
-            📋 <span className="hidden sm:inline">Picture Lock</span>
+            <Icon name="clipboard" size={13} />
+            <span className="hidden sm:inline">Picture Lock</span>
           </button>
         ) : null}
 
@@ -509,14 +520,12 @@ export default function EditorShellV2() {
             <button
               key={p.id}
               onClick={() => setActivePage(p.id)}
-              className={`flex items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 py-2 text-[11px] font-semibold transition-all duration-200 ${
-                activePage === p.id
-                  ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-900/40"
-                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+              className={`nav-item gap-1.5 !px-2.5 !py-2 text-[11px] ${
+                activePage === p.id ? "nav-item-active" : ""
               }`}
               title={p.desc}
             >
-              <span>{p.icon}</span>
+              <Icon name={p.icon} size={15} />
               <span className="hidden lg:inline">
                 {p.label}
                 {locked && p.id === "montage" ? " 🔒" : ""}
@@ -527,24 +536,28 @@ export default function EditorShellV2() {
 
         {/* Mobile page toggle */}
         <button
-          className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold md:hidden"
+          className="nav-item md:hidden"
           onClick={() => setMobileNavOpen((v) => !v)}
           aria-label="Меню разделов"
         >
-          <span>{page.icon}</span>
-          <span className="max-w-[80px] truncate">{page.label}</span>
-          <span>▼</span>
+          <Icon name={page.icon} size={16} />
+          <span className="max-w-[80px] truncate text-xs">{page.label}</span>
+          <Icon name="menu" size={14} className="text-slate-500" />
         </button>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <input
             value={project.title}
             onChange={(e) => setTitle(e.target.value)}
-            className="hidden w-40 rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-xs font-semibold text-slate-200 outline-none transition focus:border-violet-400/50 xl:block"
+            className="hidden w-40 rounded-lg border border-white/[0.08] bg-black/30 px-2.5 py-1.5 text-xs font-medium text-slate-200 outline-none transition focus:border-violet-400/50 xl:block"
             aria-label="Название проекта"
           />
-          <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 sm:flex">
-            <span className={`h-2 w-2 rounded-full ${saving ? "animate-pulse bg-sky-400" : dirty ? "animate-pulse bg-amber-400" : "bg-emerald-400"}`} />
+          <div className="hidden items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 sm:flex">
+            <span
+              className={`status-dot ${
+                saving ? "status-dot-dirty status-dot-pulse" : dirty ? "status-dot-warn status-dot-pulse" : "status-dot-ok"
+              }`}
+            />
             <span className="text-[10px] font-medium text-slate-400">
               {saving ? "Сохранение…" : dirty ? "Есть изменения" : "Сохранено"}
             </span>
@@ -552,69 +565,74 @@ export default function EditorShellV2() {
           <button
             onClick={() => void persist()}
             disabled={!dirty}
-            className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 transition-all hover:bg-white/10 disabled:opacity-30"
+            className="btn btn-ghost h-8 px-3 text-xs"
             aria-label="Сохранить"
             title="Сохранить (Ctrl+S)"
           >
-            💾 <span className="hidden sm:inline">Сохранить</span>
+            <Icon name="save" size={14} />
+            <span className="hidden sm:inline">Сохранить</span>
           </button>
           <button
             onClick={() => setShortcutsOpen(true)}
-            className="hidden h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-xs text-slate-400 transition hover:bg-white/10 hover:text-white lg:flex"
+            className="icon-btn hidden lg:flex"
             title="Горячие клавиши"
             aria-label="Горячие клавиши"
           >
-            ⌨
+            <Icon name="settings" size={16} />
           </button>
         </div>
       </header>
 
       {importing && (
-        <div className="shrink-0 border-b border-violet-400/20 bg-violet-500/10 px-3 py-1 text-[10px] font-semibold text-violet-200">
+        <div className="flex shrink-0 items-center gap-2 border-b border-violet-400/20 bg-violet-500/[0.08] px-3 py-1 text-[10px] font-medium text-violet-200">
+          <Icon name="upload" size={12} />
           Импорт медиа: {importStatus || "чтение файлов…"}
         </div>
       )}
 
       {/* ------------------- Picture Lock status strip ------------------- */}
       {locked ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200">
-          <span>🔒 Picture Lock подтверждён — монтаж зафиксирован. Дальше изменяются только цвет, звук, титры и эффекты.</span>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-emerald-400/15 bg-emerald-500/[0.06] px-3 py-1.5 text-[10px] font-medium text-emerald-200/90">
+          <Icon name="lock" size={12} />
+          <span>Picture Lock подтверждён — монтаж зафиксирован. Дальше изменяются только цвет, звук, титры и эффекты.</span>
           <button
             onClick={() => setActivePage("lock")}
-            className="ml-auto rounded-md border border-emerald-400/30 bg-emerald-500/20 px-2 py-0.5 font-bold transition hover:bg-emerald-500/30"
+            className="ml-auto rounded-md border border-emerald-400/30 bg-emerald-500/15 px-2 py-0.5 font-bold transition hover:bg-emerald-500/30"
           >
             Открыть отчёт
           </button>
         </div>
       ) : lockStage === "review" ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-400/20 bg-amber-500/10 px-3 py-1.5 text-[10px] font-semibold text-amber-200">
-          <span>📋 Режим финальной сборки: автомонтаж завершён. Проверьте отчёт Picture Lock и подтвердите монтаж.</span>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-400/15 bg-amber-500/[0.06] px-3 py-1.5 text-[10px] font-medium text-amber-200/90">
+          <Icon name="clipboard" size={12} />
+          <span>Режим финальной сборки: автомонтаж завершён. Проверьте отчёт Picture Lock и подтвердите монтаж.</span>
           <button
             onClick={() => setActivePage("lock")}
-            className="ml-auto rounded-md border border-amber-400/30 bg-amber-500/20 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"
+            className="ml-auto rounded-md border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"
           >
             Открыть отчёт
           </button>
           <button
             onClick={() => applyPictureLockFixes()}
-            className="rounded-md border border-amber-400/30 bg-amber-500/20 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"
+            className="rounded-md border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"
             title="Автоматически исправить длинные/короткие кадры, темп и визуальную логику"
           >
-            🛠 Исправить
+            Исправить
           </button>
           <button
             onClick={() => confirmPictureLock()}
-            className="rounded-md border border-emerald-400/40 bg-emerald-500/20 px-2 py-0.5 font-bold text-emerald-100 transition hover:bg-emerald-500/35"
+            className="rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 font-bold text-emerald-100 transition hover:bg-emerald-500/30"
             title="Зафиксировать монтаж: дальше меняются только цвет, звук, титры и эффекты"
           >
-            🔒 Подтвердить Picture Lock
+            <Icon name="lock" size={12} />
+            Подтвердить Picture Lock
           </button>
         </div>
       ) : null}
 
       {/* Mobile nav dropdown */}
       {mobileNavOpen && (
-        <div className="z-40 grid grid-cols-3 gap-2 border-b border-white/10 bg-[#0d0d16]/95 px-3 py-2 shadow-2xl backdrop-blur md:hidden">
+        <div className="z-40 grid grid-cols-3 gap-1.5 border-b border-white/[0.06] bg-[#0d0d16]/95 px-3 py-2 shadow-2xl backdrop-blur-xl md:hidden">
           {PAGES.map((p) => (
             <button
               key={p.id}
@@ -622,13 +640,13 @@ export default function EditorShellV2() {
                 setActivePage(p.id);
                 setMobileNavOpen(false);
               }}
-              className={`flex flex-col items-center gap-1 rounded-xl px-2 py-3 text-[10px] font-semibold transition-all ${
+              className={`flex flex-col items-center gap-1.5 rounded-xl px-2 py-3 text-[10px] font-semibold transition-all ${
                 activePage === p.id
-                  ? "bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-lg"
-                  : "bg-white/5 text-slate-300 hover:bg-white/10"
+                  ? "bg-violet-500/20 text-white ring-1 ring-violet-400/40"
+                  : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
               }`}
             >
-              <span className="text-xl">{p.icon}</span>
+              <Icon name={p.icon} size={18} className={activePage === p.id ? "text-violet-200" : ""} />
               <span>{p.label}</span>
             </button>
           ))}
@@ -641,18 +659,18 @@ export default function EditorShellV2() {
         {leftOpen && (
           <>
             <aside
-              className="hidden shrink-0 flex-col border-r border-white/10 bg-[#0b0b13] lg:flex"
+              className="hidden shrink-0 flex-col border-r border-white/[0.06] bg-[#0b0b12] lg:flex"
               style={{ width: left.size }}
             >
-              <div className="flex items-center justify-between border-b border-white/10 px-2.5 py-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Медиатека</span>
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
+                <span className="eyebrow">Медиатека</span>
                 <button
                   onClick={() => setLeftOpen(false)}
-                  className="rounded px-1.5 text-xs text-slate-500 transition hover:bg-white/10 hover:text-white"
+                  className="icon-btn !h-6 !w-6"
                   title="Скрыть медиатеку"
                   aria-label="Скрыть медиатеку"
                 >
-                  ⟨
+                  <Icon name="arrow-left" size={13} />
                 </button>
               </div>
               <div className="min-h-0 flex-1">
@@ -665,12 +683,12 @@ export default function EditorShellV2() {
         {!leftOpen && (
           <button
             onClick={() => setLeftOpen(true)}
-            className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2 border-r border-white/10 bg-[#0b0b13] text-[10px] font-bold text-slate-500 transition hover:text-violet-300 lg:flex"
+            className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2 border-r border-white/[0.06] bg-[#0b0b12] text-[10px] font-bold text-slate-500 transition hover:text-violet-300 lg:flex"
             title="Показать медиатеку"
             aria-label="Показать медиатеку"
           >
-            <span>⟩</span>
-            <span style={{ writingMode: "vertical-rl" }}>МЕДИА</span>
+            <Icon name="film" size={14} />
+            <span style={{ writingMode: "vertical-rl", letterSpacing: "0.2em" }}>МЕДИА</span>
           </button>
         )}
 
@@ -685,7 +703,7 @@ export default function EditorShellV2() {
 
           <HDivider {...timeline.handlers} />
 
-          <div className="shrink-0 border-t border-white/10 bg-[#08080f]" style={{ height: timeline.size }}>
+          <div className="shrink-0 border-t border-white/[0.06] bg-[#08080f]" style={{ height: timeline.size }}>
             <TimelineV2 />
           </div>
         </div>
@@ -695,26 +713,28 @@ export default function EditorShellV2() {
           <>
             <VDivider {...right.handlers} />
             <aside
-              className="hidden shrink-0 flex-col overflow-hidden border-l border-white/10 bg-[#0d0d16] shadow-2xl lg:flex"
+              className="hidden shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-[#0d0d16] shadow-2xl lg:flex"
               style={{ width: right.size }}
             >
-              <div className="flex items-center gap-2 border-b border-white/10 bg-[#0d0d16]/90 px-3 py-2 backdrop-blur">
-                <span className="text-sm">{page.icon}</span>
-                <span className="text-xs font-bold text-violet-300">{page.label}</span>
+              <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#0d0d16]/90 px-3 py-2 backdrop-blur-xl">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-200">
+                  <Icon name={page.icon} size={15} />
+                </span>
+                <span className="text-xs font-bold text-slate-100">{page.label}</span>
                 <span className="truncate text-[10px] text-slate-500">{page.desc}</span>
                 <button
                   onClick={() => setRightOpen(false)}
-                  className="ml-auto rounded px-1.5 text-xs text-slate-500 transition hover:bg-white/10 hover:text-white"
+                  className="icon-btn !h-6 !w-6 ml-auto"
                   title="Скрыть инспектор"
                   aria-label="Скрыть инспектор"
                 >
-                  ⟩
+                  <Icon name="arrow-right" size={13} />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
                 <Panel />
                 {activePage !== "animation" && selectedClipIds.length > 0 && (
-                  <div className="mt-4 border-t border-white/10 pt-3">
+                  <div className="mt-4 border-t border-white/[0.06] pt-3">
                     <KeyframeEditor />
                   </div>
                 )}
@@ -725,46 +745,51 @@ export default function EditorShellV2() {
         {!rightOpen && (
           <button
             onClick={() => setRightOpen(true)}
-            className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2 border-l border-white/10 bg-[#0d0d16] text-[10px] font-bold text-slate-500 transition hover:text-violet-300 lg:flex"
+            className="hidden w-7 shrink-0 flex-col items-center justify-center gap-2 border-l border-white/[0.06] bg-[#0d0d16] text-[10px] font-bold text-slate-500 transition hover:text-violet-300 lg:flex"
             title="Показать инспектор"
             aria-label="Показать инспектор"
           >
-            <span>⟨</span>
-            <span style={{ writingMode: "vertical-rl" }}>ИНСПЕКТОР</span>
+            <Icon name="sliders" size={14} />
+            <span style={{ writingMode: "vertical-rl", letterSpacing: "0.2em" }}>ИНСПЕКТОР</span>
           </button>
         )}
       </div>
 
       {/* ------------------------------ status bar ------------------------- */}
-      <footer className="hidden shrink-0 items-center gap-3 border-t border-white/10 bg-[#0b0b13] px-3 py-1 text-[10px] text-slate-500 lg:flex">
+      <footer className="hidden shrink-0 items-center gap-3 border-t border-white/[0.06] bg-[#0b0b12] px-3 py-1 text-[10px] text-slate-500 lg:flex">
         <span>
           {project.resolution.width}×{project.resolution.height} · {project.fps} fps
         </span>
-        <span className="h-3 w-px bg-white/10" />
+        <span className="hairline !h-3 !w-px" />
         <span>{project.tracks.length} дорожек · {clipCount} клипов</span>
-        <span className="h-3 w-px bg-white/10" />
+        <span className="hairline !h-3 !w-px" />
         <span>Длительность {duration.toFixed(2)} с</span>
-        <span className="h-3 w-px bg-white/10" />
+        <span className="hairline !h-3 !w-px" />
         <span>{project.assets.length} медиафайлов</span>
-        <span className="ml-auto">Пробел — play · S — разрез · V/C/H — инструменты · Shift+Z — вместить</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <Icon name="keyframe" size={11} className="text-slate-600" />
+          Пробел — play · S — разрез · V/C/H — инструменты · Shift+Z — вместить
+        </span>
       </footer>
 
       {/* ------------------------------ mobile inspector ------------------- */}
-      <div className="shrink-0 border-t border-white/10 bg-[#0d0d16]/95 backdrop-blur lg:hidden">
+      <div className="shrink-0 border-t border-white/[0.06] bg-[#0d0d16]/95 backdrop-blur-xl lg:hidden">
         <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-xs font-bold text-violet-300">
-            {page.icon} {page.label}
+          <span className="flex items-center gap-2 text-xs font-bold text-slate-100">
+            <Icon name={page.icon} size={15} className="text-violet-300" />
+            {page.label}
           </span>
           <button
             onClick={() => setMobilePanelOpen((v) => !v)}
-            className="rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-xs font-bold text-white shadow-lg"
+            className="btn btn-primary h-8 px-3.5 text-xs"
             aria-label="Открыть панель"
           >
-            {mobilePanelOpen ? "Свернуть ▲" : "Панель ▼"}
+            {mobilePanelOpen ? "Свернуть" : "Панель"}
+            <Icon name={mobilePanelOpen ? "arrow-right" : "sliders"} size={13} />
           </button>
         </div>
         {mobilePanelOpen && (
-          <div className="h-[45vh] overflow-y-auto border-t border-white/10 bg-[#0d0d16] p-3">
+          <div className="h-[45vh] overflow-y-auto border-t border-white/[0.06] bg-[#0d0d16] p-3 custom-scrollbar">
             <Panel />
           </div>
         )}
@@ -772,38 +797,44 @@ export default function EditorShellV2() {
 
       {/* ------------------------------ overlays --------------------------- */}
       {dropActive && (
-        <div className="pointer-events-none absolute inset-0 z-[60] flex items-center justify-center bg-violet-950/50 backdrop-blur-sm">
-          <div className="rounded-3xl border-2 border-dashed border-violet-400/60 px-10 py-8 text-center">
-            <div className="mb-2 text-4xl">📥</div>
-            <div className="text-sm font-bold text-violet-100">Отпустите файлы — добавим в медиатеку</div>
-            <div className="text-[11px] text-violet-300/70">Видео, аудио и изображения</div>
+        <div className="pointer-events-none absolute inset-0 z-[60] flex items-center justify-center bg-[#07070c]/70 backdrop-blur-md">
+          <div className="glass-strong animate-scale-in flex flex-col items-center rounded-3xl border-2 border-dashed border-violet-400/50 px-12 py-9 text-center">
+            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/20 text-violet-100">
+              <Icon name="upload" size={26} />
+            </div>
+            <div className="text-sm font-bold text-violet-50">Отпустите файлы — добавим в медиатеку</div>
+            <div className="mt-1 text-[11px] text-violet-200/70">Видео, аудио и изображения</div>
           </div>
         </div>
       )}
 
       {shortcutsOpen && (
         <div
-          className="absolute inset-0 z-[70] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
+          className="absolute inset-0 z-[70] flex items-center justify-center bg-black/70 p-6 backdrop-blur-md"
           onClick={() => setShortcutsOpen(false)}
         >
           <div
-            className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d16] p-5 shadow-2xl"
+            className="glass-strong animate-scale-in max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl p-5 custom-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-violet-200">Горячие клавиши</h3>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                <Icon name="settings" size={15} className="text-violet-300" />
+                Горячие клавиши
+              </h3>
               <button
                 onClick={() => setShortcutsOpen(false)}
-                className="rounded-lg bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10"
+                className="icon-btn !h-7 !w-7"
+                aria-label="Закрыть"
               >
-                ✕
+                <Icon name="x" size={15} />
               </button>
             </div>
             <div className="grid gap-x-6 gap-y-1.5 text-[11px] sm:grid-cols-2">
               {SHORTCUTS.map(([keys, label]) => (
-                <div key={keys} className="flex items-center justify-between gap-3 border-b border-white/5 py-1">
+                <div key={keys} className="flex items-center justify-between gap-3 border-b border-white/[0.05] py-1.5">
                   <span className="text-slate-400">{label}</span>
-                  <kbd className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-200">
+                  <kbd className="rounded-md border border-white/[0.08] bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-200">
                     {keys}
                   </kbd>
                 </div>

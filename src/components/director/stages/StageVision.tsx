@@ -73,7 +73,7 @@ export default function StageVision({ preprod, updatePreprod, onRegenerate, busy
         {v.scenes.map((sc, i) => (
           <div key={sc.sceneId} className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <div className="mb-3 flex items-center gap-2">
-              <span className="rounded-full bg-fuchsia-500/20 px-2 py-0.5 text-[10px] font-bold text-fuchsia-200">СЦЕНА {i + 1}</span>
+              <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-200">СЦЕНА {i + 1}</span>
               <span className="text-sm font-bold text-slate-100">{sc.sceneTitle}</span>
             </div>
             <div className="grid gap-3 md:grid-cols-2">

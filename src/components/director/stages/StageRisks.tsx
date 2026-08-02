@@ -48,7 +48,7 @@ export default function StageRisks({ preprod, updatePreprod, onRegenerate, busy 
         </button>
       }
     >
-      <div className="mb-5 rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/10 to-transparent p-5">
+      <div className="mb-5 rounded-2xl border border-white/10 bg-violet-500/[0.05] p-5">
         <div className="mb-2 flex items-center justify-between">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Общая готовность</div>

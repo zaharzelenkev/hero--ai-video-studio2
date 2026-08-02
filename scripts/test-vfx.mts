@@ -29,9 +29,11 @@ import {
   applyVfxChain,
   type FrameBuffer,
 } from "../src/lib/editor/vfxEngine";
-import { cubeTextFor, lutGridFor } from "../src/lib/editor/lut";
+import { cubeTextFor, lutGridFor, cubeFileName } from "../src/lib/editor/lut";
 import { maskToPolygon } from "../src/lib/editor/mediaPipeVfx";
-import type { VfxSettings } from "../src/lib/types";
+import { clipDrawSize, findAiVfxClips, writeLutCubes } from "../src/lib/editor/vfxExport";
+import { createEmptyProject, createVideoClip } from "../src/lib/factories";
+import type { MediaAsset, VfxSettings } from "../src/lib/types";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: string) {
@@ -420,6 +422,42 @@ console.log("=== Единая цепочка VFX ===");
   check("цепочка реально меняет кадр", diff(img, chained) > 0.5, `diff=${diff(img, chained).toFixed(2)}`);
   const none = applyVfxChain(img, { ...vfx, glow: { ...vfx.glow, enabled: false }, bloom: { ...vfx.bloom, enabled: false }, lightRays: { ...vfx.lightRays, enabled: false }, filmGrain: { ...vfx.filmGrain, enabled: false }, vignette: { ...vfx.vignette, enabled: false }, sharpen: { ...vfx.sharpen, enabled: false }, noiseReduction: { ...vfx.noiseReduction, enabled: false }, objectRemoval: { ...vfx.objectRemoval, strokes: [] } } as unknown as VfxSettings, { time: 0.5 });
   check("отключённые эффекты не влияют", diff(img, none) < diff(img, chained));
+}
+
+/* ================================================================== */
+console.log("=== Экспортные помощники ===");
+{
+  const asset = (id: string, kind: "video" | "image" = "video", w = 1280, h = 720): MediaAsset => ({
+    id, name: id, kind, mime: "video/mp4", blobKey: id, duration: 6, width: w, height: h, createdAt: Date.now(),
+  });
+  const proj = createEmptyProject("vfx-helpers");
+  proj.assets = [asset("a1"), asset("a2", "video", 720, 1280)];
+  const track = proj.tracks.find((t) => t.type === "video")!;
+
+  const c1 = createVideoClip({ trackId: track.id, asset: proj.assets[0], start: 0, duration: 2, inPoint: 0, outPoint: 2 });
+  const c2 = createVideoClip({ trackId: track.id, asset: proj.assets[1], start: 0, duration: 2, inPoint: 0, outPoint: 2 });
+  c2.fitMode = "contain";
+  const c3 = createVideoClip({ trackId: track.id, asset: proj.assets[0], start: 0, duration: 2, inPoint: 0, outPoint: 2 });
+  c3.vfx = { ...c3.vfx!, backgroundRemoval: { ...c3.vfx!.backgroundRemoval, enabled: true }, lightRays: { ...c3.vfx!.lightRays, enabled: true } };
+  const c4 = createVideoClip({ trackId: track.id, asset: proj.assets[0], start: 0, duration: 2, inPoint: 0, outPoint: 2 });
+  c4.vfx = { ...c4.vfx!, objectRemoval: { ...c4.vfx!.objectRemoval, enabled: true, strokes: [{ x: 0.5, y: 0.5, radius: 0.05 }] } };
+  track.clips.push(c1, c2, c3, c4);
+
+  const jobs = findAiVfxClips(proj);
+  check("findAiVfxClips находит фоновый и объектный AI-клипы", jobs.length === 2, `jobs=${jobs.length}`);
+
+  const sizeCover = clipDrawSize(c1, proj.assets[0], 1280, 720);
+  check("clipDrawSize: cover = канвас", sizeCover.width === 1280 && sizeCover.height === 720);
+  const sizeContain = clipDrawSize(c2, proj.assets[1], 1280, 720);
+  check("clipDrawSize: contain-портрет = 720×1280", sizeContain.width === 720 && sizeContain.height === 1280, `${sizeContain.width}x${sizeContain.height}`);
+
+  // writeLutCubes пишет валидные .cube через мок ffmpeg.
+  const written = new Map<string, string>();
+  await writeLutCubes({ writeFile: (p, d) => { written.set(p, new TextDecoder().decode(d)); return Promise.resolve(); } }, ["warm"]);
+  check("writeLutCubes записал файл", written.has(cubeFileName("warm")), [...written.keys()].join(","));
+  const cube = written.get(cubeFileName("warm")) ?? "";
+  const okCube = cube.includes("LUT_3D_SIZE 33") && cube.split("\n").filter((l) => /^\d/.test(l)).length === 33 ** 3;
+  check("writeLutCubes: корректный .cube 33³", okCube);
 }
 
 /* ================================================================== */

@@ -767,7 +767,6 @@ export function compileProjectToFfmpeg(
         const px = Math.max(0, Math.round((W - dw) / 2 + evalParamAt0(clip.x) * W / 2));
         const py = Math.max(0, Math.round((H - dh) / 2 + evalParamAt0(clip.y) * H / 2));
         const bm = BLEND_MODE_TO_FFMPEG[blendMode] ?? "screen";
-        const op = clamp(clip.opacity?.value ?? 1, 0, 1);
         const ovf = id("ovf_");
         lines.push(
           `[${label}]scale=${dw}:${dh},pad=${W}:${H}:${px}:${py}:color=black@0,format=yuva420p[${ovf}]`,
@@ -776,7 +775,9 @@ export function compileProjectToFfmpeg(
         const bgA = id("bga_");
         const bgB = id("bgb_");
         lines.push(`[${composite}]split=2[${bgA}][${bgB}]`);
-        const bs = alphaAwareBlend(bgA, ovf, `all_mode=${bm}:all_opacity=${op.toFixed(3)}`, lines);
+        // all_opacity=1: прозрачность слоя уже в альфе цепочки (colorchannelmixer),
+        // оверлей сам смешает с фоном с учётом альфы.
+        const bs = alphaAwareBlend(bgA, ovf, `all_mode=${bm}:all_opacity=1`, lines);
         const next = id("ov_");
         lines.push(`[${bgB}][${bs}]overlay=0:0:enable='between(t\\,${start}\\,${end})'[${next}]`);
         composite = next;

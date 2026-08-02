@@ -34,7 +34,8 @@ export async function writeLutCubes(
 /* Световые лучи                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Размер отрисовки клипа (тот же fitRect, что в превью-компоновщике). */
+/** Размер кадра клипа ПОСЛЕ цепочки fit/scale в экспортном графе.
+ *  Именно с таким размером блендится PNG лучей (иначе blend-фильтр падает). */
 export function clipDrawSize(
   clip: VideoClip,
   asset: MediaAsset | undefined,
@@ -43,13 +44,12 @@ export function clipDrawSize(
 ): { width: number; height: number } {
   const sw = asset?.width || W;
   const sh = asset?.height || H;
-  const mode: "cover" | "contain" = clip.blurPad ? "contain" : clip.fitMode ?? "cover";
-  const sourceAspect = sw / sh;
-  const frameAspect = W / H;
-  if (mode === "contain" ? sourceAspect > frameAspect : sourceAspect < frameAspect) {
-    return { width: W, height: Math.max(2, Math.round(W / sourceAspect)) };
-  }
-  return { width: Math.max(2, Math.round(H * sourceAspect)), height: H };
+  const cover = clip.blurPad ? false : (clip.fitMode ?? "cover") === "cover";
+  if (cover) return { width: W, height: H };
+  // native/contain: scale=trunc(iw*baseScale/2)*2 (как в buildVideoClipChain).
+  const baseScale = clip.scale?.keyframes?.length ? clip.scale.keyframes[0].value : (clip.scale?.value ?? 1);
+  const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+  return { width: even(sw * baseScale), height: even(sh * baseScale) };
 }
 
 /** Имя файла PNG лучей в виртуальной ФС ffmpeg. */

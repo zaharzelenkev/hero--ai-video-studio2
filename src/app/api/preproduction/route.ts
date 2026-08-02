@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AI_CONFIG } from "@/config/ai";
+import { callLLM } from "@/lib/ai/llmClient";
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,30 +30,24 @@ export async function POST(req: NextRequest) {
       userContent += `\nДай полный AI-препродакшн-план по этому запросу.`;
     }
 
-    const r = await fetch(AI_CONFIG.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AI_CONFIG.groqApiKey}`,
-      },
-      body: JSON.stringify({
-        model: AI_CONFIG.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userContent },
-        ],
-        temperature: 0.7,
-        max_tokens: 1200,
-      }),
+    const llm = await callLLM({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.7,
+      maxTokens: 1200,
+      maxRetries: 3,
     });
 
-    if (!r.ok) {
-      const err = await r.text().catch(() => "");
-      return NextResponse.json({ error: `Groq error ${r.status}: ${err.slice(0, 200)}` }, { status: 502 });
+    if (!llm.ok) {
+      return NextResponse.json(
+        { error: `AI error${llm.status ? ` ${llm.status}` : ""}` },
+        { status: 502 }
+      );
     }
 
-    const data = await r.json();
-    const text = data.choices?.[0]?.message?.content || "Нет ответа от AI.";
+    const text = llm.text || "Нет ответа от AI.";
     return NextResponse.json({ result: text });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Server error" }, { status: 500 });

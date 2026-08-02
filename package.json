@@ -17,7 +17,7 @@
     "test:music": "tsx scripts/test-music-node.mts",
     "test:audition": "tsx scripts/test-music-audition.mts",
     "test:production": "tsx scripts/test-production-plan.mts",
-    "test:director": "tsx scripts/test-ai-director.mts",
+    "test:director": "bash scripts/test-ai-director.sh",
     "test:director-chunks": "tsx scripts/test-director-chunks.mts",
     "test:min-duration": "tsx scripts/test-min-duration.mts",
     "test:offline": "tsx scripts/test-offline-edit.mts",

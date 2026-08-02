@@ -115,7 +115,7 @@ export default function DirectorWorkspace({
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   // true — предыдущий полный запуск не удался: при повторе отправляем серверу
-  // текущий preprod, чтобы он переиспользовал уже сгенерированные Groq блоки
+  // текущий preprod, чтобы он переиспользовал уже сгенерированные блоки
   // и догенерировал только недостающие. Сбрасывается при любом изменении брифа.
   const [resumeAfterFailure, setResumeAfterFailure] = useState(false);
   // NOTE: model selection (remote vs local) is internal and NEVER shown to the user.
@@ -235,7 +235,7 @@ export default function DirectorWorkspace({
     try {
       const currentPreprod = preprod || buildOfflinePreprod(brief);
       // После неудачного запуска передаём серверу текущий preprod + resume:
-      // он переиспользует блоки, которые Groq уже успела сгенерировать,
+      // он переиспользует блоки, которые AI уже успела сгенерировать,
       // и догоняет только недостающие — повторный запуск быстрый.
       const isFull = stg === "full";
       const res = await fetch("/api/director", {
@@ -268,7 +268,7 @@ export default function DirectorWorkspace({
         setSections(data.sections || flattenSections(nextPreprod, brief));
         setStage("result");
         setActiveStage("idea");
-        // После частичной сборки (что-то Groq не успела) оставляем resume
+        // После частичной сборки (что-то AI не успела) оставляем resume
         // включённым: «Перегенерировать» догонит только недостающие разделы.
         // Частичная сборка — не ошибка, но сказать о ней надо.
         if (data.partial && Array.isArray(data.warnings) && data.warnings.length > 0) {
@@ -289,9 +289,9 @@ export default function DirectorWorkspace({
       setSaved(false);
     } catch (e: any) {
       // Не подменяем ответ режиссёра локальной заготовкой: в pro-режиме
-      // пользователь должен либо получить персональный результат Groq, либо
+      // пользователь должен либо получить персональный результат AI, либо
       // увидеть ошибку и повторить запрос с заполненным брифом.
-      setError("Не удалось связаться с AI Director. Проверьте ключ Groq и попробуйте ещё раз.");
+      setError("Не удалось связаться с AI Director. Проверьте API-ключ в .env.local и попробуйте ещё раз.");
       if (stg === "full") {
         setStage("brief");
         setResumeAfterFailure(true);
@@ -303,7 +303,7 @@ export default function DirectorWorkspace({
   };
 
   // В pro-режиме генерацию запускает только кнопка после заполнения брифа.
-  // Раньше она срабатывала уже после первых четырёх полей и отправляла Groq
+  // Раньше она срабатывала уже после первых четырёх полей и отправляла AI
   // неполный контекст; оставшиеся ответы заменялись общими заготовками.
 
   const persistPlan = async () => {

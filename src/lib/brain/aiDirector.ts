@@ -29,7 +29,7 @@
  * Монтажный движок получает план через planAdapter и исполняет его.
  */
 
-import { AI_CONFIG } from "../../config/ai";
+import { hasAIKey } from "../../config/ai";
 import type { AIAnalysisRequest } from "../ai/aiService";
 import { getTemplateForContentType, TEMPLATES } from "../templates";
 import { BASE_KNOWLEDGE, saveLearnedLesson } from "./knowledge";
@@ -65,7 +65,7 @@ import { sceneColorMood, sceneGoal, sceneMusic, scenePace } from "./sceneDirecti
 import { recommendBroll, recommendVisualBroll } from "./brollDirection";
 import { selectBestTakes, type TakeSelectionResult } from "./takeSelection";
 import { cleanupSpeech, parseWords, type CleanupResult } from "./speechCleanup";
-import { callGroq } from "../ai/groqClient";
+import { callLLM } from "../ai/llmClient";
 
 export interface DirectOptions {
   /** Разрешить LLM-обогащение оценок (по умолчанию — только в браузере). */
@@ -498,7 +498,7 @@ export class AIDirector {
 
     if (speechMain) {
       kind = "narrative";
-      const r = await buildNarrativePlan(ctx, speechMain, llmAllowed && !!AI_CONFIG.groqApiKey);
+      const r = await buildNarrativePlan(ctx, speechMain, llmAllowed && hasAIKey());
       drafts = r.scenes;
       concept = r.concept;
     } else {
@@ -2070,7 +2070,7 @@ bestHookId — фраза, которая остановит скролл в п�
 climaxId — фраза-payoff (главная мысль, вывод, секрет).
 broll — для фраз, где спикер называет предмет/место/действие, английские ключевые слова для перебивки.
 Верни строго JSON: {"ratings": {"0": 8}, "bestHookId": 0, "climaxId": 0, "broll": {"0": "keyword"}}. Оценивай ВСЕ фразы.`;
-  const groq = await callGroq({
+  const llm = await callLLM({
     messages: [
       { role: "system", content: sys },
       { role: "user", content: `Фразы:\n${list}\n\nЖанр: ${ctx.genre}, хронометраж ≈${Math.round(ctx.target)}с.` },
@@ -2081,9 +2081,9 @@ broll — для фраз, где спикер называет предмет/�
     maxRetries: 3,
     responseFormat: { type: "json_object" },
   });
-  if (!groq.ok) return null;
+  if (!llm.ok) return null;
   try {
-    const parsed = JSON.parse(groq.text.trim());
+    const parsed = JSON.parse(llm.text.trim());
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;

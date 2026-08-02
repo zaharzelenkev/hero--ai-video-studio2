@@ -46,7 +46,11 @@ vercel --prod
 
 **Environment Variables** (не требуются для базовой версии):
 ```env
-# Опционально: если хотите server-side Groq
+# Основной AI-провайдер: OpenRouter (бесплатные модели `:free`)
+OPENROUTER_API_KEY=sk-or-v1-...
+# Тот же ключ для клиентских вызовов (генерация «Магия» и т.п.)
+NEXT_PUBLIC_OPENROUTER_API_KEY=sk-or-v1-...
+# Страховочный провайдер (необязательно)
 GROQ_API_KEY=your_groq_api_key
 ```
 

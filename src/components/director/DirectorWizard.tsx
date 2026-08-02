@@ -5,8 +5,8 @@ import { Icon } from "@/components/ui/Icon";
 
 /**
  * AI Director — Sequential 12-point generator.
- * Each point is generated independently via Groq when the user presses "Next".
- * No fluff. Only what's needed to make a short film or video.
+ * Each point is generated independently via the AI backend when the user presses
+ * "Next". No fluff. Only what's needed to make a short film or video.
  */
 
 const STAGES = [
@@ -56,7 +56,7 @@ export default function DirectorWizard() {
         body,
       });
       const data = await res.json();
-      const text = data.text || data.result || "(нет ответа от Groq — проверьте ключ в .env.local)";
+      const text = data.text || data.result || "(нет ответа — проверьте API-ключ в .env.local)";
       setResults((prev) => [...prev, { stageId: stage.id, text, timestamp: Date.now() }]);
       setInput("");
       if (currentIndex < STAGES.length - 1) {
@@ -143,7 +143,7 @@ export default function DirectorWizard() {
                 disabled={loading}
                 className="btn btn-primary px-6 py-2.5 text-sm font-bold rounded-full shadow-lg shadow-violet-500/20 transition hover:shadow-violet-500/40 disabled:opacity-40"
               >
-                {loading ? "Генерируем через Groq..." : "Запустить AI Director →"}
+                {loading ? "Генерируем..." : "Запустить AI Director →"}
               </button>
             </div>
           </section>

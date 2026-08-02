@@ -5,7 +5,7 @@ import { detectBeatsDetailed } from "./beatDetection";
 import { applyTextAnimation } from "./textAnimations";
 import { analyzeAndPlanWithAI, type AIAnalysisRequest } from "./ai/aiService";
 import { analyzeVideoLocally, type VideoSegmentMetadata } from "./localAnalyzer";
-import { AI_CONFIG } from "@/config/ai";
+import { hasAIKey } from "@/config/ai";
 import { extractAudioForTranscription, transcribeAudio } from "./transcribe";
 import { TEMPLATES, getTemplateForContentType } from "./templates";
 import { sanitizeGlyphs } from "./presets";
@@ -203,7 +203,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   const transcripts = new Map<string, string>();
   // Store raw segments for auto-subtitling
   const segmentsByAssetId = new Map<string, import("./transcribe").TranscriptWord[] | import("./transcribe").TranscriptSegment[]>();
-  if (style.intelligentCuts && AI_CONFIG.groqApiKey) {
+  if (style.intelligentCuts && hasAIKey()) {
     const transcribeAssets = visualAssets.filter((asset) => asset.kind === "video" && filesByAssetId.get(asset.id));
     onProgress?.(`Распознавание речи... 0/${transcribeAssets.length}`);
     let doneCount = 0;

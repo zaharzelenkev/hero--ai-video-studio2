@@ -403,14 +403,14 @@ export default function ExportPanelV2() {
         <button
           onClick={() => void startExport()}
           disabled={busy || duration <= 0}
-          className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-2.5 text-sm font-extrabold text-white shadow-lg shadow-violet-900/40 transition active:scale-[0.985] disabled:opacity-50"
+          className={`btn btn-primary flex-1 px-3 py-2.5 text-sm ${busy ? "is-loading" : ""}`}
         >
-          {busy ? `🎬 Мастеринг + Рендер ${Math.round(progress * 100)}%` : `🚀 MASTERING &amp; RENDER`}
+          {busy ? `Мастеринг + Рендер ${Math.round(progress * 100)}%` : `MASTERING & RENDER`}
         </button>
         <button
           onClick={() => void runOnlyQC()}
           disabled={busy}
-          className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-xs font-bold hover:bg-white/10 disabled:opacity-50"
+          className="btn btn-ghost px-3 py-2 text-xs"
         >
           QC
         </button>
@@ -418,8 +418,8 @@ export default function ExportPanelV2() {
 
       {busy && (
         <div className="space-y-1">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-            <div className="h-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-emerald-400 transition-all" style={{ width: `${Math.max(4, progress * 100)}%` }} />
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
+            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.max(4, progress * 100)}%`, background: "linear-gradient(90deg,#7c6cf6,#a78bfa)" }} />
           </div>
           <div className="truncate font-mono text-[9px] text-slate-400">{log}</div>
         </div>

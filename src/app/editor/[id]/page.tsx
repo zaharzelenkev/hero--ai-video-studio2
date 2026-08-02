@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import EditorShellV2 from "@/components/editor/EditorShellV2";
+import { Icon } from "@/components/ui/Icon";
 import { useProjectStore } from "@/store/projectStore";
 import { loadProject } from "@/lib/db";
 
@@ -35,14 +36,14 @@ export default function EditorPage() {
 
   if (status === "loading") {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12]">
+      <div className="app-bg flex h-screen items-center justify-center">
         <div className="text-center animate-pulse">
-          <div className="relative mb-6 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 shadow-lg shadow-violet-500/20">
-            <span className="text-4xl">🎬</span>
+          <div className="relative mb-6 inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-violet-500/[0.12] shadow-[0_0_60px_-18px_rgba(124,108,246,0.6)]">
+            <Icon name="clapper" size={34} strokeWidth={1.5} className="text-violet-200" />
             <div className="absolute inset-0 rounded-2xl border border-white/10" />
             <div className="absolute -inset-1 rounded-[20px] border-2 border-violet-500/30 border-t-violet-500 animate-spin" />
           </div>
-          <h2 className="mb-2 text-xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Загрузка рабочей среды</h2>
+          <h2 className="title mb-2 text-xl">Загрузка рабочей среды</h2>
           <p className="text-sm text-slate-400">Подготавливаем инструменты MONTIQ...</p>
         </div>
       </div>
@@ -51,16 +52,16 @@ export default function EditorPage() {
 
   if (status === "not-found") {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-gradient-to-br from-[#0a0a12] via-[#0d0d16] to-[#0a0a12] text-center">
-        <div className="mb-2 flex h-24 w-24 items-center justify-center rounded-3xl bg-white/5 text-5xl shadow-inner border border-white/10">🧭</div>
+      <div className="app-bg flex h-screen flex-col items-center justify-center gap-6 text-center">
+        <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04]">
+          <Icon name="compass" size={34} className="text-slate-300" />
+        </div>
         <div>
-          <h1 className="mb-2 text-xl font-bold text-slate-200">Проект не найден</h1>
+          <h1 className="title mb-2 text-xl text-slate-100">Проект не найден</h1>
           <p className="text-sm text-slate-400">Этот проект не существует или был удалён</p>
         </div>
-        <Link
-          href="/"
-          className="rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-900/40 transition-all hover:scale-105 hover:shadow-xl hover:shadow-violet-900/50 active:scale-95"
-        >
+        <Link href="/" className="btn btn-primary px-8 py-3.5 text-sm">
+          <Icon name="arrow-left" size={16} />
           Вернуться на главную
         </Link>
       </div>

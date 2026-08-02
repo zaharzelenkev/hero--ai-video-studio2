@@ -27,7 +27,7 @@ export default function StageLogline({ preprod, updatePreprod, onRegenerate, bus
       busy={busy}
     >
       <SectionTitle>Основной логлайн</SectionTitle>
-      <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-500/10 to-amber-500/5 p-4">
+      <div className="rounded-2xl border border-violet-400/20 bg-violet-500/[0.06] p-4">
         <TextArea value={ll.primary} onChange={(v) => set({ primary: v })} rows={3} />
       </div>
 

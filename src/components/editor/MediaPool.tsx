@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useProjectStore } from "@/store/projectStore";
 import { importFilesAsAssets, pickFiles, MEDIA_ACCEPT } from "@/lib/editor/mediaImport";
 import { ASSET_DND_TYPE } from "./TimelineV2";
+import { Icon } from "@/components/ui/Icon";
 import type { MediaAsset } from "@/lib/types";
 
 type KindFilter = "all" | "video" | "audio" | "image";
@@ -95,28 +96,32 @@ export default function MediaPool() {
         <button
           onClick={() => void importFromDevice()}
           disabled={busy}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-2.5 text-xs font-extrabold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110 disabled:opacity-50"
+          className="btn btn-primary flex h-9 w-full items-center justify-center gap-2 px-3 text-xs"
         >
-          ＋ Добавить медиа с устройства
+          <Icon name="plus" size={15} />
+          Добавить медиа с устройства
         </button>
         <div className="mt-1.5 grid grid-cols-3 gap-1">
           <button
             onClick={() => void importFromDevice("video/*")}
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-1 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-white/10 hover:text-white"
+            className="btn btn-ghost px-1 py-1.5 text-[10px]"
           >
-            🎬 Видео
+            <Icon name="video" size={13} className="text-slate-400" />
+            Видео
           </button>
           <button
             onClick={() => void importFromDevice("audio/*")}
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-1 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-white/10 hover:text-white"
+            className="btn btn-ghost px-1 py-1.5 text-[10px]"
           >
-            🎵 Аудио
+            <Icon name="music" size={13} className="text-slate-400" />
+            Аудио
           </button>
           <button
             onClick={() => void importFromDevice("image/*")}
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-1 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-white/10 hover:text-white"
+            className="btn btn-ghost px-1 py-1.5 text-[10px]"
           >
-            🖼 Фото
+            <Icon name="image" size={13} className="text-slate-400" />
+            Фото
           </button>
         </div>
         {busy && <div className="mt-1.5 truncate text-[10px] text-violet-300">Импорт: {status || "чтение файлов…"}</div>}

@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
+import { Logo } from "@/components/ui/Logo";
+import { STAGE_ICONS, STAGE_LABELS } from "./stageIcons";
 import { useProjectStore } from "@/store/projectStore";
 import { loadProject as loadProjectFromDb, saveProject } from "@/lib/db";
 import { planFromDirector, flattenSections } from "@/lib/production";
@@ -58,8 +60,7 @@ const emptyBrief = (): DirectorBrief => ({
   callToAction: "",
 });
 
-const inputCls =
-  "w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-violet-400/60 focus:bg-black/30 focus:ring-2 focus:ring-violet-500/20";
+const inputCls = "input !py-2.5 !text-sm";
 
 export default function DirectorWorkspace({
   projectId,
@@ -335,15 +336,16 @@ export default function DirectorWorkspace({
   }, [activeStage]);
 
   const briefPanel = (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5 shadow-xl backdrop-blur-xl">
+    <div className="surface-card rounded-[20px] p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-[15px] font-bold tracking-tight text-slate-100">Brief</h2>
-          <p className="text-[11px] text-slate-500">Несколько слов о проекте — остальное сделает режиссёр.</p>
+          <h2 className="flex items-center gap-2 text-[15px] font-bold tracking-tight text-slate-100">
+            <Icon name="clipboard" size={15} className="text-violet-300" />
+            Brief
+          </h2>
+          <p className="mt-0.5 text-[11px] text-slate-500">Несколько слов о проекте — остальное сделает режиссёр.</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-slate-400">
-          {filledCount}/8
-        </span>
+        <span className="badge badge-muted">{filledCount}/8</span>
       </div>
 
       <div className="space-y-3.5">
@@ -426,19 +428,26 @@ export default function DirectorWorkspace({
       <button
         onClick={() => generate("full")}
         disabled={!canGenerate}
-        className="mt-5 w-full rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 px-5 py-3 text-sm font-extrabold tracking-wide text-white shadow-xl shadow-violet-900/30 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+        className={`btn btn-primary mt-5 h-11 w-full text-sm ${stage === "generating" ? "is-loading" : ""}`}
       >
-        {stage === "generating" ? "Режиссёр работает…" : "🎬 Запустить AI Director"}
+        {stage === "generating" ? (
+          "Режиссёр работает…"
+        ) : (
+          <>
+            <Icon name="clapper" size={16} />
+            Запустить AI Director
+          </>
+        )}
       </button>
     </div>
   );
 
   const emptyState = (
-    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.02] p-10 text-center">
-      <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/20 via-fuchsia-500/10 to-amber-400/20 shadow-xl">
-        <span className="text-3xl">🎬</span>
+    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.015] p-10 text-center">
+      <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-200">
+        <Icon name="clapper" size={30} strokeWidth={1.5} />
       </div>
-      <h3 className="mb-2 text-lg font-bold tracking-tight text-slate-100">Расскажите о проекте</h3>
+      <h3 className="title mb-2 text-lg">Расскажите о проекте</h3>
       <p className="max-w-md text-[13px] leading-relaxed text-slate-400">
         Заполните бриф слева — и режиссёр соберёт логлайн, тритмент, сценарий,
         раскадровку и шот-лист. Без форм и вкладок, без повторных вопросов.
@@ -447,38 +456,38 @@ export default function DirectorWorkspace({
   );
 
   const generating = (
-    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] p-10 text-center">
+    <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.015] p-10 text-center">
       <div className="relative mb-7 flex h-20 w-20 items-center justify-center">
-        <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-violet-400 border-r-amber-400" style={{ animationDuration: "1.4s" }} />
-        <div className="absolute inset-2 animate-spin rounded-full border border-transparent border-b-fuchsia-400" style={{ animationDuration: "2.2s", animationDirection: "reverse" }} />
-        <span className="text-2xl">🎥</span>
+        <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-violet-400" style={{ animationDuration: "1.4s" }} />
+        <div className="absolute inset-2 animate-spin rounded-full border border-transparent border-b-violet-500/50" style={{ animationDuration: "2.2s", animationDirection: "reverse" }} />
+        <span className="text-violet-200">
+          <Icon name="clapper" size={30} strokeWidth={1.5} />
+        </span>
       </div>
-      <h3 className="mb-1.5 text-base font-bold text-slate-100">Режиссёр работает</h3>
+      <h3 className="title mb-1.5 text-base">Режиссёр работает</h3>
       <p className="max-w-sm text-[13px] text-slate-400">{progressMsg || "Проектирую кадры…"}</p>
-      <div className="mt-5 h-1 w-56 overflow-hidden rounded-full bg-white/10">
-        <div className="h-full w-full origin-left animate-shimmer rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400" />
+      <div className="mt-5 h-1 w-56 overflow-hidden rounded-full bg-white/[0.08]">
+        <div className="h-full w-full origin-left animate-shimmer rounded-full bg-gradient-to-r from-violet-500 to-violet-300" />
       </div>
     </div>
   );
 
   const resultPanel = preprod && sections && (
     <div className="space-y-5">
-      <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-gradient-to-br from-violet-950/30 via-[#0d0d18]/80 to-amber-950/20 p-5 shadow-xl backdrop-blur-xl">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="surface-card relative overflow-hidden rounded-[20px] p-5">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-violet-600/20 blur-[80px]" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-              Препродакшен
-            </div>
-            <h2 className="truncate text-lg font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100">
+            <div className="eyebrow">Препродакшен</div>
+            <h2 className="title mt-1 truncate text-lg">
               {preprod.treatment.title || brief.idea || "Production Book"}
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium text-slate-300">
-              {readiness}%
-            </span>
+            <span className="badge badge-primary">{readiness}%</span>
             {saved && (
-              <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
+              <span className="badge badge-ok">
+                <Icon name="check" size={11} />
                 Сохранено
               </span>
             )}
@@ -508,27 +517,30 @@ export default function DirectorWorkspace({
         busy={busyStage !== null}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3 backdrop-blur-xl">
+      <div className="surface-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex gap-2">
           <button
             onClick={() => generate("full")}
             disabled={busyStage !== null}
-            className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-white/[0.08] disabled:opacity-50"
+            className="btn btn-ghost px-4 py-2 text-[11px]"
           >
+            <Icon name="refresh" size={13} />
             Перегенерировать
           </button>
           <button
             onClick={persistPlan}
-            className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[11px] font-bold text-slate-200 transition hover:bg-white/[0.08]"
+            className="btn btn-ghost px-4 py-2 text-[11px]"
           >
+            <Icon name="save" size={13} />
             {saved ? "Сохранено" : "Сохранить"}
           </button>
         </div>
         <button
           onClick={() => void goToEditor()}
-          className="rounded-full bg-gradient-to-r from-amber-500 to-orange-400 px-5 py-2 text-[11px] font-extrabold text-black shadow-lg transition hover:brightness-110"
+          className="btn btn-primary px-5 py-2 text-[11px]"
         >
-          В редактор →
+          В редактор
+          <Icon name="arrow-right" size={14} />
         </button>
       </div>
     </div>
@@ -539,8 +551,8 @@ export default function DirectorWorkspace({
       <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
         <div className="absolute inset-0 bg-gradient-to-b from-[#080814] via-[#07070f] to-[#0a0a16]" />
         <div className="absolute -left-40 -top-32 h-[520px] w-[520px] rounded-full bg-violet-800/20 blur-[130px]" />
-        <div className="absolute -right-40 top-1/3 h-[480px] w-[480px] rounded-full bg-fuchsia-800/10 blur-[140px]" />
-        <div className="absolute bottom-[-20%] left-1/3 h-[480px] w-[480px] rounded-full bg-amber-700/10 blur-[150px]" />
+        <div className="absolute -right-40 top-1/3 h-[480px] w-[480px] rounded-full bg-violet-900/10 blur-[140px]" />
+        <div className="absolute bottom-[-20%] left-1/3 h-[480px] w-[480px] rounded-full bg-violet-950/20 blur-[150px]" />
       </div>
 
       {mode === "pro" && stage === "result" && preprod && (
@@ -555,18 +567,7 @@ export default function DirectorWorkspace({
       <header className="sticky top-0 z-30 border-b border-white/[0.05] bg-[#07070f]/70 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-5 py-3 sm:px-8">
           <ModeSwitcher mode={mode} onChange={switchMode} />
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-amber-400 text-lg shadow-lg shadow-violet-500/30 transition group-hover:scale-105">
-              🎬
-            </div>
-            <div className="hidden sm:block">
-              <div className="text-[15px] font-extrabold tracking-tight leading-none">MONTIQ</div>
-              <div className="text-[9px] uppercase tracking-[0.28em] text-slate-500 mt-0.5">
-                AI Production Studio
-              </div>
-            </div>
-          </Link>
-
+          <Logo size={34} href="/" />
           <div className="flex items-center gap-2">
             <span className="hidden max-w-[220px] truncate rounded-full border border-white/[0.07] bg-white/[0.02] px-3 py-1.5 text-[11px] font-medium text-slate-400 md:block">
               {project?.title || brief.idea || "Новый проект"}
@@ -574,9 +575,10 @@ export default function DirectorWorkspace({
             {stage === "result" && (
               <button
                 onClick={() => void goToEditor()}
-                className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-1.5 text-[11px] font-extrabold text-white shadow-lg shadow-violet-900/20 transition hover:brightness-110"
+                className="btn btn-primary h-8 px-4 text-[11px]"
               >
-                Редактор →
+                Редактор
+                <Icon name="arrow-right" size={13} />
               </button>
             )}
           </div>
@@ -587,8 +589,8 @@ export default function DirectorWorkspace({
         {mode === "basic" ? (
           <>
             <div className="mb-6">
-              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-                <span className="bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 bg-clip-text text-transparent">AI Director</span>
+              <h1 className="title text-3xl sm:text-4xl">
+                <span className="text-gradient">AI Director</span>
               </h1>
               <p className="mt-1 max-w-xl text-sm text-slate-400">
                 Режиссёр ведёт вас через проект и сам собирает Production Blueprint.
@@ -615,33 +617,25 @@ export default function DirectorWorkspace({
                 {briefPanel}
 
                 {stage === "result" && preprod && (
-                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 backdrop-blur-xl">
-                    <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Разделы</div>
+                  <div className="surface-card rounded-[18px] p-4">
+                    <div className="eyebrow mb-2.5">Разделы</div>
                     <div className="grid grid-cols-2 gap-1">
-                      {[
-                        ["idea", "💡 Идея"],
-                        ["logline", "🎯 Логлайн"],
-                        ["treatment", "📖 Тритмент"],
-                        ["script", "📜 Сценарий"],
-                        ["vision", "🎬 Видение"],
-                        ["storyboard", "🖼 Раскадровка"],
-                        ["shotlist", "📋 Шот-лист"],
-                        ["planning", "🗓 План"],
-                        ["casting", "🎭 Кастинг"],
-                        ["locations", "📍 Локации"],
-                        ["risks", "⚠️ Риски"],
-                        ["chat", "💬 Режиссёр"],
-                      ].map(([id, label]) => (
+                      {(Object.keys(STAGE_ICONS) as PreprodStage[]).map((id) => (
                         <button
                           key={id}
-                          onClick={() => setActiveStage(id as PreprodStage)}
-                          className={`rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold transition ${
+                          onClick={() => setActiveStage(id)}
+                          className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-medium transition ${
                             activeStage === id
-                              ? "bg-violet-500/20 text-violet-100"
+                              ? "bg-violet-500/[0.18] text-violet-100 ring-1 ring-violet-400/30"
                               : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
                           }`}
                         >
-                          {label}
+                          <Icon
+                            name={STAGE_ICONS[id]}
+                            size={14}
+                            className={activeStage === id ? "text-violet-200" : "text-slate-500"}
+                          />
+                          {STAGE_LABELS[id]}
                         </button>
                       ))}
                     </div>

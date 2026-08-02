@@ -224,9 +224,9 @@ export default function StageStoryboard({ preprod, updatePreprod, onRegenerate, 
                   <button
                     onClick={() => tryPollinations(f.id)}
                     disabled={generatingImg === f.id}
-                    className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-2 py-1.5 text-[10px] font-bold text-white disabled:opacity-50"
+                    className="btn btn-primary flex-1 px-2 py-1.5 text-[10px] disabled:opacity-50"
                     title="Попробовать бесплатную нейросетевую генерацию (Pollinations)"
-                  >{generatingImg === f.id ? "…" : "✨ AI-кадр"}</button>
+                  >{generatingImg === f.id ? "…" : "AI-кадр"}</button>
                 </div>
               </div>
               <div className="grid gap-2 md:grid-cols-2">

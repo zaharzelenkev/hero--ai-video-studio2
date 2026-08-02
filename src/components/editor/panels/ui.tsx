@@ -4,9 +4,9 @@ import type { ReactNode } from "react";
 
 export function PanelSection({ title, subtitle, children, right }: { title: string; subtitle?: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section className="rounded-xl border border-white/10 bg-[#0d0d16] p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-violet-300">{title}</h3>
+    <section className="surface-card mb-3 p-3">
+      <div className="mb-2.5 flex items-center gap-2">
+        <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-300">{title}</h3>
         {subtitle && <span className="truncate text-[10px] text-slate-500">{subtitle}</span>}
         {right && <div className="ml-auto">{right}</div>}
       </div>
@@ -17,7 +17,7 @@ export function PanelSection({ title, subtitle, children, right }: { title: stri
 
 export function EmptyHint({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-white/12 bg-white/[0.02] p-5 text-center text-[11px] leading-relaxed text-slate-500">
+    <div className="rounded-xl border border-dashed border-white/[0.12] bg-white/[0.015] p-5 text-center text-[11px] leading-relaxed text-slate-500">
       {children}
     </div>
   );
@@ -41,7 +41,7 @@ export function ToggleButton({
   const base = "rounded-lg border px-2 py-1 text-[10px] font-bold transition";
   const styles = active
     ? tone === "danger"
-      ? "border-rose-400/50 bg-rose-500/25 text-rose-100"
+      ? "border-rose-400/50 bg-rose-500/20 text-rose-100"
       : "border-violet-400/50 bg-violet-500/25 text-violet-100"
     : tone === "danger"
       ? "border-white/10 bg-white/[0.04] text-rose-300 hover:bg-rose-500/15"
@@ -74,8 +74,8 @@ export function NumberField({
 }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block text-[10px] font-medium text-slate-400">{label}</span>
-      <div className="flex items-center gap-1">
+      <span className="field-label mb-1 !text-[9px]">{label}</span>
+      <div className="flex items-center gap-1.5">
         <input
           type="number"
           value={Number.isFinite(value) ? Number(value.toFixed(4)) : 0}
@@ -86,7 +86,7 @@ export function NumberField({
             const parsed = parseFloat(e.target.value);
             if (!Number.isNaN(parsed)) onChange(parsed);
           }}
-          className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-slate-100 outline-none focus:border-violet-400/50"
+          className="input !px-2 !py-1 !text-[11px]"
         />
         {suffix && <span className="text-[10px] text-slate-500">{suffix}</span>}
       </div>
@@ -107,14 +107,14 @@ export function SelectField({
 }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block text-[10px] font-medium text-slate-400">{label}</span>
+      <span className="field-label mb-1 !text-[9px]">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-slate-100 outline-none focus:border-violet-400/50"
+        className="input !px-2 !py-1 !text-[11px]"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} className="bg-[#101017]">
             {o.label}
           </option>
         ))}
@@ -142,7 +142,7 @@ export function SliderField({
 }) {
   return (
     <div className="mb-2">
-      <div className="mb-0.5 flex items-center justify-between text-[10px] font-medium text-slate-300">
+      <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-300">
         <span>{label}</span>
         <span className="font-mono text-violet-300">{display ? display(value) : value.toFixed(2)}</span>
       </div>
@@ -153,7 +153,8 @@ export function SliderField({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="h-1 w-full accent-violet-500"
+        className="h-1 w-full"
+        style={{ accentColor: "var(--primary)" }}
         aria-label={label}
       />
     </div>
@@ -178,7 +179,7 @@ export function ColorField({ label, value, onChange }: { label: string; value: s
 export function CheckboxField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 py-1 text-[11px] text-slate-300">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-violet-500" />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "var(--primary)" }} />
       {label}
     </label>
   );
@@ -201,14 +202,14 @@ export function TextField({
 }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block text-[10px] font-medium text-slate-400">{label}</span>
+      <span className="field-label mb-1 !text-[9px]">{label}</span>
       {rows > 1 ? (
         <textarea
           value={value}
           rows={rows}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full resize-none rounded-lg border border-white/10 bg-black/40 p-2 text-[11px] text-slate-100 outline-none focus:border-violet-400/50 ${mono ? "font-mono" : ""}`}
+          className={`input resize-none !px-2 !py-1.5 !text-[11px] ${mono ? "font-mono" : ""}`}
         />
       ) : (
         <input
@@ -216,7 +217,7 @@ export function TextField({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-slate-100 outline-none focus:border-violet-400/50 ${mono ? "font-mono" : ""}`}
+          className={`input !px-2 !py-1.5 !text-[11px] ${mono ? "font-mono" : ""}`}
         />
       )}
     </label>

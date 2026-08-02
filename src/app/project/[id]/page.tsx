@@ -4,6 +4,19 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { loadProject } from "@/lib/db";
 import { useProjectStore } from "@/store/projectStore";
+import { Icon, type IconName } from "@/components/ui/Icon";
+import { Logo } from "@/components/ui/Logo";
+
+const STAGE_ICONS: IconName[] = [
+  "brain",
+  "lightbulb",
+  "target",
+  "script",
+  "storyboard",
+  "film",
+  "scissors",
+  "rocket",
+];
 
 export default function ProjectPage() {
   const { id } = useParams() as { id: string };
@@ -23,19 +36,34 @@ export default function ProjectPage() {
         setLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [id, loadProjectStore]);
 
-  if (loading) return <div className="flex h-screen items-center justify-center bg-[#0a0a12] text-slate-300">Загрузка проекта...</div>;
-  if (!project) return (
-    <div className="flex h-screen items-center justify-center bg-[#0a0a12] text-slate-200">
-      <div className="text-center">
-        <div className="text-4xl mb-2">🎬</div>
-        <h2 className="text-xl font-bold mb-2">Проект не найден</h2>
-        <button onClick={() => router.push("/")} className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm font-bold text-white shadow-lg">На главную</button>
+  if (loading)
+    return (
+      <div className="app-bg flex h-screen items-center justify-center text-slate-300">
+        <div className="flex items-center gap-3">
+          <span className="status-dot status-dot-dirty status-dot-pulse" />
+          Загрузка проекта...
+        </div>
       </div>
-    </div>
-  );
+    );
+  if (!project)
+    return (
+      <div className="app-bg flex h-screen items-center justify-center text-slate-200">
+        <div className="surface-card animate-scale-in px-8 py-9 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-200">
+            <Icon name="alert" size={28} />
+          </div>
+          <h2 className="title mb-2 text-xl">Проект не найден</h2>
+          <button onClick={() => router.push("/")} className="btn btn-primary mt-4 px-4 py-2 text-sm">
+            На главную
+          </button>
+        </div>
+      </div>
+    );
 
   const stages = [
     { label: "AI Director", desc: "Бриф, сценарий, раскадровка, план", href: `/director/${id}`, done: !!project.director },
@@ -49,51 +77,114 @@ export default function ProjectPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0a0a12] to-[#0d0d16] text-slate-100">
-      <header className="flex items-center gap-3 border-b border-white/10 bg-[#0d0d16]/90 backdrop-blur px-6 py-4 shadow-lg">
-        <button onClick={() => router.push("/")} className="rounded-xl bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-white/10">← Назад</button>
-        <h1 className="text-xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">AI Production Studio</h1>
-        <span className="ml-auto text-xs text-violet-300 font-medium">{project.title}</span>
+    <div className="app-bg min-h-screen text-slate-100">
+      <header className="glass sticky top-0 z-30 border-b border-white/[0.06]">
+        <div className="mx-auto flex items-center gap-3 px-5 py-3 sm:px-8">
+          <button
+            onClick={() => router.push("/")}
+            className="btn btn-ghost h-8 px-3 text-xs"
+          >
+            <Icon name="arrow-left" size={14} />
+            Назад
+          </button>
+          <Logo size={30} showText={false} />
+          <h1 className="title text-base">
+            <span className="text-gradient">AI Production Studio</span>
+          </h1>
+          <span className="ml-auto truncate text-xs font-medium text-violet-300">{project.title}</span>
+        </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-10">
-        <div className="grid lg:grid-cols-3 gap-6">
+      <main className="mx-auto max-w-5xl px-6 py-10">
+        <div className="grid gap-6 lg:grid-cols-3">
           {/* Stages */}
-          <div className="lg:col-span-2 space-y-3">
-            <h2 className="text-lg font-bold text-violet-300 mb-3">Этапы производства</h2>
+          <div className="space-y-3 lg:col-span-2">
+            <div className="mb-4 flex items-center gap-2">
+              <h2 className="title text-lg text-slate-200">Этапы производства</h2>
+              <span className="badge badge-muted">8</span>
+            </div>
             {stages.map((s, i) => (
               <a
                 key={s.label}
                 href={s.href}
-                onClick={(e) => { if (!s.done && s.label !== "Редактор" && s.label !== "Монтаж" && s.label !== "Материалы") { e.preventDefault(); alert("Этот этап доступен после завершения предыдущих."); } }}
-                className={`flex items-center gap-4 rounded-2xl border p-4 transition hover:brightness-105 ${s.done ? "bg-gradient-to-r from-violet-900/30 to-fuchsia-900/30 border-violet-400/30" : "bg-[#0d0d16] border-white/10"}`}
+                onClick={(e) => {
+                  if (!s.done && s.label !== "Редактор" && s.label !== "Монтаж" && s.label !== "Материалы") {
+                    e.preventDefault();
+                    alert("Этот этап доступен после завершения предыдущих.");
+                  }
+                }}
+                className={`surface-card group flex items-center gap-4 p-4 transition-all duration-200 hover:translate-x-0.5 ${
+                  s.done ? "!bg-violet-500/[0.07] !border-violet-400/25" : ""
+                }`}
               >
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold shadow-lg ${s.done ? "bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white" : "bg-white/10 text-slate-300"}`}>
-                  {i + 1}
+                <div
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-all ${
+                    s.done
+                      ? "bg-gradient-to-b from-violet-500 to-violet-600 text-white shadow-[0_8px_20px_-6px_rgba(124,108,246,0.5)]"
+                      : "bg-white/[0.05] text-slate-400 group-hover:text-slate-200"
+                  }`}
+                >
+                  <Icon name={STAGE_ICONS[i]} size={18} />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm">{s.label}</div>
-                  <div className="text-[10px] text-slate-400 truncate">{s.desc}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                    <span className="text-[10px] font-semibold text-slate-500">0{i + 1}</span>
+                    {s.label}
+                  </div>
+                  <div className="truncate text-[10px] text-slate-400">{s.desc}</div>
                 </div>
-                <div className="text-xs font-bold text-violet-300">{s.done ? "✓ Готово" : "→ Далее"}</div>
+                <div className="flex items-center gap-1 text-xs font-bold text-violet-300">
+                  {s.done ? (
+                    <>
+                      <Icon name="check" size={13} className="text-emerald-400" />
+                      <span className="text-emerald-400">Готово</span>
+                    </>
+                  ) : (
+                    <>
+                      Далее
+                      <Icon name="arrow-right" size={13} className="transition-transform group-hover:translate-x-0.5" />
+                    </>
+                  )}
+                </div>
               </a>
             ))}
           </div>
 
           {/* Quick actions */}
           <div className="space-y-3">
-            <div className="rounded-2xl bg-gradient-to-b from-violet-900/40 to-fuchsia-900/40 border border-white/10 p-4 shadow-2xl">
-              <h3 className="text-sm font-bold text-violet-200 mb-2">Быстрый старт</h3>
-              <a href={`/director/${id}`} className="block w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-center py-3 text-sm font-bold text-white shadow-lg hover:brightness-110 transition mb-2">AI Director →</a>
-              <a href={`/editor/${id}`} className="block w-full rounded-xl bg-white/5 border border-white/10 text-center py-2 text-xs font-bold text-slate-300 hover:bg-white/10 transition mb-2">Открыть в редакторе →</a>
-              <a href={`/`} className="block w-full rounded-xl bg-white/5 border border-white/10 text-center py-2 text-xs font-bold text-slate-300 hover:bg-white/10 transition">На главную</a>
+            <div className="surface-card p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-100">
+                <Icon name="zap" size={15} className="text-violet-300" />
+                Быстрый старт
+              </h3>
+              <a href={`/director/${id}`} className="btn btn-primary mb-2 block w-full py-3 text-sm">
+                AI Director
+                <Icon name="arrow-right" size={15} />
+              </a>
+              <a href={`/editor/${id}`} className="btn btn-ghost mb-2 block w-full py-2.5 text-xs">
+                Открыть в редакторе
+                <Icon name="arrow-right" size={13} />
+              </a>
+              <a href={`/`} className="btn btn-ghost block w-full py-2.5 text-xs">
+                На главную
+              </a>
             </div>
 
-            <div className="rounded-2xl bg-[#0d0d16] border border-white/10 p-4 shadow-inner">
-              <h3 className="text-sm font-bold text-violet-200 mb-2">AI Препродакшн</h3>
-              <p className="text-[11px] text-slate-400 mb-2">Генерация идеи, логлайна, сценария, раскадровки и рекомендаций.</p>
-              <a href={`/director/${id}`} className="inline-block rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-3 py-1.5 text-xs font-bold text-white shadow">Открыть AI Director →</a>
-              <div className="text-[10px] text-slate-500 mt-2">AI Director теперь — отдельный этап пре-продакшена до монтажа.</div>
+            <div className="surface-card p-4">
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-100">
+                <Icon name="brain" size={15} className="text-violet-300" />
+                AI Препродакшн
+              </h3>
+              <p className="mb-2.5 text-[11px] leading-relaxed text-slate-400">
+                Генерация идеи, логлайна, сценария, раскадровки и рекомендаций.
+              </p>
+              <a href={`/director/${id}`} className="btn btn-soft px-3 py-1.5 text-xs">
+                <Icon name="compass" size={13} />
+                Открыть AI Director
+              </a>
+              <div className="mt-2.5 text-[10px] text-slate-500">
+                AI Director теперь — отдельный этап пре-продакшена до монтажа.
+              </div>
             </div>
           </div>
         </div>

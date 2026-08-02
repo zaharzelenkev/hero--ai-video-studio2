@@ -1,20 +1,22 @@
 /**
  * Регрессионный тест ПОЛНОЙ сборки AI Director через /api/director.
  *
- * Проверяет фикс «AI Director не получил полный ответ от Groq»: раньше весь
- * пакет из 12 разделов генерировался ОДНИМ вызовом Groq на 24 000 токенов —
- * ответ обрезался по max_tokens, JSON ломался, и маршрут всегда возвращал 502.
- * Теперь:
- *   - сборка разбита на 5 последовательных блоков, каждый валидируется и
- *     ретраится отдельно;
- *   - у вызовов Groq НЕТ лимитов времени (timeoutMs: 0);
+ * Проверяет фикс «AI Director не получил полный ответ»: раньше весь пакет из
+ * 12 разделов генерировался ОДНИМ вызовом на 24 000 токенов — ответ обрезался
+ * по max_tokens, JSON ломался, и маршрут всегда возвращал 502. Теперь:
+ *   - сборка разбита на 7 последовательных блоков (каждый ≤ 9000 токенов —
+ *     помещается даже в потолок вывода 4096–8192 токенов бесплатных моделей),
+ *     каждый валидируется и ретраится отдельно;
+ *   - провайдер — OpenRouter (бесплатные модели `:free`) с перебором запасных
+ *     моделей, у вызовов НЕТ лимитов времени (timeoutMs: 0);
  *   - если блок всё же не получился, запуск НЕ падает: раздел добирается из
  *     локального пакета, ответ 200 + partial=true + warnings;
  *   - повторный запуск после неудачи (resume=true) переиспользует уже
  *     сгенерированные блоки и генерирует только недостающие.
  *
- * Тест подменяет глобальный fetch и отвечает за Groq по заранее заготовленным
- * JSON-ответам (включая сценарий «первый ответ блока обрезан — ретрай»).
+ * Тест подменяет глобальный fetch и отвечает за OpenRouter по заранее
+ * заготовленным JSON-ответам (включая сценарий «первый ответ блока обрезан —
+ * ретрай»).
  *
  * Запуск: npm run test:director-chunks
  */
@@ -22,6 +24,7 @@
 import { buildOfflinePreprod } from "../src/lib/brain/offlinePreprod";
 
 process.env.GROQ_API_KEY = "gsk_test_key_for_local_regression_test";
+process.env.OPENROUTER_API_KEY = "sk-or-v1-test-key-for-local-regression-test";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: string) {
@@ -122,7 +125,7 @@ const CHUNK_JSON: Record<string, any> = {
       finalText: "СЦЕНА 1 — ИНТ. КОФЕЙНЯ — УТРО\nАртём зажигает свет...",
     },
   },
-  visual: {
+  vision: {
     vision: {
       overallStyle: "Тёплый свет, зернистость, кинематографичный лайфстайл.",
       visualLanguage: "Ручная камера, 35mm, естественный свет из окна.",
@@ -133,6 +136,8 @@ const CHUNK_JSON: Record<string, any> = {
         { sceneNumber: 3, sceneTitle: "Вечер", shot: { goal: "Payoff", emotion: "Решимость", composition: "WS сзади, силуэт у витрины", cameraMovement: "статик", duration: "5 сек", transition: "fade out", pacing: "медленно", sound: "город, тишина", atmosphere: "финал", lighting: "неон вывески", colorPalette: ["синий", "янтарь"], vfx: "без эффектов", dpNotes: "гражданские сумерки" } },
       ],
     },
+  },
+  storyboard: {
     storyboard: {
       aspectRatio: "16:9",
       style: "Cinematic sketch, ч/б с акцентом янтарного",
@@ -143,7 +148,7 @@ const CHUNK_JSON: Record<string, any> = {
       ],
     },
   },
-  production: {
+  shotlist: {
     shotlist: {
       totalShots: 12,
       estimatedTime: "1 съёмочный день, 8 часов",
@@ -153,6 +158,8 @@ const CHUNK_JSON: Record<string, any> = {
         { number: 3, description: "Силуэт у витрины", shotType: "WS", camera: "Sony FX3", lens: "35mm", movement: "static", equipment: ["штатив"], props: [], duration: "5 сек", priority: "medium", location: "Улица" },
       ],
     },
+  },
+  planning: {
     planning: {
       schedule: [
         { day: 1, location: "Кофейня", scenes: ["Сцена 1", "Сцена 2"], shots: [1, 2], callTime: "06:00", wrapTime: "14:00", notes: ["Рассвет ловим рано"] },
@@ -200,25 +207,35 @@ const CHUNK_JSON: Record<string, any> = {
 };
 
 // ---------------------------------------------------------------------------
-// Mock Groq: глобальный fetch, отвечающий за api.groq.com
+// Mock LLM: глобальный fetch, отвечающий за openrouter.ai (и groq как страховку)
 // ---------------------------------------------------------------------------
 
 let truncatedFirst: Record<string, boolean> = {};
 let callCount = 0;
 
+/** Определяет блок по строке «Сгенерируй ТОЛЬКО разделы: ...» из промпта. */
 function detectChunk(userContent: string): string {
-  if (userContent.includes('"idea"') && userContent.includes('"logline"') && userContent.includes('"treatment"') && userContent.includes("ЗАДАНИЕ")) return "core";
-  if (userContent.includes('"script"') && userContent.includes("ЗАДАНИЕ")) return "script";
-  if (userContent.includes('"vision"') && userContent.includes('"storyboard"') && userContent.includes("ЗАДАНИЕ")) return "visual";
-  if (userContent.includes('"shotlist"') && userContent.includes('"planning"') && userContent.includes("ЗАДАНИЕ")) return "production";
-  if (userContent.includes('"casting"') && userContent.includes('"locations"') && userContent.includes('"risks"') && userContent.includes("ЗАДАНИЕ")) return "wrap";
-  return "chat-or-stage";
+  const m = userContent.match(/Сгенерируй ТОЛЬКО разделы:\s*([^\n.]+)/);
+  if (!m) return "chat-or-stage";
+  const fields = m[1].split(",").map((f) => f.trim().replace(/"/g, ""));
+  const map: Record<string, string> = {
+    '"idea"+"logline"+"treatment"': "core",
+    '"script"': "script",
+    '"vision"': "vision",
+    '"storyboard"': "storyboard",
+    '"shotlist"': "shotlist",
+    '"planning"': "planning",
+    '"casting"+"locations"+"risks"': "wrap",
+  };
+  // поля приходят в виде "idea", "logline" — соберём компактный ключ
+  const compact = fields.map((f) => `"${f}"`).join("+");
+  return map[compact] || "chat-or-stage";
 }
 
 async function mockedFetch(this: any, input: any, init?: any): Promise<Response> {
   callCount++;
   const url = typeof input === "string" ? input : input?.url || "";
-  if (!url.includes("api.groq.com")) {
+  if (!url.includes("openrouter.ai") && !url.includes("api.groq.com")) {
     throw new Error(`unexpected fetch target: ${url}`);
   }
   const body = JSON.parse(String(init?.body || "{}"));
@@ -264,9 +281,9 @@ async function run(): Promise<void> {
   try {
     const { POST } = await import("../src/app/api/director/route");
 
-    // 1. Полная сборка: у блоков script и visual первый ответ обрезан —
+    // 1. Полная сборка: у блоков script и storyboard первый ответ обрезан —
     //    маршрут обязан сам доретраить и вернуть 200 с полным пакетом.
-    truncatedFirst = { script: true, visual: true };
+    truncatedFirst = { script: true, storyboard: true };
     callCount = 0;
     const req = new Request("http://localhost/api/director", {
       method: "POST",
@@ -311,10 +328,10 @@ async function run(): Promise<void> {
       check("risks.risks не пуст", p.risks?.risks?.length === 3, `len=${p.risks?.risks?.length}`);
       check("finalText заполнен", Boolean(p.script?.finalText), "пусто");
     }
-    // 5 блоков + 2 ретрая обрезанных = 7 вызовов Groq
-    check("сделано 7 вызовов Groq (5 блоков + 2 ретрая)", callCount === 7, `calls=${callCount}`);
+    // 7 блоков + 2 ретрая обрезанных = 9 вызовов LLM
+    check("сделано 9 вызовов LLM (7 блоков + 2 ретрая)", callCount === 9, `calls=${callCount}`);
 
-    // 2. Полная сборка без ретраев — счастливый путь, 5 вызовов.
+    // 2. Полная сборка без ретраев — счастливый путь, 7 вызовов.
     truncatedFirst = {};
     callCount = 0;
     const res2 = await POST(
@@ -330,15 +347,15 @@ async function run(): Promise<void> {
     );
     const data2 = await res2.json();
     check("счастливый путь: 200", res2.status === 200, `status=${res2.status}`);
-    check("счастливый путь: 5 вызовов Groq", callCount === 5, `calls=${callCount}`);
+    check("счастливый путь: 7 вызовов LLM", callCount === 7, `calls=${callCount}`);
     check("счастливый путь: preprod готов", Boolean(data2.preprod), "нет preprod");
 
     // 3. Полный отказ одного блока → НЕ 502: запуск обязан всё равно вернуть
     //    полный препродакшен (неудавшийся раздел добирается из локального
     //    пакета) с partial=true и warnings — «главное чтобы дала ответ».
     truncatedFirst = {};
-    const failing = CHUNK_JSON.production;
-    CHUNK_JSON.production = { shotlist: { shots: [] }, planning: {} } as any; // невалидно
+    const failing = CHUNK_JSON.shotlist;
+    CHUNK_JSON.shotlist = { shotlist: { shots: [] } } as any; // невалидно
     const res3 = await POST(
       new Request("http://localhost/api/director", {
         method: "POST",
@@ -365,12 +382,12 @@ async function run(): Promise<void> {
         Boolean(data3.preprod?.script?.scenes?.length),
       "preprod неполный"
     );
-    CHUNK_JSON.production = failing;
+    CHUNK_JSON.shotlist = failing;
 
-    // 4. Resume после неудачи: preprod, где часть блоков уже собрана Groq
+    // 4. Resume после неудачи: preprod, где часть блоков уже собрана LLM
     //    (отличается от шаблона), а script — ещё локальный шаблон. Повторный
     //    запуск с resume=true переиспользует готовые блоки и генерирует
-    //    только недостающие (1 вызов Groq вместо 5).
+    //    только недостающие (1 вызов LLM вместо 7).
     const brief4 = {
       idea: "Ролик о кофейне",
       goal: "Привлечь гостей",
@@ -415,8 +432,8 @@ async function run(): Promise<void> {
     );
     const data4 = await res4.json();
     check("resume: 200", res4.status === 200, `status=${res4.status}`);
-    check("resume: только недостающий блок вызвал Groq (1 вызов)", callCount === 1, `calls=${callCount}`);
-    check("resume: 4 блока переиспользованы", data4.reused === 4, `reused=${data4.reused}`);
+    check("resume: только недостающий блок вызвал LLM (1 вызов)", callCount === 1, `calls=${callCount}`);
+    check("resume: 6 блоков переиспользованы", data4.reused === 6, `reused=${data4.reused}`);
     check("resume: partial=false", data4.partial === false, `partial=${data4.partial}`);
     check(
       "resume: сценарий собран заново",

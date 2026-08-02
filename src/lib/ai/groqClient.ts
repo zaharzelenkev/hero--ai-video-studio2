@@ -56,7 +56,7 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
     temperature = 0.7,
     maxTokens = 4000,
     responseFormat,
-    model = AI_CONFIG.model,
+    model = AI_CONFIG.groqFallbackModels[0],
     timeoutMs = AI_CONFIG.timeoutMs,
     maxRetries = AI_CONFIG.maxRetries,
   } = opts;
@@ -66,7 +66,7 @@ export async function callGroq(opts: GroqOptions): Promise<GroqResult> {
   // is deprecated/decommissioned Groq answers with a fatal 4xx model error and we
   // advance to the next one instead of failing the whole request.
   const candidates: string[] = [];
-  for (const m of [model, ...(AI_CONFIG.fallbackModels || [])]) {
+  for (const m of [model, ...(AI_CONFIG.groqFallbackModels || [])]) {
     if (m && !candidates.includes(m)) candidates.push(m);
   }
 
@@ -130,7 +130,7 @@ async function tryModel(
     const timer: ReturnType<typeof setTimeout> | undefined =
       timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
     try {
-      const res = await fetch(AI_CONFIG.apiUrl, {
+      const res = await fetch(AI_CONFIG.groqApiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callGroq } from "@/lib/ai/groqClient";
+import { callLLM } from "@/lib/ai/llmClient";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -13,20 +13,20 @@ export async function POST(req: NextRequest) {
 
     const userMessage = `Пункт AI Director: ${stage}\n\nВопрос: ${prompt}\n\nОтвет пользователя: ${userInput || "(не указан)"}\n\nКонтекст уже сгенерированных пунктов:\n${context || "(пока ничего)"}\n\nДай конкретный, полезный ответ для этого пункта. Максимум 3-4 предложения.`;
 
-    const groq = await callGroq({
+    const llm = await callLLM({
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ],
       temperature: 0.4,
       maxTokens: 800,
-      timeoutMs: 0, // без лимита времени — Groq отвечает столько, сколько нужно
+      timeoutMs: 0, // без лимита времени — модель отвечает столько, сколько нужно
       maxRetries: 2,
       responseFormat: { type: "text" },
     });
 
-    if (groq.ok) {
-      return NextResponse.json({ text: groq.text.trim(), ok: true });
+    if (llm.ok) {
+      return NextResponse.json({ text: llm.text.trim(), ok: true });
     }
 
     // Fallback: local concise answer based on stage keywords so the UI never stalls

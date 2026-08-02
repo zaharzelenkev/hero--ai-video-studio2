@@ -1,4 +1,4 @@
-import { AI_CONFIG } from "@/config/ai";
+import { callLLM } from "../ai/llmClient";
 
 import type { Project, MediaAsset } from "../types";
 import { uid } from "../id";
@@ -66,25 +66,18 @@ export async function generateMagicVideo(prompt: string, style: import("../types
 
   let scriptData;
   try {
-    const res = await fetch(AI_CONFIG.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${AI_CONFIG.groqApiKey}`,
-      },
-      body: JSON.stringify({
-        model: AI_CONFIG.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.7,
-        response_format: { type: "json_object" }
-      })
+    const llm = await callLLM({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+      maxTokens: 4000,
+      maxRetries: 3,
+      responseFormat: { type: "json_object" },
     });
-    if (!res.ok) throw new Error("API error");
-    const json = await res.json();
-    scriptData = JSON.parse(json.choices[0].message.content);
+    if (!llm.ok) throw new Error("API error");
+    scriptData = JSON.parse(llm.text);
   } catch (e) {
     console.error("Script generation failed, using fallback.", e);
     scriptData = {

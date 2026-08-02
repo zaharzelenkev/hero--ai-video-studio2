@@ -48,14 +48,23 @@ import {
   type SpeechPhrase,
 } from "./perception";
 import type {
+  AudioSyncReport,
   DirectorPlan,
   DramaturgySection,
+  OfflineEditReport,
   PacingKnot,
   PlanPhase,
   PlannedScene,
   PlannedTransition,
   MusicPlan,
+  SceneDraft,
+  SpeechCleanupReport,
+  TakeSelectionReport,
 } from "./directorPlan";
+import { sceneColorMood, sceneGoal, sceneMusic, scenePace } from "./sceneDirection";
+import { recommendBroll, recommendVisualBroll } from "./brollDirection";
+import { selectBestTakes, type TakeSelectionResult } from "./takeSelection";
+import { cleanupSpeech, parseWords, type CleanupResult } from "./speechCleanup";
 
 export interface DirectOptions {
   /** Разрешить LLM-обогащение оценок (по умолчанию — только в браузере). */
@@ -104,6 +113,10 @@ interface DirCtx {
   notes: string[];
   weakRegistry: DirectorPlan["weakMomentsHandled"];
   strongRegistry: DirectorPlan["strongMomentsUsed"];
+  /** OFFLINE EDIT: результат умного выбора дублей (если применялся). */
+  takes?: TakeSelectionResult;
+  /** OFFLINE EDIT: чистка речи по ассетам. */
+  cleanups: Map<string, CleanupResult>;
 }
 
 /** Интерфейс для глубокого анализа проекта перед принятием решений */
@@ -454,7 +467,15 @@ export class AIDirector {
       notes: [...projectAnalysis.notes],
       weakRegistry: [],
       strongRegistry: [],
+      cleanups: new Map(),
     };
+
+    // --- 2b. OFFLINE EDIT: чистка речи и умный выбор дублей ---
+    // Оба этапа выполняются ДО построения драматургии: режиссёр обязан
+    // планировать по ЧИСТОМУ материалу, иначе кульминация может встать
+    // на кашель, а половина сцен — на худшие дубли.
+    runSpeechCleanup(ctx);
+    runTakeSelection(ctx);
 
     const musicNote = perceived.music.present
       ? `музыка: трек «${assetName(request, perceived.music.assetId)}»${perceived.music.bpm ? `, ${perceived.music.bpm} BPM` : ""}${perceived.music.dropsTimeline.length ? `, дропов на сетке: ${perceived.music.dropsTimeline.length}` : ", без выраженных дропов"}`
@@ -471,23 +492,32 @@ export class AIDirector {
     // --- 3. ДРАМАТУРГИЯ + 4. СЦЕНАРНЫЙ ПЛАН ---
     const speechMain = pickSpeechMain(perceived);
     let kind: DirectorPlan["kind"];
-    let scenes: PlannedScene[];
+    let drafts: SceneDraft[];
     let concept: string;
 
     if (speechMain) {
       kind = "narrative";
       const r = await buildNarrativePlan(ctx, speechMain, llmAllowed && !!AI_CONFIG.groqApiKey);
-      scenes = r.scenes;
+      drafts = r.scenes;
       concept = r.concept;
     } else {
       kind = "visual";
       const r = buildVisualPlan(ctx);
-      scenes = r.scenes;
+      drafts = r.scenes;
       concept = r.concept;
     }
 
-    // --- 5. САМОПРОВЕРКА по профессиональным правилам ---
+    // --- 5. РЕЖИССЁРСКАЯ ПОСТАНОВКА КАЖДОЙ СЦЕНЫ ---
+    // Цель · эмоция · длительность · темп · переход · B-Roll · музыка · цвет.
+    // Делается ПОСЛЕ сборки арки, чтобы темп и музыка соответствовали
+    // фактическому положению сцены в фильме.
+    const scenes = finalizeScenes(drafts, ctx, kind);
+
+    // --- 6. САМОПРОВЕРКА по профессиональным правилам ---
     const qa = await reviewPlan(scenes, ctx, target);
+    // QA мог изменить фазы и длительности — постановку пересобираем поверх
+    // исправленной арки, иначе темп/цвет описывали бы «старый» монтаж.
+    restageScenes(scenes, ctx, kind);
 
     // Итоговая точка кульминации на таймлайне (после всех правок и тизера).
     let acc = 0;
@@ -559,7 +589,250 @@ export class AIDirector {
         dramaStructure: projectAnalysis.dramaStructure,
         pacingStrategy: projectAnalysis.pacingStrategy,
       },
+      offlineEdit: buildOfflineEditReport(ctx, request),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OFFLINE EDIT: чистка речи
+// ---------------------------------------------------------------------------
+
+/**
+ * Прогоняет каждую речевую дорожку через чистку: длинные паузы, слова-
+ * паразиты, кашель, лишние вдохи, случайные дубли. Результат кладётся в ctx
+ * и используется при отборе фраз — режиссёр планирует по чистому материалу.
+ */
+function runSpeechCleanup(ctx: DirCtx): void {
+  for (const a of ctx.request.assets) {
+    if (!a.transcript || a.transcript.length < 10) continue;
+    const words = parseWords(a.transcript);
+    if (words.length < 3) continue;
+    // Разговорные жанры терпимее к паузам (дыхание мысли), быстрые — жёстче.
+    const maxPauseSec = ctx.isFast ? 0.45 : ctx.isSlow ? 0.9 : 0.65;
+    const result = cleanupSpeech(words, {
+      maxPauseSec,
+      keepPauseSec: ctx.isFast ? 0.12 : 0.18,
+      // Драматическую паузу бережём везде, кроме сверхбыстрых нарезок.
+      dramaticPause: ctx.isFast ? [1.0, 2.0] : [0.7, 2.5],
+    });
+    if (result.keep.length === 0) continue;
+    ctx.cleanups.set(a.id, result);
+    for (const n of result.notes) ctx.notes.push(n);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OFFLINE EDIT: умный выбор дублей
+// ---------------------------------------------------------------------------
+
+/**
+ * Отбор лучших дублей среди похожих кадров. Работает по ВСЕМУ пулу кадров
+ * проекта: дубли могут лежать и в одном файле (несколько попыток подряд),
+ * и в разных (IMG_0042 / IMG_0043).
+ */
+function runTakeSelection(ctx: DirCtx): void {
+  const allShots = ctx.perceived.assets.flatMap((a) => a.shots);
+  if (allShots.length < 2) return;
+
+  // Контекст качества звука: доля окна, покрытая распознанной речью.
+  const speechByAsset = new Map<string, Array<{ start: number; end: number }>>();
+  for (const a of ctx.perceived.assets) {
+    if (!a.speech) continue;
+    speechByAsset.set(
+      a.assetId,
+      a.speech.phrases.filter((p) => !p.isPause).map((p) => ({ start: p.start, end: p.end })),
+    );
+  }
+  const hasAudioSet = new Set<string>();
+  for (const a of ctx.request.assets) {
+    if (a.type === "video" && (a.transcript || a.audioEnergy?.length)) hasAudioSet.add(a.id);
+  }
+
+  const result = selectBestTakes(allShots, {
+    ctx: {
+      speechCoverage: (assetId, start, end) => {
+        const spans = speechByAsset.get(assetId);
+        if (!spans || end <= start) return 0;
+        let covered = 0;
+        for (const s of spans) {
+          const from = Math.max(s.start, start);
+          const to = Math.min(s.end, end);
+          if (to > from) covered += to - from;
+        }
+        return covered / (end - start);
+      },
+      hasAudio: (assetId) => hasAudioSet.has(assetId),
+    },
+    // Пул не должен схлопнуться: минимум кадров зависит от хронометража.
+    minKeep: Math.max(3, Math.ceil(ctx.target / 6)),
+  });
+
+  if (result.rejected.length === 0) return;
+  ctx.takes = result;
+  for (const n of result.notes) ctx.notes.push(n);
+
+  // Отбракованные дубли официально регистрируются как «вырезано».
+  for (const g of result.groups) {
+    for (const loser of g.rejected) {
+      ctx.weakRegistry.push({
+        assetId: loser.assetId,
+        start: loser.start,
+        end: loser.end,
+        action: "cut",
+        reason: `худший дубль: ${loser.reason}`,
+      });
+    }
+  }
+}
+
+/** Кадры, допущенные до монтажа после отбора дублей. */
+function allowedShots(ctx: DirCtx): Set<string> | null {
+  if (!ctx.takes) return null;
+  return new Set(ctx.takes.chosen.map((s) => s.id));
+}
+
+// ---------------------------------------------------------------------------
+// OFFLINE EDIT: сводный отчёт
+// ---------------------------------------------------------------------------
+
+function buildOfflineEditReport(ctx: DirCtx, request: AIAnalysisRequest): OfflineEditReport {
+  const summary: string[] = [];
+  let totalTrimmedSec = 0;
+
+  let takes: TakeSelectionReport | undefined;
+  if (ctx.takes && ctx.takes.groups.length > 0) {
+    const rejectedSec = ctx.takes.rejected.reduce((a, s) => a + s.duration, 0);
+    totalTrimmedSec += rejectedSec;
+    takes = {
+      groups: ctx.takes.groups.length,
+      rejected: ctx.takes.rejected.length,
+      rejectedSec: Math.round(rejectedSec * 10) / 10,
+      decisions: ctx.takes.groups.map((g) => ({
+        assetId: g.bestScore.assetId,
+        assetName: g.bestScore.assetName,
+        start: Math.round(g.bestScore.start * 10) / 10,
+        score: g.bestScore.total,
+        strengths: g.bestScore.strengths.slice(0, 4),
+        losers: g.rejected.map((l) => ({
+          assetId: l.assetId,
+          assetName: l.assetName,
+          start: Math.round(l.start * 10) / 10,
+          score: l.total,
+          reason: l.reason,
+        })),
+      })),
+    };
+    summary.push(
+      `Выбор дублей: ${takes.groups} групп похожих кадров, отбраковано ${takes.rejected} (${takes.rejectedSec}с) — в монтаж взят лучший дубль каждой группы.`,
+    );
+  }
+
+  const speechCleanup: SpeechCleanupReport[] = [];
+  for (const [assetId, res] of ctx.cleanups) {
+    if (res.stats.removedSec < 0.2) continue;
+    totalTrimmedSec += res.stats.removedSec;
+    speechCleanup.push({
+      assetId,
+      removedSec: res.stats.removedSec,
+      keptSec: res.stats.keptSec,
+      pauses: res.stats.pauses,
+      fillers: res.stats.fillers,
+      coughs: res.stats.coughs,
+      breaths: res.stats.breaths,
+      retakes: res.stats.retakes,
+      examples: res.cuts.slice(0, 8).map((c) => ({
+        start: Math.round(c.start * 100) / 100,
+        end: Math.round(c.end * 100) / 100,
+        kind: c.kind,
+        text: c.text,
+        reason: c.reason,
+      })),
+    });
+  }
+  if (speechCleanup.length > 0) {
+    const removed = speechCleanup.reduce((a, s) => a + s.removedSec, 0);
+    const fillers = speechCleanup.reduce((a, s) => a + s.fillers, 0);
+    const pauses = speechCleanup.reduce((a, s) => a + s.pauses, 0);
+    const noises = speechCleanup.reduce((a, s) => a + s.coughs + s.breaths, 0);
+    const retakes = speechCleanup.reduce((a, s) => a + s.retakes, 0);
+    summary.push(
+      `Чистка речи: удалено ${removed.toFixed(1)}с — пауз ${pauses}, слов-паразитов ${fillers}, ` +
+        `кашля/вдохов ${noises}, случайных дублей ${retakes}.`,
+    );
+  }
+
+  // Синхронизация звука решается в конвейере автомонтажа (там есть доступ к
+  // файлам): режиссёр получает готовый отчёт через request.audioSync.
+  const audioSync: AudioSyncReport | undefined = request.audioSync?.length
+    ? { pairs: request.audioSync.map((p) => ({ ...p })) }
+    : undefined;
+  if (audioSync) {
+    const applied = audioSync.pairs.filter((p) => p.applied);
+    if (applied.length > 0) {
+      summary.push(
+        `Синхронизация звука: ${applied.length} дорожк(и) выровнено по камерному звуку ` +
+          `(${applied.map((p) => `${p.offsetSec >= 0 ? "+" : ""}${p.offsetSec.toFixed(2)}с`).join(", ")}).`,
+      );
+    }
+  }
+
+  return {
+    takes,
+    audioSync,
+    speechCleanup: speechCleanup.length > 0 ? speechCleanup : undefined,
+    totalTrimmedSec: Math.round(totalTrimmedSec * 10) / 10,
+    summary,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// РЕЖИССЁРСКАЯ ПОСТАНОВКА СЦЕН
+// ---------------------------------------------------------------------------
+
+/**
+ * Достраивает каждый черновик сцены до полной режиссёрской карточки:
+ * цель, темп, музыка, цветовое настроение, рекомендации по B-Roll.
+ */
+function finalizeScenes(drafts: SceneDraft[], ctx: DirCtx, kind: DirectorPlan["kind"]): PlannedScene[] {
+  const genrePace: "slow" | "medium" | "fast" | "dynamic" = ctx.isFast ? "fast" : ctx.isSlow ? "slow" : "medium";
+  const isNarrative = kind === "narrative";
+  const baseMusicLevel = isNarrative ? 0.15 : 0.6;
+
+  return drafts.map((d) => {
+    const isPause = d.intent.toLowerCase().includes("пауза");
+    const pace = scenePace(d.duration, d.phase, genrePace);
+    const brollRecommendations =
+      d.brollRecommendations ??
+      (isNarrative ? [] : recommendVisualBroll({ phase: d.phase, intent: d.intent, duration: d.duration }));
+    return {
+      ...d,
+      goal: d.goal ?? sceneGoal(d.phase, d.intent, isNarrative),
+      pace,
+      brollRecommendations,
+      music: d.music ?? sceneMusic(d.phase, isNarrative, baseMusicLevel, { isPause, isClimax: d.phase === "climax" }),
+      colorMood: d.colorMood ?? sceneColorMood(d.phase, d.emotion, genrePace),
+    } as PlannedScene;
+  });
+}
+
+/**
+ * Пересборка постановки поверх сцен, уже прошедших самопроверку: QA меняет
+ * фазы (лишняя кульминация → нарастание) и длительности (обрезка по темпу),
+ * а значит темп, цвет и музыка обязаны быть пересчитаны. Иначе план
+ * описывал бы не тот монтаж, который реально собирается.
+ */
+function restageScenes(scenes: PlannedScene[], ctx: DirCtx, kind: DirectorPlan["kind"]): void {
+  const genrePace: "slow" | "medium" | "fast" | "dynamic" = ctx.isFast ? "fast" : ctx.isSlow ? "slow" : "medium";
+  const isNarrative = kind === "narrative";
+  const baseMusicLevel = isNarrative ? 0.15 : 0.6;
+  for (const s of scenes) {
+    const isPause = s.intent.toLowerCase().includes("пауза");
+    s.goal = sceneGoal(s.phase, s.intent, isNarrative);
+    s.pace = scenePace(s.duration, s.phase, genrePace);
+    s.music = sceneMusic(s.phase, isNarrative, baseMusicLevel, { isPause, isClimax: s.phase === "climax" });
+    s.colorMood = sceneColorMood(s.phase, s.emotion, genrePace);
+    if (!s.brollRecommendations) s.brollRecommendations = [];
   }
 }
 
@@ -586,17 +859,25 @@ function pickSpeechMain(perceived: PerceptionResult): AssetUnderstanding | null 
 // ВИЗУАЛЬНЫЙ ПЛАН (без речи: тревел, клипы, слайдшоу, экшн-нарезки)
 // ---------------------------------------------------------------------------
 
-function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string } {
+function buildVisualPlan(ctx: DirCtx): { scenes: SceneDraft[]; concept: string } {
   const { perceived, genre, target, isFast, isSlow, notes } = ctx;
 
   const allShots = perceived.assets.flatMap((a) => a.shots);
-  let pool = allShots.filter((s) => s.tier === "strong" || s.tier === "usable");
+
+  // УМНЫЙ ВЫБОР ДУБЛЕЙ: из группы похожих кадров в монтаж идёт только лучший.
+  // Отбраковка применяется до любых других фильтров — режиссёр не должен даже
+  // рассматривать заведомо худший дубль.
+  const allowed = allowedShots(ctx);
+  const takeFiltered = allowed ? allShots.filter((s) => allowed.has(s.id)) : allShots;
+  const shotPool = takeFiltered.length > 0 ? takeFiltered : allShots;
+
+  let pool = shotPool.filter((s) => s.tier === "strong" || s.tier === "usable");
   let relaxed = false;
   if (pool.length === 0) {
-    pool = allShots.filter((s) => s.tier !== "reject");
+    pool = shotPool.filter((s) => s.tier !== "reject");
     relaxed = true;
   }
-  if (pool.length === 0) pool = allShots; // крайний случай: монтируем что есть
+  if (pool.length === 0) pool = shotPool; // крайний случай: монтируем что есть
 
   // Реестр слабых моментов: всё, что ниже планки, — «вырезано» (если не вошло
   // в план крайним фоллбэком — эти случаи отфильтруются при сборке плана).
@@ -621,17 +902,31 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   };
 
   // --- Кульминация: на дропе музыки (или энергетическом пике), иначе на 75% ---
-  let wantClimaxAt = target * 0.75;
+  const classicClimaxAt = target * 0.75;
+  let wantClimaxAt = classicClimaxAt;
   let dropAligned = false;
-  // Дропы + «high»-секции: если формального дропа в рабочем окне нет, удар
-  // ставится на ближайший выраженный энергетический подъём — кульминация
-  // не должна «провисать» на тихой части трека.
-  const peaksTimeline = [...perceived.music.dropsTimeline, ...perceived.music.highsTimeline].sort((a, b) => a - b);
-  if (peaksTimeline.length > 0) {
-    const inWindow = peaksTimeline.filter((t) => t >= target * 0.45 && t <= target * 0.85);
-    if (inWindow.length > 0) {
-      wantClimaxAt = inWindow[0];
-      dropAligned = perceived.music.dropsTimeline.some((d) => Math.abs(d - wantClimaxAt) < 0.4);
+  // ПРИОРИТЕТ ЯКОРЕЙ КУЛЬМИНАЦИИ:
+  //   1) настоящий ДРОП в рабочем окне — на него удар ставится всегда;
+  //   2) если дропов нет — выраженный подъём («high»);
+  //   3) если и его нет — классические ~75% хронометража.
+  // Раньше дропы и highs сливались в один список и брался ПЕРВЫЙ по времени:
+  // проходной «high» на 28-й секунде перебивал настоящий дроп на 36-й, и
+  // главный кадр ролика вставал мимо удара — самая заметная ошибка монтажа.
+  // Среди равных якорей выбираем БЛИЖАЙШИЙ к классической точке 75%:
+  // так кульминация и попадает в удар, и остаётся на своём месте в арке.
+  {
+    const inWindow = (list: number[]): number[] => list.filter((t) => t >= target * 0.45 && t <= target * 0.85);
+    const nearestToClassic = (list: number[]): number =>
+      list.reduce((best, t) => (Math.abs(t - classicClimaxAt) < Math.abs(best - classicClimaxAt) ? t : best), list[0]);
+
+    const drops = inWindow(perceived.music.dropsTimeline);
+    const highs = inWindow(perceived.music.highsTimeline);
+    if (drops.length > 0) {
+      wantClimaxAt = nearestToClassic(drops);
+      dropAligned = true;
+    } else if (highs.length > 0) {
+      wantClimaxAt = nearestToClassic(highs);
+      dropAligned = false;
     }
   }
   if (musicGrid.length > 0) {
@@ -669,10 +964,21 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   const hookDur = Math.max(0.6, Math.min(hookWindow, beatDur ? qBeats(hookMax, 2, 6) : hookMax));
   notes.push(`Хук: «${hookShot.assetName}» @${hookShot.cutIn.toFixed(1)}с (${hookShot.reasons.slice(0, 3).join(", ") || "лучшая суммарная оценка"}) — ${hookDur.toFixed(1)}с, дальше зритель решает, смотреть ли.`);
 
-  const scenes: PlannedScene[] = [];
-  const pushScene = (scene: PlannedScene, brightness: number | undefined, hue?: number): void => {
+  const scenes: SceneDraft[] = [];
+  /** Сколько дублей проиграло этому кадру (для объяснимости в плане). */
+  const alternativesOf = (shotId: string): number =>
+    ctx.takes?.groups.find((g) => g.bestShotId === shotId)?.rejected.length ?? 0;
+  const pushScene = (scene: SceneDraft, brightness: number | undefined, hue?: number, shot?: Shot): void => {
     noteSceneBrightness(scene, brightness);
     noteSceneHue(scene, hue);
+    if (shot) {
+      const score = ctx.takes?.scores.get(shot.id);
+      if (score) {
+        scene.takeScore = score.total;
+        const alts = alternativesOf(shot.id);
+        if (alts > 0) scene.takeAlternatives = alts;
+      }
+    }
     scenes.push(scene);
   };
 
@@ -702,6 +1008,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
     },
     hookShot.brightness,
     hookShot.hue,
+    hookShot,
   );
   ctx.strongRegistry.push({ assetId: hookShot.assetId, start: hookShot.cutIn, phase: "hook" });
 
@@ -744,6 +1051,8 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   const coveredTo = new Map<Shot, number>();
   coveredTo.set(hookShot, hookShot.cutIn + hookDur);
   const recentShots: Shot[] = [hookShot];
+  /** Планы, чьё окно исходника полностью показано — повторять их нельзя. */
+  const exhausted = new Set<Shot>();
 
   let lastAssetId = hookShot.assetId;
   let lastShot: Shot = hookShot;
@@ -801,6 +1110,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
           },
           setupShot.brightness,
           setupShot.hue,
+          setupShot,
         );
         usageCount.set(setupShot.assetId, (usageCount.get(setupShot.assetId) || 0) + 1);
         shotUseCount.set(setupShot, (shotUseCount.get(setupShot) || 0) + 1);
@@ -817,9 +1127,24 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   const RHYTHM_WAVE = [3.6, 3.0, 1.1, 0.9, 1.2, 2.6];
   let guard = 0;
 
+  // ХВОСТ ФИЛЬМА ПОСЛЕ КУЛЬМИНАЦИИ.
+  // «Выдох» (outro) — это последние 1-2 плана, а не весь остаток ролика.
+  // Раньше всё, что шло после пика, помечалось outro: при кульминации на 60%
+  // хронометража «выдох» занимал 40% фильма, монтаж проваливался в вялую
+  // статику сразу после удара. Теперь между пиком и финалом стоит РАЗВЯЗКА
+  // (resolution): напряжение спадает постепенно, как в настоящем фильме.
+  const outroBudget = Math.max(2.5, Math.min(target * 0.18, isSlow ? 9 : 6));
+
   while (currentTime < target - 0.3 && guard++ < 400) {
     const progress = currentTime / target;
-    const phase: PlanPhase = reserveUsed ? "outro" : !climaxReserve && progress > 0.88 ? "outro" : "buildup";
+    const remaining = target - currentTime;
+    const phase: PlanPhase = reserveUsed
+      ? remaining <= outroBudget
+        ? "outro"
+        : "resolution"
+      : !climaxReserve && progress > 0.88
+        ? "outro"
+        : "buildup";
 
     let shot: Shot | null = null;
     let sceneIsClimax = false;
@@ -837,6 +1162,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
       let bestScore = Infinity;
       for (const s of pool) {
         if (s === lastShot || recentShots.includes(s)) continue;
+        if (exhausted.has(s)) continue; // окно исходника уже показано целиком
         if (climaxReserveBase && s === climaxReserveBase && !reserveUsed) continue;
         if (s.assetId === lastAssetId && pool.length > 1) continue;
         const su = shotUseCount.get(s) || 0;
@@ -844,6 +1170,9 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
         let rank = su * 1000 + au * 60 - s.score;
         if (phase === "outro" && s.hasAction) rank += 150; // аутро — выдох, не экшн
         if (phase === "outro" && s.momentum > 0.6) rank += 60;
+        // РАЗВЯЗКА: энергия ещё есть, но экшн уже не нужен — лёгкий штраф,
+        // чтобы после кульминации не пошёл второй «пик» и не обесценил первый.
+        if (phase === "resolution" && s.hasAction) rank += 55;
         // КРУПНОСТЬ ПЛАНОВ: два одинаковых масштаба подряд ложатся плоско.
         if (s.size === lastSize) rank += isSlow ? 130 : 45;
         // Кинематографичные жанры не терпят тряску; быстрые любят динамику.
@@ -858,11 +1187,12 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
         // Память исключила всё — ослабляем её ступенями: сначала повтор
         // последнего плана (свежий хвост окна), потом уже и резерв кульминации.
         // Голодный пул не должен обрывать фильм раньше кульминации.
-        const relax = (exclBase: boolean, exclLast: boolean): Shot | null => {
+        const relax = (exclBase: boolean, exclLast: boolean, exclExhausted = true): Shot | null => {
           let fb: Shot | null = null;
           let fbRank = Infinity;
           for (const s of pool) {
             if (exclLast && s === lastShot) continue;
+            if (exclExhausted && exhausted.has(s)) continue;
             if (exclBase && climaxReserveBase && s === climaxReserveBase && !reserveUsed) continue;
             const su = shotUseCount.get(s) || 0;
             const rank = su * 1000 + (usageCount.get(s.assetId) || 0) * 60 - s.score;
@@ -873,7 +1203,9 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
           }
           return fb;
         };
-        shot = relax(true, false) ?? relax(false, true) ?? relax(false, false);
+        // Исчерпанные планы — последняя линия обороны: лучше повтор, чем
+        // оборванный на середине фильм.
+        shot = relax(true, false) ?? relax(false, true) ?? relax(false, false) ?? relax(false, false, false);
       }
       if (!shot) break;
     }
@@ -920,6 +1252,10 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
       // приближение пика физически, а не только по смыслу.
       const approach = 1 - 0.22 * Math.min(1, Math.max(0, (progress - 0.15) / 0.6));
       dur = (isSlow ? 4.4 : 3.8) * approach;
+    } else if (phase === "resolution") {
+      // Развязка держит темп чуть ниже нарастания: история «сдувается»
+      // постепенно, а не обрывается в статику сразу после удара.
+      dur = isFast ? 2.0 : isSlow ? 3.6 : 2.8;
     } else {
       dur = isFast ? 2.4 : 3.2;
     }
@@ -956,15 +1292,40 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
       dur = Math.min(dur * 2, windowMax, (target - currentTime) * 2);
     }
 
-    // Повтор окна: берём СВЕЖИЙ хвост — зритель не видит один кусок дважды.
+    // ПОВТОРНОЕ ИСПОЛЬЗОВАНИЕ ПЛАНА: зритель не должен увидеть один и тот же
+    // кусок дважды. Стратегия, в порядке предпочтения:
+    //   1) свежий хвост после уже показанного;
+    //   2) если хвоста не хватает на полную длительность — сдвигаемся
+    //      максимально вправо (кадр будет другим, пусть и с нахлёстом);
+    //   3) если план исчерпан целиком — укорачиваем сцену до остатка.
+    // Раньше третий случай молча возвращал srcStart = cutIn: в ролике
+    // появлялись два идентичных плана — самый заметный признак «автомонтажа».
     let srcStart = shot.cutIn;
     {
       const covered = coveredTo.get(shot);
-      if (covered !== undefined && covered > shot.cutIn + 0.2 && shot.cutOut - covered >= dur) {
-        srcStart = covered;
+      const usedBefore = covered !== undefined && covered > shot.cutIn + 0.2;
+      if (usedBefore) {
+        const freshLeft = shot.cutOut - covered!;
+        if (freshLeft >= dur) {
+          srcStart = covered!;
+        } else if (freshLeft >= 0.7) {
+          // Остатка мало, но он есть — берём его целиком, сцена короче.
+          srcStart = covered!;
+          dur = freshLeft;
+        } else {
+          // План исчерпан: максимально удаляемся от уже показанного начала.
+          srcStart = Math.max(shot.cutIn, shot.cutOut - dur);
+          if (Math.abs(srcStart - shot.cutIn) < 0.25) {
+            // Сдвинуться некуда — весь план уже был на экране. Повторять его
+            // нельзя: пропускаем и берём следующий кадр на следующей итерации.
+            exhausted.add(shot);
+            continue;
+          }
+        }
       }
       coveredTo.set(shot, Math.max(covered ?? 0, srcStart + dur));
     }
+    if (dur < 0.5) continue;
 
     const tlDur = dur / speed;
     pushScene(
@@ -973,7 +1334,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
         phase: sceneIsClimax ? "climax" : phase,
         intent: sceneIsClimax ? "Climax on Drop" : interrupt ? "Pattern Interrupt" : "Flow",
         emotion: sceneIsClimax ? "dramatic" : shot.emotion === "energetic" ? "energetic" : "calm",
-        targetIntensity: sceneIsClimax ? 1 : phase === "outro" ? 0.4 : 0.6,
+        targetIntensity: sceneIsClimax ? 1 : phase === "outro" ? 0.35 : phase === "resolution" ? 0.55 : 0.6,
         duration: tlDur,
         source: {
           assetId: shot.assetId,
@@ -994,10 +1355,13 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
             ? `Pattern Interrupt: контрастный план «${shot.assetName}» (${sizeLabel(shot.size)}, тон ${shot.hue !== undefined && shot.hue >= 0 ? `${shot.hue}°` : "ахроматичный"}) — взлом монотонности.`
             : phase === "outro"
               ? `Выдох: спокойный ${sizeLabel(shot.size)} план «${shot.assetName}» — эмоцию отпускаем.`
+            : phase === "resolution"
+              ? `Развязка: ${sizeLabel(shot.size)} план «${shot.assetName}» — напряжение после пика спадает, история договаривается.`
               : `Нарастание: «${shot.assetName}» @${srcStart.toFixed(1)}с — ${shot.reasons.slice(0, 2).join(", ") || sizeLabel(shot.size)}.`,
       },
       shot.brightness,
       shot.hue,
+      shot,
     );
     if (sceneIsClimax) {
       climaxPlaced = true;
@@ -1048,6 +1412,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
               },
               echoShot.brightness,
               echoShot.hue,
+              echoShot,
             );
             usageCount.set(echoShot.assetId, (usageCount.get(echoShot.assetId) || 0) + 1);
             shotUseCount.set(echoShot, (shotUseCount.get(echoShot) || 0) + 1);
@@ -1113,7 +1478,7 @@ function buildVisualPlan(ctx: DirCtx): { scenes: PlannedScene[]; concept: string
   };
 }
 
-function pushSceneTeaser(scenes: PlannedScene[], climaxScene: PlannedScene, teaserDur: number, why: string, midSrc: number): void {
+function pushSceneTeaser(scenes: SceneDraft[], climaxScene: SceneDraft, teaserDur: number, why: string, midSrc: number): void {
   scenes.unshift({
     id: "scene_teaser",
     phase: "teaser",
@@ -1161,7 +1526,7 @@ function hueDiff(a: number, b: number): number {
  * сторон и жанр. Возвращает undefined там, где осмысленного выбора нет —
  * монтажный движок применит шаблонный переход.
  */
-function designTransition(prev: PlannedScene, cur: PlannedScene, ctx: DirCtx): PlannedTransition | undefined {
+function designTransition(prev: SceneDraft, cur: SceneDraft, ctx: DirCtx): PlannedTransition | undefined {
   // Jump cut на одном исходнике: наплыв между соседними фразами одного кадра
   // превращается в морфинг-артефакт — только резкая склейка.
   if (prev.source.assetId === cur.source.assetId) {
@@ -1209,27 +1574,43 @@ function designTransition(prev: PlannedScene, cur: PlannedScene, ctx: DirCtx): P
     return { type: flashy[Math.floor(ctx.rand(cur.id + "/tr2") * flashy.length)], duration: 0.3, reason: "ритмический акцент" };
   }
   if (ctx.isSlow) {
-    return { type: "crossfade", duration: 0.45, reason: "кинематографичное растворение" };
+    // ГЛАВНОЕ ПРАВИЛО СТЫКА: по умолчанию — резкая склейка, даже в кино.
+    // Наплыв означает «прошло время» или «сменилась мысль»; когда им склеены
+    // ВСЕ стыки подряд, он не значит ничего, а ролик выглядит как слайдшоу
+    // из шаблона. Профессиональный кинематографичный монтаж — это ~70-80%
+    // прямых склеек и растворения в осмысленных местах (смена локации/темы).
+    //
+    // Смену «главы» определяем по смене источника И заметному сдвигу света:
+    // это и есть переход между сценами, ради которого существует наплыв.
+    const prevB = brightnessOf(prev);
+    const curB = brightnessOf(cur);
+    const toneShift = prevB !== undefined && curB !== undefined ? Math.abs(prevB - curB) : 0;
+    const newChapter = toneShift >= 22;
+    if (newChapter) {
+      return { type: "crossfade", duration: 0.45, reason: "смена сцены (другой свет) — растворение отмечает новую главу" };
+    }
+    // Внутри одной «главы» — прямая склейка: кадры продолжают друг друга.
+    return { type: "cut", duration: 0, reason: "кинематографичный прямой стык внутри сцены" };
   }
   return undefined;
 }
 
 /** Яркость исходного окна сцены сохраняется постановщиком сцен (shot-данные
  *  не входят в сериализуемый план, а для решения о стыке она нужна). */
-const sceneBrightnessCache = new WeakMap<PlannedScene, number | undefined>();
-function brightnessOf(scene: PlannedScene): number | undefined {
+const sceneBrightnessCache = new WeakMap<SceneDraft, number | undefined>();
+function brightnessOf(scene: SceneDraft): number | undefined {
   return sceneBrightnessCache.get(scene);
 }
-function noteSceneBrightness(scene: PlannedScene, brightness: number | undefined): void {
+function noteSceneBrightness(scene: SceneDraft, brightness: number | undefined): void {
   sceneBrightnessCache.set(scene, brightness);
 }
 
 /** Доминирующий тон исходного окна сцены (для match cut по цвету). */
-const sceneHueCache = new WeakMap<PlannedScene, number | undefined>();
-function hueOf(scene: PlannedScene): number | undefined {
+const sceneHueCache = new WeakMap<SceneDraft, number | undefined>();
+function hueOf(scene: SceneDraft): number | undefined {
   return sceneHueCache.get(scene);
 }
-function noteSceneHue(scene: PlannedScene, hue: number | undefined): void {
+function noteSceneHue(scene: SceneDraft, hue: number | undefined): void {
   sceneHueCache.set(scene, hue);
 }
 
@@ -1247,7 +1628,7 @@ async function buildNarrativePlan(
   ctx: DirCtx,
   main: AssetUnderstanding,
   allowLlm: boolean,
-): Promise<{ scenes: PlannedScene[]; concept: string }> {
+): Promise<{ scenes: SceneDraft[]; concept: string }> {
   const { perceived, target, rand, notes, isTalking } = ctx;
   const phrases = mergeUltraShortPhrases(main.speech!.phrasesWithPauses);
   if (phrases.length === 0) {
@@ -1256,6 +1637,40 @@ async function buildNarrativePlan(
   }
 
   const mainAudio = ctx.request.assets.find((a) => a.id === main.assetId)?.audioEnergy;
+
+  // --- OFFLINE EDIT: чистая речевая дорожка ---
+  // Слова-паразиты, кашель, лишние вдохи и случайные дубли уже размечены
+  // (runSpeechCleanup). Здесь окна фраз ПОДРЕЗАЮТСЯ под чистые интервалы:
+  // на монтажный стол попадает только живая речь.
+  const cleanup = ctx.cleanups.get(main.assetId);
+  /** Пересечение окна фразы с сохранёнными («чистыми») интервалами. */
+  const cleanWindow = (start: number, end: number): { start: number; end: number } | null => {
+    if (!cleanup || cleanup.keep.length === 0) return { start, end };
+    let bestFrom = 0;
+    let bestTo = 0;
+    for (const k of cleanup.keep) {
+      const from = Math.max(k.start, start);
+      const to = Math.min(k.end, end);
+      if (to - from > bestTo - bestFrom) {
+        bestFrom = from;
+        bestTo = to;
+      }
+    }
+    // Фраза целиком в мусорной зоне — в монтаж её брать нельзя.
+    if (bestTo - bestFrom < 0.22) return null;
+    return { start: bestFrom, end: bestTo };
+  };
+  /** Насколько окно фразы «грязное» (доля вырезанного). */
+  const trashRatio = (start: number, end: number): number => {
+    if (!cleanup || end <= start) return 0;
+    let dirty = 0;
+    for (const c of cleanup.cuts) {
+      const from = Math.max(c.start, start);
+      const to = Math.min(c.end, end);
+      if (to > from) dirty += to - from;
+    }
+    return dirty / (end - start);
+  };
 
   // --- Оценка фраз 1..10: эвристика + (опционально) LLM-консультант ---
   const ratePhrase = (p: SpeechPhrase): number => {
@@ -1269,6 +1684,12 @@ async function buildNarrativePlan(
     if (len < 0.6) r -= 2;
     const ap = peakEnergyOverlap(mainAudio, p.start, p.end);
     r += ap >= 0.98 ? 1.5 : ap >= 0.7 ? 1.0 : ap >= 0.4 ? 0.3 : -0.3;
+    // ЧИСТОТА ДУБЛЯ: фраза, наполовину состоящая из «ну эээ», кашля или
+    // повтора, не может претендовать на хук или кульминацию — снижаем.
+    const trash = trashRatio(p.start, p.end);
+    if (trash > 0.5) r -= 3;
+    else if (trash > 0.25) r -= 1.4;
+    else if (trash > 0.1) r -= 0.5;
     return Math.max(1, Math.min(10, r));
   };
 
@@ -1409,9 +1830,12 @@ async function buildNarrativePlan(
   const mainWeak = main.weakSpans;
 
   // --- Сборка сцен ---
-  const scenes: PlannedScene[] = [];
+  const scenes: SceneDraft[] = [];
 
-  const hookSrc = phraseSource(hookPhrase);
+  // Окно хука подрезается под чистый интервал: первая секунда ролика
+  // не имеет права начинаться с «ну эээ» или кашля. Если чистка съела хук
+  // целиком (крайний случай) — берём исходное окно, ролик без хука хуже.
+  const hookSrc = trimSourceToClean(phraseSource(hookPhrase), cleanWindow) ?? phraseSource(hookPhrase);
   scenes.push({
     id: "scene_0_hook",
     phase: "hook",
@@ -1442,9 +1866,11 @@ async function buildNarrativePlan(
     const isClimax = srcIdx === climaxSrcIdx;
     const isLast = bi === pickedFinal.length - 1;
     const phase: PlanPhase = isClimax ? "climax" : isLast ? "outro" : "buildup";
-    const src = phraseSource(p);
+    const src = trimSourceToClean(phraseSource(p), cleanWindow);
+    // Фраза целиком состояла из мусора — чистка её съела, сцены не будет.
+    if (!src) continue;
 
-    const scene: PlannedScene = {
+    const scene: SceneDraft = {
       id: `scene_${scenes.length}_${srcIdx}`,
       phase,
       intent: p.isPause ? "Reaction Beat (пауза)" : isClimax ? "Payoff" : "Dialogue Cut",
@@ -1480,35 +1906,51 @@ async function buildNarrativePlan(
       const isNth = bi % 4 === 0 && bi !== 0;
 
       if (isLong || kwMatch || llmKw || isNth || phraseWeak.length > 0) {
-        const keywords = [llmKw, kwMatch?.[0]?.toLowerCase()].filter(Boolean) as string[];
-        const choice = chooseBrollAsset(otherAssets, keywords, prevBrollAsset, rand, `${srcIdx}/${brollIdx}`);
-        if (choice) {
-          brollIdx++;
-          prevBrollAsset = choice.assetId;
-          const need = Math.min(src.end - src.start, 6);
-          const win = pickBrollWindow(choice, need);
-          const reason = phraseWeak.length > 0
-            ? "прикрываем слабый кадр говорящей головы"
-            : keywords.length > 0
-              ? `показываем сказанное: «${keywords[0]}»`
-              : "Pattern Interrupt — взлом ритма удержания";
-          const presentation: "pip" | "fullscreen" =
-            (isTalking || ctx.isFast) && rand(`pip/${srcIdx}`) > 0.5 ? "pip" : "fullscreen";
-          scene.bRolls.push({
-            assetId: choice.assetId,
-            sourceStart: win.start,
-            sourceEnd: win.end,
-            offsetInScene: 0.1, // лёгкий L-cut: перебивка чуть запаздывает за смысл
-            presentation,
-            reason,
-          });
-          if (phraseWeak.length > 0) {
-            for (const w of phraseWeak) {
-              ctx.weakRegistry.push({ assetId: main.assetId, start: w.start, end: w.end, action: "covered", reason: `прикрыто перебивкой: ${w.reason}` });
+        // РЕЖИССЁРСКАЯ РЕКОМЕНДАЦИЯ ПО B-ROLL: сначала решаем, ЧТО должно быть
+        // на экране, и только потом ищем материал. Если подходящего кадра нет,
+        // рекомендация остаётся в плане как задача — врать перебивкой «про
+        // море» офисным кадром хуже, чем честно оставить говорящую голову.
+        const need = Math.min(src.end - src.start, 6);
+        const match = recommendBroll({
+          text: p.text,
+          pool: otherAssets,
+          duration: need,
+          prevAssetId: prevBrollAsset,
+          coversWeak: phraseWeak.length > 0,
+          patternInterrupt: isNth && !kwMatch && !llmKw,
+          llmKeyword: llmKw,
+          rand,
+          salt: `${srcIdx}/${brollIdx}`,
+        });
+        if (match) {
+          scene.brollRecommendations = [...(scene.brollRecommendations ?? []), match.recommendation];
+          if (match.asset) {
+            brollIdx++;
+            prevBrollAsset = match.asset.assetId;
+            const win = pickBrollWindow(match.asset, need);
+            const presentation: "pip" | "fullscreen" =
+              (isTalking || ctx.isFast) && rand(`pip/${srcIdx}`) > 0.5 ? "pip" : "fullscreen";
+            scene.bRolls.push({
+              assetId: match.asset.assetId,
+              sourceStart: win.start,
+              sourceEnd: win.end,
+              offsetInScene: 0.1, // лёгкий L-cut: перебивка чуть запаздывает за смысл
+              presentation,
+              reason: match.recommendation.reason,
+            });
+            if (phraseWeak.length > 0) {
+              for (const w of phraseWeak) {
+                ctx.weakRegistry.push({ assetId: main.assetId, start: w.start, end: w.end, action: "covered", reason: `прикрыто перебивкой: ${w.reason}` });
+              }
+              scene.intent = "Pattern Interrupt";
+            } else if (isNth && !kwMatch && !llmKw) {
+              scene.intent = "Pattern Interrupt";
             }
-            scene.intent = "Pattern Interrupt";
-          } else if (isNth && !kwMatch && !llmKw) {
-            scene.intent = "Pattern Interrupt";
+          } else {
+            notes.push(
+              `B-Roll «${match.recommendation.subject}» рекомендован на ${src.start.toFixed(1)}с, но подходящего материала в проекте нет — ` +
+                `оставляем основной кадр (подставлять несвязанную перебивку нельзя).`,
+            );
           }
         }
       }
@@ -1568,6 +2010,25 @@ async function buildNarrativePlan(
 
 /** «Воздух» вокруг фразы: 50мс до и 90мс после — иначе Whisper-таймкоды
  *  обгладывают первый/последний звук слова, речь звучит обрубленной. */
+/**
+ * Подрезает окно фразы под «чистый» интервал речи (после удаления пауз,
+ * паразитов, кашля и дублей). Возвращает null, если от фразы ничего не
+ * осталось — такую сцену в монтаж не берём.
+ */
+function trimSourceToClean(
+  src: { assetId: string; start: number; end: number; speed: number; zoom: boolean },
+  cleanWindow: (start: number, end: number) => { start: number; end: number } | null,
+): { assetId: string; start: number; end: number; speed: number; zoom: boolean } | null {
+  const win = cleanWindow(src.start, src.end);
+  if (!win) return null;
+  // «Воздух» вокруг реплики сохраняем, но не выходим за чистый интервал
+  // больше, чем на дыхание (60мс) — иначе вернём вырезанный мусор.
+  const start = Math.max(0, Math.min(src.start, win.start));
+  const end = Math.max(win.end, Math.min(src.end, win.end + 0.06));
+  if (end - start < 0.2) return null;
+  return { ...src, start: Math.min(start, win.start), end };
+}
+
 function phraseSource(p: SpeechPhrase): { assetId: string; start: number; end: number; speed: number; zoom: boolean } {
   return {
     assetId: p.assetId,
@@ -1576,38 +2037,6 @@ function phraseSource(p: SpeechPhrase): { assetId: string; start: number; end: n
     speed: 1,
     zoom: false,
   };
-}
-
-function chooseBrollAsset(
-  pool: AssetUnderstanding[],
-  keywords: string[],
-  prevAssetId: string | null,
-  rand: (salt: string) => number,
-  salt: string,
-): AssetUnderstanding | null {
-  if (pool.length === 0) return null;
-  let best: AssetUnderstanding | null = null;
-  let bestScore = -1;
-  for (const a of pool) {
-    let score = 0;
-    const name = a.name.toLowerCase();
-    for (const kw of keywords) {
-      if (kw.length >= 3 && name.includes(kw)) score += 60;
-      const stem = kw.replace(/[а-яё]{0,3}$/i, "");
-      if (stem.length >= 3 && name.includes(stem)) score += 25;
-    }
-    score += a.meanAesthetic * 2 + a.meanQuality;
-    if (a.assetId === prevAssetId) score -= 80;
-    if (score > bestScore) {
-      bestScore = score;
-      best = a;
-    }
-  }
-  // Детерминированный выбор при паритете (не Math.random!).
-  const usable = pool.filter((a) => a.assetId !== prevAssetId);
-  const base = usable.length > 0 ? usable : pool;
-  const seeded = base[Math.floor(rand(salt) * base.length) % base.length];
-  return bestScore > 8 && best ? best : seeded;
 }
 
 function pickBrollWindow(asset: AssetUnderstanding, need: number): { start: number; end: number } {
@@ -1721,6 +2150,7 @@ const SECTION_NOTES: Record<PlanPhase, string> = {
   buildup: "Нарастание: история разгоняется волнообразным ритмом.",
   preClimax: "Взвод: максимальное напряжение перед ударом.",
   climax: "Кульминация: главный момент ролика на акценте музыки.",
+  resolution: "Развязка: напряжение спадает, история договаривается.",
   outro: "Выдох: спокойная точка и завершённость.",
 };
 

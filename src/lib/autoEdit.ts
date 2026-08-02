@@ -128,6 +128,49 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     });
   }
 
+  // 0.2 АВТОСИНХРОНИЗАЦИЯ РАЗДЕЛЬНО ЗАПИСАННОГО ЗВУКА.
+  // Классика профессиональной съёмки: картинка на камеру, звук на петличку.
+  // Ищем сдвиг по звуковому отпечатку (как PluralEyes/Resolve): огибающие
+  // громкости обеих дорожек коррелируются, пик корреляции = смещение.
+  // Дорожка, для которой уверенное совпадение не найдено, считается музыкой.
+  const audioSyncResults: NonNullable<AIAnalysisRequest["audioSync"]> = [];
+  const syncOffsets = new Map<string, number>();
+  if (musicAsset && visualAssets.some((a) => a.kind === "video" && a.hasAudio !== false)) {
+    try {
+      const { envelopeFromBlob, decideAudioSync } = await import("./audioSync");
+      onProgress?.("Синхронизация звука с картинкой...");
+      const videoCands: Array<{ assetId: string; name: string; envelope: NonNullable<Awaited<ReturnType<typeof envelopeFromBlob>>> }> = [];
+      // Синхронизируемся по самым длинным видео с реальным звуком: короткие
+      // перебивки дают ложные пики корреляции.
+      const syncVideos = visualAssets
+        .filter((a) => a.kind === "video" && a.hasAudio !== false && (a.duration ?? 0) > 3)
+        .sort((a, b) => (b.duration ?? 0) - (a.duration ?? 0))
+        .slice(0, 3);
+      for (const a of syncVideos) {
+        const f = filesByAssetId.get(a.id);
+        if (!f) continue;
+        const env = await envelopeFromBlob(f);
+        if (env) videoCands.push({ assetId: a.id, name: a.name, envelope: env });
+      }
+      if (videoCands.length > 0) {
+        const extFile = filesByAssetId.get(musicAsset.id);
+        const extEnv = extFile ? await envelopeFromBlob(extFile) : null;
+        if (extEnv) {
+          const decisions = decideAudioSync(videoCands, [
+            { assetId: musicAsset.id, name: musicAsset.name, envelope: extEnv },
+          ]);
+          for (const d of decisions) {
+            audioSyncResults.push(d);
+            if (d.applied) syncOffsets.set(d.audioAssetId, d.offsetSec);
+            onProgress?.(d.reason);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Audio sync failed", e);
+    }
+  }
+
   // 0. Local Fast Vision Analysis (ВИДЕО + ФОТО):
   // раньше анализировались только видео — слайдшоу из фото монтировалось
   // вслепую (всем score=50, без лиц для Ken Burns). Теперь фото проходят
@@ -280,6 +323,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   // склейки квантуются под ритм, кульминация встаёт на дроп.
   analysisRequest.beats = beats;
   analysisRequest.musicInPointSec = musicInPoint;
+  // Результат автосинхронизации звука доезжает до режиссёра: он включает его
+  // в отчёт чернового монтажа (offline edit) и объясняет пользователю.
+  if (audioSyncResults.length > 0) analysisRequest.audioSync = audioSyncResults;
 
   // AI DIRECTOR: все решения (драматургия, отбор планов, переходы, перебивки,
   // музыкальная стратегия) принимаются ЗДЕСЬ, до первой склейки. Монтажный
@@ -1290,21 +1336,14 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     }
   }
 
-  // --- ЦВЕТОВАЯ АТМОСФЕРА ПО ФАЗАМ (Color Story) ---
-  // Ролик «дышит» цветом вместе с драматургией: хук — сочный и контрастный,
-  // нарастание — холоднее (напряжение), кульминация — тёплая и плотная
-  // (эмоциональный пик), выдох — мягкая, чуть обесцвеченная (успокоение).
+  // --- ЦВЕТОВАЯ АТМОСФЕРА СЦЕН (Color Story по плану режиссёра) ---
+  // Ролик «дышит» цветом вместе с драматургией. Раньше грейд назначался здесь
+  // по таблице фаз и только для визуальных роликов. Теперь ЦВЕТОВОЕ НАСТРОЕНИЕ
+  // каждой сцены — это решение AI Director (scene.colorMood с мотивировкой),
+  // а монтажный движок его ИСПОЛНЯЕТ. Нарратив тоже красится: кульминация
+  // мысли обязана выглядеть теплее, чем перечисление фактов.
   // Рампы по краям клипа: переход между атмосферами плавный, без скачка.
-  if (!style.bw && directorPlan?.kind === "visual") {
-    const PHASE_COLOR: Record<string, { sat: number; con: number; temp: number; bri: number }> = {
-      TEASER:  { sat: 0.08, con: 0.05, temp: 0.05, bri: 0 },
-      HOOK:    { sat: 0.05, con: 0.04, temp: 0.02, bri: 0 },
-      SETUP:   { sat: -0.02, con: -0.02, temp: -0.05, bri: 0 },
-      BUILDUP: { sat: 0.01, con: 0.03, temp: -0.07, bri: 0 },
-      CLIMAX:  { sat: 0.11, con: 0.09, temp: 0.13, bri: 0.01 },
-      OUTRO:   { sat: -0.07, con: -0.03, temp: -0.07, bri: 0.02 },
-    };
-    const colorStrength = style.pace === "fast" || style.pace === "dynamic" ? 1.1 : style.pace === "slow" ? 0.85 : 1;
+  if (!style.bw && directorPlan) {
     const randId = () => Math.random().toString(36).substring(7);
     const applyRamp = (p: import("./types").AnimParam, delta: number, dur: number) => {
       if (Math.abs(delta) < 0.004) return;
@@ -1318,22 +1357,25 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         { id: `cs_${randId()}`, time: dur, value: base, easing: "easeIn" },
       );
     };
+    // В нарративе грейд сдержаннее: лицо спикера не должно «плавать» по цвету
+    // от реплики к реплике — иначе говорящая голова выглядит как брак баланса белого.
+    const kindStrength = directorPlan.kind === "narrative" ? 0.45 : 1;
+    let colored = 0;
     for (const mClip of videoTrack.clips as import("./types").VideoClip[]) {
       if (mClip.duration < 1.2) continue;
-      const reason = aiDecision.clips.find(
+      const decisionClip = aiDecision.clips.find(
         (c) => c.trackType !== "b-roll" && c.assetId === mClip.assetId
           && Math.abs((c.startTime ?? 0) - mClip.inPoint) < 0.5,
-      )?.reason ?? "";
-      const m = reason.match(/\[([A-Z]+)\]/);
-      const phase = m?.[1] ?? "";
-      const boost = PHASE_COLOR[phase];
-      if (!boost) continue;
-      const s = colorStrength;
-      applyRamp(mClip.color.saturation, boost.sat * s, mClip.duration);
-      applyRamp(mClip.color.contrast, boost.con * s, mClip.duration);
-      applyRamp(mClip.color.temperature, boost.temp * s, mClip.duration);
-      applyRamp(mClip.color.brightness, boost.bri * s, mClip.duration);
+      );
+      const mood = decisionClip?.sceneDirection?.colorMood;
+      if (!mood) continue;
+      applyRamp(mClip.color.saturation, mood.saturation * kindStrength, mClip.duration);
+      applyRamp(mClip.color.contrast, mood.contrast * kindStrength, mClip.duration);
+      applyRamp(mClip.color.temperature, mood.temperature * kindStrength, mClip.duration);
+      applyRamp(mClip.color.brightness, mood.brightness * kindStrength, mClip.duration);
+      colored++;
     }
+    if (colored > 0) onProgress?.(`Цветовая драматургия: покрашено сцен ${colored}`);
   }
 
   project.duration = cursor;
@@ -1436,10 +1478,16 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                   isBeatDrop = beats.some(b => Math.abs(b - clip.start) < 0.1);
                }
 
+               // МУЗЫКАЛЬНЫЙ АКЦЕНТ ПО ПЛАНУ: режиссёр помечает сцены, где нужен
+               // удар/райзер (scene.music.accent) — это не догадка по эмоции,
+               // а осознанное решение из драматургии.
+               const plannedAccent = dec?.sceneDirection?.music.accent === true
+                 && dec.sceneDirection.phase !== "hook" && clip.start > 1.5;
+
                if (dec && dec.reason && dec.reason.includes("Teaser")) {
                   const hit = createAudioClip({ trackId: sfxTrack.id, asset: hitAsset, start: clip.start, duration: hitAsset.duration });
                   sfxTrack.clips.push(hit);
-               } else if ((dec && dec.emotion === "dramatic" && clip.start > 2) || (isBeatDrop && beatDropCount++ % 8 === 0)) {
+               } else if (plannedAccent || (dec && dec.emotion === "dramatic" && clip.start > 2) || (isBeatDrop && beatDropCount++ % 8 === 0)) {
                   const sfx = createAudioClip({ trackId: sfxTrack.id, asset: riserAsset, start: Math.max(0, clip.start - riserAsset.duration), duration: riserAsset.duration });
                   sfxTrack.clips.push(sfx);
                   const hit = createAudioClip({ trackId: sfxTrack.id, asset: hitAsset, start: clip.start, duration: hitAsset.duration });
@@ -1504,24 +1552,49 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     // Если трек короче ролика — зацикливаем бесшовно, иначе хвост видео уходит в тишину.
     const needsLoop = musicAssetDur < project.duration - 0.5;
     // Для сгенерированной музыки сдвиг нулевой, для пользовательского трека — стартуем с дропа.
-    const inPoint = finalMusicAsset === musicAsset ? musicInPoint : 0;
+    const isUserTrack = finalMusicAsset === musicAsset;
+    // АВТОСИНХРОНИЗАЦИЯ: если дорожка опознана как раздельно записанный звук
+    // (а не музыка), она НЕ стартует с дропа — её положение задаёт найденный
+    // сдвиг, иначе речь разъедется с губами.
+    const syncOffset = isUserTrack ? syncOffsets.get(finalMusicAsset.id) : undefined;
+    const isSyncedAudio = syncOffset !== undefined;
+    let inPoint = isUserTrack ? musicInPoint : 0;
+    let clipStart = 0;
+    if (isSyncedAudio) {
+      // offset > 0: внешний звук начался раньше камеры → входим в него позже.
+      // offset < 0: звук начался позже → сдвигаем клип по таймлайну вправо.
+      inPoint = Math.max(0, syncOffset!);
+      clipStart = Math.max(0, -syncOffset!);
+    }
+    const clipDur = Math.max(0.1, project.duration - clipStart);
     const { createAudioClip } = require("./factories");
     const clip = createAudioClip({
       trackId: audioTrack.id,
       asset: finalMusicAsset,
-      start: 0,
-      duration: project.duration,
+      start: clipStart,
+      duration: clipDur,
       inPoint,
-      outPoint: needsLoop ? inPoint + project.duration : inPoint + Math.min(musicAssetDur - inPoint, project.duration),
+      outPoint: needsLoop && !isSyncedAudio ? inPoint + clipDur : inPoint + Math.min(Math.max(0.1, musicAssetDur - inPoint), clipDur),
     });
-    clip.loop = needsLoop;
+    // Синхронизированную речевую дорожку зацикливать нельзя: повтор реплик
+    // превратил бы ролик в бессмыслицу.
+    clip.loop = needsLoop && !isSyncedAudio;
     // Вход музыки: для динамичных жанров — почти мгновенно (удар в бит), для кино — плавное вхождение.
-    clip.fadeIn = activeTemplate.pace === "slow" ? 1.2 : 0.35;
+    clip.fadeIn = isSyncedAudio ? 0.05 : activeTemplate.pace === "slow" ? 1.2 : 0.35;
     // Set appropriate volume: в «речевых» жанрах музыка — фон под голосом,
-    // в визуальных — почти полноправный саундтрек.
+    // в визуальных — почти полноправный саундтрек. Синхронизированный звук —
+    // это ГОЛОС, он звучит в полную громкость и проходит чистку речи.
     const speechTemplates = ["podcast", "hormozi", "interview", "education", "vlog"];
-    clip.volume = { value: speechTemplates.includes(style.templateId || "") ? 0.15 : 0.6, keyframes: [] };
-    clip.fadeOut = Math.min(2, project.duration / 4);
+    if (isSyncedAudio) {
+      clip.volume = { value: 1, keyframes: [] };
+      clip.normalize = true;
+      clip.denoise = true;
+      clip.voiceEnhance = true;
+      clip.fadeOut = 0.15;
+    } else {
+      clip.volume = { value: speechTemplates.includes(style.templateId || "") ? 0.15 : 0.6, keyframes: [] };
+      clip.fadeOut = Math.min(2, project.duration / 4);
+    }
     audioTrack.clips.push(clip);
   }
 
@@ -1576,13 +1649,37 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
       const baseLevel = musicClip.volume.value;
       const duckLevel = Math.min(0.15, baseLevel * 0.25);
 
+      // МУЗЫКА ПО ПЛАНУ РЕЖИССЁРА: у каждой сцены свой уровень и роль
+      // (см. scene.music). Ищем сцену, играющую в момент t, и берём её
+      // множитель — так музыка приподнимается на хуке и кульминации и
+      // корректно уходит под речь в середине.
+      const sceneLevels: Array<{ start: number; end: number; level: number; ducking: boolean }> = [];
+      for (const c of videoTrack.clips as import("./types").VideoClip[]) {
+        const dir = aiDecision.clips.find(
+          (x) => x.trackType !== "b-roll" && x.assetId === c.assetId && Math.abs((x.startTime ?? 0) - c.inPoint) < 0.5,
+        )?.sceneDirection;
+        if (!dir) continue;
+        sceneLevels.push({ start: c.start, end: c.start + c.duration, level: dir.music.level, ducking: dir.music.ducking });
+      }
+      const levelAt = (t: number): { level: number; ducking: boolean } => {
+        const s = sceneLevels.find((x) => t >= x.start && t < x.end);
+        // Уровень сцены задан относительно той же базы, что и baseLevel:
+        // если сцены не нашлось — работает шаблонный уровень.
+        return s ? { level: s.level, ducking: s.ducking } : { level: baseLevel, ducking: true };
+      };
+
       const kfs: import("./types").Keyframe[] = [];
       let lastTime = 0;
       for (const m of mergedSpeech) {
-         kfs.push({ id: randId(), time: Math.max(lastTime, m.start - 0.5), value: baseLevel, easing: "linear" });
-         kfs.push({ id: randId(), time: m.start, value: duckLevel, easing: "linear" });
-         kfs.push({ id: randId(), time: m.end, value: duckLevel, easing: "linear" });
-         kfs.push({ id: randId(), time: m.end + 1.0, value: baseLevel, easing: "linear" });
+         const pre = levelAt(Math.max(0, m.start - 0.6));
+         const during = levelAt(m.start);
+         const post = levelAt(m.end + 0.5);
+         // Сцена, где режиссёр отключил ducking (пауза, финал), музыку не роняет.
+         const inSpeechLevel = during.ducking ? Math.min(duckLevel, during.level) : during.level;
+         kfs.push({ id: randId(), time: Math.max(lastTime, m.start - 0.5), value: pre.level, easing: "linear" });
+         kfs.push({ id: randId(), time: m.start, value: inSpeechLevel, easing: "linear" });
+         kfs.push({ id: randId(), time: m.end, value: inSpeechLevel, easing: "linear" });
+         kfs.push({ id: randId(), time: m.end + 1.0, value: post.level, easing: "linear" });
          lastTime = m.end + 1.0;
       }
       musicClip.volume = { value: baseLevel, keyframes: kfs };

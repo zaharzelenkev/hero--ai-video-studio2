@@ -686,8 +686,32 @@ export function perceiveMusic(input: PerceiveInput): MusicUnderstanding {
     }))
     .filter((e) => e.end > 0);
 
-  const dropsTimeline = energyMap.filter((e) => e.level === "drop" && e.start > 0).map((e) => Math.round(e.start * 100) / 100);
-  const highsTimeline = energyMap.filter((e) => e.level === "high" && e.start > 0).map((e) => Math.round(e.start * 100) / 100);
+  /**
+   * ОНСЕТЫ энергетических секций, а не каждое окно анализа.
+   *
+   * Дроп длиной 10 секунд приходит как пять подряд идущих «drop»-окон по 2с.
+   * Музыкальное СОБЫТИЕ здесь одно — момент, когда дроп начался; середина
+   * громкого куска событием не является. Если отдавать наружу все окна,
+   * кульминация встаёт в произвольную точку внутри громкой секции и
+   * промахивается мимо удара — самый заметный дефект синхронизации.
+   * Поэтому возвращаем начало каждого НЕПРЕРЫВНОГО прогона уровня.
+   */
+  const onsetsOf = (level: AudioEnergySegment["energyLevel"]): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i < energyMap.length; i++) {
+      const e = energyMap[i];
+      if (e.level !== level || e.start <= 0) continue;
+      const prev = energyMap[i - 1];
+      // Начало прогона: предыдущего окна нет, у него другой уровень, либо
+      // между окнами есть разрыв во времени.
+      const isOnset = !prev || prev.level !== level || Math.abs(prev.end - e.start) > 0.05;
+      if (isOnset) out.push(Math.round(e.start * 100) / 100);
+    }
+    return out;
+  };
+
+  const dropsTimeline = onsetsOf("drop");
+  const highsTimeline = onsetsOf("high");
 
   return {
     present: !!musicAsset,

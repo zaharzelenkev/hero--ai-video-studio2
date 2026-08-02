@@ -137,7 +137,10 @@ check("без лиц и движения → static", inferCameraMotion([], "sta
   check("драматическая пауза сохранена", filtered.some((f) => f.isPause && Math.abs(f.start - 4.0) < 1e-6));
 }
 
-// Музыка: bpm по сетке, дропы сдвинуты на inPoint в координаты таймлайна.
+// Музыка: bpm по сетке, ОНСЕТЫ дропов сдвинуты на inPoint в координаты таймлайна.
+// Важно: два соседних «drop»-окна (28-30 и 30-32) — это ОДНО музыкальное
+// событие длиной 4с, а не два дропа. Наружу отдаётся начало прогона: только
+// так кульминация встаёт в момент удара, а не в середину громкой секции.
 {
   const music = perceiveMusic({
     assets: [asset("m1", "track.mp3", "audio", 60, {
@@ -153,7 +156,10 @@ check("без лиц и движения → static", inferCameraMotion([], "sta
   });
   check("present=true при аудио-ассете", music.present === true);
   check("beatDur=0.5 → 120 BPM", music.beatDur === 0.5 && music.bpm === 120, `beatDur=${music.beatDur} bpm=${music.bpm}`);
-  check("дропы сдвинуты на inPoint", JSON.stringify(music.dropsTimeline) === JSON.stringify([2, 4]), JSON.stringify(music.dropsTimeline));
+  check("онсет дропа сдвинут на inPoint (одно событие, не два окна)",
+    JSON.stringify(music.dropsTimeline) === JSON.stringify([2]), JSON.stringify(music.dropsTimeline));
+  check("онсет следующей секции (high) тоже найден",
+    JSON.stringify(music.highsTimeline) === JSON.stringify([6]), JSON.stringify(music.highsTimeline));
 }
 
 // ---------------------------------------------------------------------------

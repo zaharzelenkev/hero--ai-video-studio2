@@ -25,6 +25,7 @@ import ColorPanelV2 from "./panels/ColorPanelV2";
 import EffectsPanelV2 from "./panels/EffectsPanelV2";
 import SoundPanelV2 from "./panels/SoundPanelV2";
 import TextPanelV2 from "./panels/TextPanelV2";
+import MotionGraphicsPanelV2 from "./panels/MotionGraphicsPanelV2";
 import ExportPanelV2 from "./panels/ExportPanelV2";
 import ProductionPanelV2 from "./panels/ProductionPanelV2";
 import OfflineEditPanel from "./panels/OfflineEditPanel";
@@ -44,6 +45,7 @@ const PAGES: { id: EditorPage; label: string; icon: string; desc: string }[] = [
   { id: "effects", label: "Эффекты", icon: "✨", desc: "VFX: хромакей, удаление фона/объекта, LUT, bloom, лучи, зерно и др." },
   { id: "sound", label: "Звук", icon: "🎵", desc: "Микшер, EQ, компрессор, панорама" },
   { id: "text", label: "Текст", icon: "📝", desc: "Титры, шрифты, анимация" },
+  { id: "motion", label: "Motion", icon: "🪄", desc: "Моушн-графика: титры, lower thirds, callouts, CTA, интро/аутро, kinetic" },
   { id: "animation", label: "Кадры", icon: "🎬", desc: "Ключевые кадры и кривые" },
   { id: "ai", label: "AI", icon: "🤖", desc: "AI Director" },
   { id: "offline", label: "Черновик", icon: "✂️", desc: "Offline Edit: дубли, чистка речи, драматургия" },
@@ -76,6 +78,7 @@ const PANEL_COMPONENTS: Record<EditorPage, ComponentType> = {
   effects: EffectsPanelV2,
   sound: SoundPanelV2,
   text: TextPanelV2,
+  motion: MotionGraphicsPanelV2,
   animation: KeyframeEditor,
   ai: DirectorRedirectPanel,
   offline: OfflineEditPanel,

@@ -7,6 +7,21 @@ import { buildOutputArgs, compileProjectToFfmpeg, type CompileOptions, type Ligh
 import { fontFileFor } from "./presets";
 import { collectLightRaysInputs, prepareAiVfxOverrides, writeLutCubes } from "./editor/vfxExport";
 import { cubeFileName } from "./editor/lut";
+import { renderMgOverlayPng } from "./motionGraphicsCanvas";
+
+/**
+ * Измерение текста в пикселях через canvas — для раскладки моушн-графики
+ * при экспорте (совпадает с превью).
+ */
+let measureCanvas: HTMLCanvasElement | null = null;
+function measureTextForExport(text: string, px: number, family: string, weight: number): number {
+  if (typeof document === "undefined") return text.length * px * 0.6;
+  if (!measureCanvas) measureCanvas = document.createElement("canvas");
+  const ctx = measureCanvas.getContext("2d");
+  if (!ctx) return text.length * px * 0.6;
+  ctx.font = `${weight} ${px.toFixed(1)}px "${family}", "Inter", system-ui, sans-serif`;
+  return ctx.measureText(text).width;
+}
 
 /** Клипы, которым нужен пре-рендер кадров (AI-эффекты) или PNG лучей. */
 function needsVfxPreRender(project: Project): boolean {
@@ -180,11 +195,25 @@ export async function renderProject(
       }
     }
 
+    // Моушн-графика: PNG-панели и измерение текста из превью.
+    compileOptions.renderMgOverlay = (clip, W, H, spec) => renderMgOverlayPng(clip, W, H, spec);
+    compileOptions.measureText = measureTextForExport;
+
     const compiled = compileProjectToFfmpeg(project, project.exportSettings, fileNameFor, compileOptions);
 
     // .cube файлы LUT (тот же грид, что в превью).
     if (compiled.lutFiles.length) {
       await writeLutCubes(ffmpeg, compiled.lutFiles);
+    }
+
+    // PNG-панели моушн-графики (lower thirds, CTA, прогресс-бары и т.д.).
+    for (const f of compiled.overlayFiles) {
+      try {
+        await ffmpeg.writeFile(f.path, new Uint8Array(f.png));
+        vfxTempFiles.add(f.path);
+      } catch (err) {
+        console.warn("Не удалось записать PNG-оверлей моушн-графики:", err);
+      }
     }
 
     const args: string[] = [];

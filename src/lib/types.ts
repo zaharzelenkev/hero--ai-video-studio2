@@ -514,6 +514,121 @@ export type TextAnimation =
   | "glitch"
   | "bounce";
 
+/* ------------------------------------------------------------------ */
+/* Motion Graphics — профессиональная моушн-графика                    */
+/* ------------------------------------------------------------------ */
+
+/** Все виды моушн-графики, поддерживаемые студией. */
+export type MotionGraphicKind =
+  | "title" // профессиональные титры
+  | "lowerThird" // lower thirds
+  | "callout" // callouts (выноски)
+  | "progressBar" // progress bars
+  | "animatedCaptions" // animated captions (динамические подписи)
+  | "logoReveal" // logo reveal
+  | "intro" // интро
+  | "outro" // аутро
+  | "cta" // CTA-анимации
+  | "subtitle" // субтитры (стилизованные)
+  | "trackingText" // бегущая строка / трекинг-текст
+  | "kinetic"; // kinetic typography
+
+/** Анимации моушн-графики (вход/выход). */
+export type MgAnim =
+  | "none"
+  | "fade"
+  | "slide-up"
+  | "slide-down"
+  | "slide-left"
+  | "slide-right"
+  | "pop"
+  | "elastic"
+  | "stomp"
+  | "glitch"
+  | "typewriter"
+  | "blur-in"
+  | "scale-in"
+  | "rotate-in"
+  | "zoom";
+
+export type MgCalloutStyle = "bubble" | "box" | "underline" | "highlight" | "sticker";
+export type MgCtaStyle = "button" | "bar" | "card";
+export type MgTrackingDirection = "left" | "right" | "up" | "down";
+export type MgKineticStyle = "wordBurst" | "wave" | "stomp" | "elastic" | "glitch" | "typewriter" | "flip";
+export type MgCaptionStyle = "classic" | "box" | "highlight" | "pop" | "karaoke";
+export type MgLogoStyle = "fade" | "zoom" | "slide" | "rotate" | "bounce";
+
+/**
+ * Полностью настраиваемая конфигурация моушн-графики.
+ * Хранится в `TextClip.motionGraphic` и управляется панелью Motion.
+ */
+export interface MotionGraphicConfig {
+  kind: MotionGraphicKind;
+
+  /* Брендинг и цвета */
+  accentColor: string; // акцент: линия-кикер, заливка бара, кнопка CTA, прогресс
+  secondaryColor: string; // вторичный текст (роль, подзаголовок)
+  backgroundColor: string; // фон панели/плашки/подложки
+  panelOpacity: number; // 0..1 непрозрачность подложки
+
+  /* Текстовые поля */
+  kicker: string; // маленькая надпись над основным текстом (eyebrow)
+  subtext: string; // вторая строка (роль в lower third, подзаголовок интро)
+  ctaLabel: string; // текст кнопки CTA
+  ctaSubtext: string; // подпись под кнопкой CTA
+  logoText: string; // логотип-слово/монограмма (если нет картинки)
+  logoAssetId: string | null; // ID медиа-ассета с картинкой логотипа
+
+  /* Анимация */
+  animationIn: MgAnim;
+  animationOut: MgAnim;
+  inDuration: number; // секунды
+  outDuration: number; // секунды
+  /** Пауза между словами kinetic-типографики (сек). */
+  kineticStagger: number;
+
+  /* Progress bar */
+  progress: AnimParam; // 0..1
+  barWidth: number; // доля ширины кадра 0.1..0.95
+  barThickness: number; // px (в масштабе 1080p)
+  barRounded: boolean;
+  showPercent: boolean;
+  showLabel: boolean;
+
+  /* Callout */
+  calloutStyle: MgCalloutStyle;
+
+  /* CTA */
+  ctaStyle: MgCtaStyle;
+
+  /* Tracking text (бегущая строка) */
+  trackingDirection: MgTrackingDirection;
+  /** Скорость: доля размера кадра в секунду. */
+  trackingSpeed: number;
+
+  /* Kinetic typography */
+  kineticStyle: MgKineticStyle;
+
+  /* Captions / subtitles */
+  captionStyle: MgCaptionStyle;
+
+  /* Оформление */
+  radius: number; // скругление углов (px, 1080p)
+  shadowEnabled: boolean;
+  shadowColor: string;
+  shadowBlur: number;
+  outlineEnabled: boolean;
+  outlineColor: string;
+  outlineWidth: number;
+  letterSpacing: number;
+  lineHeight: number;
+  fontWeight: number;
+  uppercase: boolean;
+  italic: boolean;
+  /** Стиль появления логотипа. */
+  logoStyle: MgLogoStyle;
+}
+
 export interface TextStyle {
   fontFamily: string;
   fontSize: number;
@@ -571,6 +686,14 @@ export interface TextClip extends BaseClip {
   
   // Advanced styling
   style?: TextStyle;
+
+  /**
+   * Полная конфигурация моушн-графики (титры, lower third, callout,
+   * progress bar, captions, logo reveal, интро/аутро, CTA, субтитры,
+   * бегущая строка, kinetic-типографика). Если задано — клип рендерится
+   * движком моушн-графики в превью и при экспорте.
+   */
+  motionGraphic?: MotionGraphicConfig;
 }
 
 export type Clip = VideoClip | AudioClip | TextClip | SubtitleClip;

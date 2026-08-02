@@ -4,6 +4,7 @@ import { EFFECT_PRESETS, fontFileFor, lutToFfmpeg, sanitizeGlyphs, transitionToX
 import { speedRampToSetptsExpr } from "./speedRamp";
 import { cubeFileName } from "./editor/lut";
 import { buildSoundDesignFilters, defaultSoundDesign } from "./soundDesign";
+import { buildMotionGraphicFfmpeg, heuristicMeasure, type MgMeasureText, type MgOverlayRenderer } from "./motionGraphics";
 
 let uidCounter = 0;
 function id(prefix: string) {
@@ -26,6 +27,8 @@ export interface CompileResult {
   totalDuration: number;
   /** .cube файлы LUT, которые рендер должен записать в ФС ffmpeg. */
   lutFiles: string[];
+  /** PNG-оверлеи моушн-графики (панели, бары), которые рендер записывает в ФС. */
+  overlayFiles: { path: string; png: Uint8Array }[];
 }
 
 export type FileNameResolver = (clip: VideoClip | AudioClip) => string;
@@ -52,6 +55,10 @@ export interface CompileOptions {
   vfxOverrides?: Map<string, VfxRenderOverride>;
   /** clipId → PNG световых лучей (размер = размер отрисовки клипа). */
   lightRays?: LightRaysInput[];
+  /** Рендерер PNG-панелей моушн-графики (браузер). Если нет — drawbox. */
+  renderMgOverlay?: MgOverlayRenderer | null;
+  /** Измерение текста для раскладки моушн-графики (canvas в браузере). */
+  measureText?: MgMeasureText;
 }
 
 function escFilterArg(v: string | number): string {
@@ -857,9 +864,33 @@ export function compileProjectToFfmpeg(
   }
 
   // Text tracks (drawtext, needs DejaVuSans.ttf mounted at fontFile).
+  // Клипы с motionGraphic рендерит движок моушн-графики.
   let usedFont = false;
+  const overlayFiles: { path: string; png: Uint8Array }[] = [];
   for (const track of textTracks) {
     for (const clip of track.clips as TextClip[]) {
+      if (clip.motionGraphic) {
+        // Моушн-графика рендерится движком даже при пустом основном тексте
+        // (CTA с ctaLabel, progress bar без подписи и т.п.).
+        usedFont = true;
+        const mg = buildMotionGraphicFfmpeg({
+          clip,
+          W,
+          H,
+          composite: composite!,
+          label: id,
+          inputs,
+          fileNameFor: (assetId) => fileNameFor({ assetId, type: "video" } as VideoClip),
+          measure: options.measureText ?? heuristicMeasure,
+          renderOverlay: options.renderMgOverlay ?? null,
+        });
+        if (mg.filters.length) {
+          lines.push(mg.filters.join(";"));
+          composite = mg.composite;
+          for (const f of mg.overlayFiles) overlayFiles.push(f);
+        }
+        continue;
+      }
       if (!clip.text || !clip.text.trim()) continue; // пустой drawtext роняет рендер
       usedFont = true;
       const start = clip.start;
@@ -996,6 +1027,7 @@ export function compileProjectToFfmpeg(
     fontMounted: usedFont,
     totalDuration,
     lutFiles: [...lutFiles],
+    overlayFiles,
   };
 }
 

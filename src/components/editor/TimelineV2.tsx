@@ -5,7 +5,10 @@ import { useProjectStore, timelineDuration, findClip } from "@/store/projectStor
 import { mediaPool } from "@/lib/editor/resourcePool";
 import { importFilesAsAssets } from "@/lib/editor/mediaImport";
 import { isPictureLocked } from "@/lib/pictureLock";
+import { mgLabel } from "@/lib/motionGraphics";
 import type { AudioClip, Clip, MediaAsset, TextClip, Track, VideoClip } from "@/lib/types";
+
+const mgKindLabel = mgLabel;
 
 const HEADER_WIDTH = 176;
 const RULER_HEIGHT = 30;
@@ -128,14 +131,17 @@ function ClipBlock({
   const height = trackHeight(track) - 8;
   const isVideo = clip.type === "video" || clip.type === "image";
   const isAudio = clip.type === "audio";
+  const isMg = (clip as TextClip).motionGraphic != null;
 
   const palette = isAudio
     ? "from-amber-600/40 to-amber-800/50 border-amber-300/40"
-    : clip.type === "text" || clip.type === "subtitle"
-      ? "from-emerald-600/40 to-teal-800/50 border-emerald-300/40"
-      : (clip as VideoClip).reversed
-        ? "from-rose-700/50 to-rose-900/60 border-rose-300/40"
-        : "from-sky-600/40 to-indigo-800/50 border-sky-300/40";
+    : isMg
+      ? "from-fuchsia-600/40 to-violet-800/50 border-fuchsia-300/40"
+      : clip.type === "text" || clip.type === "subtitle"
+        ? "from-emerald-600/40 to-teal-800/50 border-emerald-300/40"
+        : (clip as VideoClip).reversed
+          ? "from-rose-700/50 to-rose-900/60 border-rose-300/40"
+          : "from-sky-600/40 to-indigo-800/50 border-sky-300/40";
 
   return (
     <div
@@ -153,7 +159,11 @@ function ClipBlock({
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1 bg-black/45 px-1.5 py-[2px] backdrop-blur-[2px]">
         <span className="truncate text-[10px] font-semibold text-white/90">
-          {clip.type === "text" ? `T · ${(clip as TextClip).text?.slice(0, 24) || "Текст"}` : clip.name}
+          {isMg
+            ? `🪄 ${mgKindLabel((clip as TextClip).motionGraphic!.kind)} · ${(clip as TextClip).text?.slice(0, 18) || ""}`
+            : clip.type === "text"
+              ? `T · ${(clip as TextClip).text?.slice(0, 24) || "Текст"}`
+              : clip.name}
         </span>
         <span className="ml-auto shrink-0 font-mono text-[9px] text-white/60">{clip.duration.toFixed(1)}s</span>
       </div>
@@ -335,6 +345,7 @@ function TimelineToolbar({ onFit }: { onFit: () => void }) {
   const detachAudio = useProjectStore((s) => s.detachAudio);
   const createTrack = useProjectStore((s) => s.createTrack);
   const addTextClip = useProjectStore((s) => s.addTextClip);
+  const setActivePage = useProjectStore((s) => s.setActivePage);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const pxPerSecond = useProjectStore((s) => s.pxPerSecond);
   const setZoom = useProjectStore((s) => s.setZoom);
@@ -392,6 +403,13 @@ function TimelineToolbar({ onFit }: { onFit: () => void }) {
       </button>
       <button onClick={() => addTextClip()} className={btn(false)} title="Добавить титр на плейхеде">
         + Титр
+      </button>
+      <button
+        onClick={() => setActivePage("motion")}
+        className={`${btn(false)} border-fuchsia-400/30 text-fuchsia-300`}
+        title="Моушн-графика: титры, lower thirds, CTA, интро/аутро, kinetic-типографика"
+      >
+        🪄 Motion
       </button>
 
       <div className="ml-auto flex items-center gap-1.5">

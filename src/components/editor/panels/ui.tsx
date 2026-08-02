@@ -183,3 +183,42 @@ export function CheckboxField({ label, checked, onChange }: { label: string; che
     </label>
   );
 }
+
+export function TextField({
+  label,
+  value,
+  onChange,
+  rows = 1,
+  placeholder,
+  mono,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+  placeholder?: string;
+  mono?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-0.5 block text-[10px] font-medium text-slate-400">{label}</span>
+      {rows > 1 ? (
+        <textarea
+          value={value}
+          rows={rows}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className={`w-full resize-none rounded-lg border border-white/10 bg-black/40 p-2 text-[11px] text-slate-100 outline-none focus:border-violet-400/50 ${mono ? "font-mono" : ""}`}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className={`w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-slate-100 outline-none focus:border-violet-400/50 ${mono ? "font-mono" : ""}`}
+        />
+      )}
+    </label>
+  );
+}

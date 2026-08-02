@@ -5,6 +5,8 @@ import type { AudioClip, Clip, MediaAsset, Marker, Project, TextClip, Track, Tra
 import { saveProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import { createAudioClip, createTextClip, createVideoClip } from "@/lib/factories";
+import { createMotionGraphicClip } from "@/lib/motionGraphics";
+import type { MotionGraphicKind } from "@/lib/types";
 import {
   analyzePictureLock,
   clipIsStructuralEdit,
@@ -17,7 +19,7 @@ import {
 
 /** Страницы инспектора редактора. `offline` — отчёт чернового монтажа
  *  (какие дубли выбраны, что вырезано, как поставлена каждая сцена). */
-export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "animation" | "ai" | "offline" | "lock" | "export";
+export type EditorPage = "media" | "montage" | "color" | "effects" | "sound" | "text" | "motion" | "animation" | "ai" | "offline" | "lock" | "export";
 export type EditorTool = "select" | "razor" | "hand";
 export type TrimEdge = "in" | "out";
 
@@ -136,6 +138,8 @@ interface ProjectState {
   /* --- creating content --- */
   addClipFromAsset: (assetId: string, options?: { trackId?: string; start?: number; select?: boolean }) => string | null;
   addTextClip: (text?: string) => string | null;
+  /** Создать клип моушн-графики выбранного вида на плейхеде. */
+  addMotionGraphic: (kind: MotionGraphicKind, text?: string, duration?: number) => string | null;
 
   /* --- tracks --- */
   addTrack: (track: Track) => void;
@@ -890,6 +894,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedClipId: clip.id,
       selectedTrackId: trackId,
       activePage: "text",
+    }));
+    return clip.id;
+  },
+
+  addMotionGraphic: (kind, text, duration) => {
+    const state = get();
+    const project = state.project;
+    if (!project) return null;
+    let tracks = project.tracks;
+    let track = tracks.find((t) => t.type === "text" && !t.locked);
+    if (!track) {
+      track = { id: uid("track"), type: "text", name: "Титры", clips: [], hidden: false, muted: false, locked: false };
+      tracks = [...tracks, track];
+    }
+    const clip = createMotionGraphicClip({ trackId: track.id, start: state.playhead, kind, text, duration });
+    const trackId = track.id;
+    const nextTracks = tracks.map((t) => (t.id === trackId ? { ...t, clips: sortClips([...t.clips, clip]) } : t));
+    set((s) => ({
+      ...(pushHistory(s, withTracks(project, nextTracks), true) as Partial<ProjectState>),
+      selectedClipIds: [clip.id],
+      selectedClipId: clip.id,
+      selectedTrackId: trackId,
+      activePage: "motion",
     }));
     return clip.id;
   },

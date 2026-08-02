@@ -9,6 +9,7 @@ import { vfxBrush } from "./vfxBrush";
 import { bgRemovalService, type SegmentationMask } from "./mediaPipeVfx";
 import { applyColorGrade, type ColorGradeParams } from "@/lib/colorGrade";
 import { lutGridFor } from "./lut";
+import { drawMotionGraphic } from "@/lib/motionGraphicsCanvas";
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -807,7 +808,15 @@ export function renderFrame(
         const media = clip as VideoClip;
         drawVisualClip(ctx, media, assetsById.get(media.assetId), time, w, h);
       } else if (clip.type === "text") {
-        drawTextClip(ctx, clip as TextClip, time, w, h);
+        const t = clip as TextClip;
+        if (t.motionGraphic) {
+          // Моушн-графика: полноценный движок (титры, lower thirds, CTA и т.д.).
+          const logoAsset = t.motionGraphic.logoAssetId ? assetsById.get(t.motionGraphic.logoAssetId) : undefined;
+          const logoImage = logoAsset && logoAsset.kind === "image" ? mediaPool.imageFor(logoAsset) : null;
+          drawMotionGraphic(ctx, t, time, w, h, { logoImage });
+        } else {
+          drawTextClip(ctx, t, time, w, h);
+        }
       } else if (clip.type === "subtitle") {
         drawSubtitleClip(ctx, clip as SubtitleClip, w, h);
       }

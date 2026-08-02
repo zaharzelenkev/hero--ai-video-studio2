@@ -5,6 +5,7 @@ import { param } from "@/lib/types";
 import type { Clip, TextAnimation, TextClip } from "@/lib/types";
 import { TEXT_FONTS } from "@/lib/presets";
 import { applyTextAnimation } from "@/lib/textAnimations";
+import { mgLabel } from "@/lib/motionGraphics";
 import { PanelSection, ToggleButton, EmptyHint, SliderField, SelectField, ColorField, NumberField, CheckboxField } from "./ui";
 
 const ANIMATIONS: TextAnimation[] = [
@@ -96,6 +97,7 @@ export default function TextPanelV2() {
   const updateClip = useProjectStore((s) => s.updateClip);
   const addTextClip = useProjectStore((s) => s.addTextClip);
   const selectClip = useProjectStore((s) => s.selectClip);
+  const setActivePage = useProjectStore((s) => s.setActivePage);
 
   if (!project) return <EmptyHint>Проект не загружен.</EmptyHint>;
 
@@ -126,6 +128,23 @@ export default function TextPanelV2() {
           )}
         </PanelSection>
         <EmptyHint>Выберите титр на таймлайне или создайте новый — здесь появятся шрифт, стиль и анимация.</EmptyHint>
+      </div>
+    );
+  }
+
+  if (clip.motionGraphic) {
+    return (
+      <div className="space-y-3">
+        <PanelSection title="Моушн-графика">
+          <EmptyHint>
+            Этот клип — моушн-графика ({mgLabel(clip.motionGraphic.kind)}). Все настройки — в панели Motion.
+          </EmptyHint>
+          <div className="mt-2">
+            <ToggleButton tone="accent" onClick={() => setActivePage("motion")}>
+              🪄 Открыть панель Motion
+            </ToggleButton>
+          </div>
+        </PanelSection>
       </div>
     );
   }

@@ -1,3 +1,8 @@
 node_modules/
 .next/
 *.tsbuildinfo
+
+# env — не коммитим секреты
+.env
+.env.local
+.env.*.local

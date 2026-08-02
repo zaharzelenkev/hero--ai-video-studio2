@@ -7,6 +7,8 @@ import { mediaPool } from "./resourcePool";
 import { applyVfxChain, hexToRgbArr, toImageData } from "./vfxEngine";
 import { vfxBrush } from "./vfxBrush";
 import { bgRemovalService, type SegmentationMask } from "./mediaPipeVfx";
+import { applyColorGrade, type ColorGradeParams } from "@/lib/colorGrade";
+import { lutGridFor } from "./lut";
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -60,7 +62,9 @@ function localTimeOf(clip: Clip, time: number): number {
   return Math.max(0, time - clip.start);
 }
 
-/** CSS-фильтр, приближающий цветокоррекцию клипа в реальном времени. */
+/** CSS-фильтр, приближающий цветокоррекцию клипа в реальном времени.
+ *  Для сложных параметров (curves, lift/gamma/gain) используется
+ *  попиксельный движок colorGrade.ts */
 export function colorGradeToCss(color: ColorGrade | undefined, localTime: number): string {
   if (!color) return "";
   const parts: string[] = [];
@@ -81,26 +85,101 @@ export function colorGradeToCss(color: ColorGrade | undefined, localTime: number
   const blacks = ev(color.blacks);
   const whites = ev(color.whites);
 
+  // Exposure (EV) → brightness multiplier: 2^EV
+  const exposureMult = Math.pow(2, exposure);
   const brightnessTotal =
-    Math.pow(2, exposure) * (1 + brightness) * (1 + (whites - blacks) / 600) * (gammaParam ? 1 / Math.max(0.2, gammaParam) : 1);
+    exposureMult * (1 + brightness) * (1 + (whites - blacks) / 600) * (gammaParam ? 1 / Math.max(0.2, gammaParam) : 1);
   if (Math.abs(brightnessTotal - 1) > 0.001) parts.push(`brightness(${clamp(brightnessTotal, 0.05, 4).toFixed(3)})`);
 
   const contrastTotal = (1 + contrast) * (1 + (highlights - shadows) / 900);
   if (Math.abs(contrastTotal - 1) > 0.001) parts.push(`contrast(${clamp(contrastTotal, 0.05, 4).toFixed(3)})`);
 
-  const satTotal = (1 + saturation) * (1 + vibrance * 0.5);
-  if (Math.abs(satTotal - 1) > 0.001) parts.push(`saturate(${clamp(satTotal, 0, 4).toFixed(3)})`);
+  // Saturation + Vibrance: vibrance has stronger effect on less saturated pixels
+  const satTotal = (1 + saturation) * (1 + vibrance * 0.7);
+  if (Math.abs(satTotal - 1) > 0.001) parts.push(`saturate(${clamp(satTotal, 0, 5).toFixed(3)})`);
 
   const hueTotal = hue + tint * 18;
   if (Math.abs(hueTotal) > 0.01) parts.push(`hue-rotate(${hueTotal.toFixed(2)}deg)`);
 
-  if (temperature > 0.001) parts.push(`sepia(${clamp(temperature * 0.42, 0, 1).toFixed(3)}) saturate(${(1 + temperature * 0.16).toFixed(3)})`);
-  if (temperature < -0.001) parts.push(`hue-rotate(${(temperature * 14).toFixed(2)}deg) saturate(${(1 - temperature * 0.08).toFixed(3)})`);
+  // Temperature & Tint as CSS approximations
+  if (temperature > 0.001) {
+    parts.push(`sepia(${clamp(temperature * 0.42, 0, 1).toFixed(3)})`);
+    parts.push(`saturate(${(1 + temperature * 0.16).toFixed(3)})`);
+  }
+  if (temperature < -0.001) {
+    parts.push(`hue-rotate(${(temperature * 14).toFixed(2)}deg)`);
+    parts.push(`saturate(${(1 - temperature * 0.08).toFixed(3)})`);
+  }
+  if (tint > 0.001) {
+    parts.push(`hue-rotate(${(tint * 8).toFixed(2)}deg)`);
+  }
+  if (tint < -0.001) {
+    parts.push(`hue-rotate(${(tint * 8).toFixed(2)}deg)`);
+  }
+
+  // Shadows / Highlights tone control via CSS is limited; engine handles these
 
   const lutCss = LUT_CSS[color.lut] ?? "";
   if (lutCss) parts.push(lutCss);
 
   return parts.join(" ");
+}
+
+/** Returns true if the color grade needs the full engine (not just CSS). */
+export function colorNeedsEngine(color: ColorGrade | undefined): boolean {
+  if (!color) return false;
+  return !!(
+    color.curves?.master?.points?.length ||
+    (color.colorWheels &&
+      (color.colorWheels.lift.r !== 0 || color.colorWheels.lift.g !== 0 || color.colorWheels.lift.b !== 0 ||
+       color.colorWheels.gamma.r !== 0 || color.colorWheels.gamma.g !== 0 || color.colorWheels.gamma.b !== 0 ||
+       color.colorWheels.gain.r !== 0 || color.colorWheels.gain.g !== 0 || color.colorWheels.gain.b !== 0)) ||
+    (color.skinToneProtection ?? 0) > 0.001
+  );
+}
+
+/** Применяет движок цветокоррекции к буферу кадра. */
+export function applyColorGradeEngine(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  color: ColorGrade | undefined,
+): Uint8ClampedArray {
+  if (!color) return data;
+  const params: ColorGradeParams = {
+    exposure: color.exposure?.value ?? 0,
+    contrast: color.contrast?.value ?? 0,
+    contrastPivot: 0.5,
+    saturation: color.saturation?.value ?? 0,
+    vibrance: color.vibrance?.value ?? 0,
+    hue: color.hue?.value ?? 0,
+    highlights: color.highlights?.value ?? 0,
+    shadows: color.shadows?.value ?? 0,
+    whites: color.whites?.value ?? 0,
+    blacks: color.blacks?.value ?? 0,
+    temperature: color.temperature?.value ?? 0,
+    tint: color.tint?.value ?? 0,
+    gamma: color.gamma?.value ?? 1,
+    liftGammaGain: color.colorWheels
+      ? {
+          lift: color.colorWheels.lift,
+          gamma: color.colorWheels.gamma,
+          gain: color.colorWheels.gain,
+        }
+      : undefined,
+    curves: color.curves
+      ? {
+          master: color.curves.master.points,
+          red: color.curves.red.points,
+          green: color.curves.green.points,
+          blue: color.curves.blue.points,
+        }
+      : undefined,
+    skinToneProtection: color.skinToneProtection ?? 0,
+  };
+
+  const lutGrid = lutGridFor(color.lut);
+  return applyColorGrade(data, width, height, params, lutGrid);
 }
 
 function effectsToCss(effects: string[] | undefined): string {
@@ -230,6 +309,8 @@ function hasEngineVfx(clip: VideoClip): boolean {
   const vfx = clip.vfx;
   if (clip.chroma?.enabled) return true;
   if (clip.motionBlur?.enabled) return true;
+  // Check if color grade needs the full engine (curves, lift/gamma/gain, skin tone protection)
+  if (colorNeedsEngine(clip.color)) return true;
   if (!vfx) return false;
   return (
     (vfx.backgroundRemoval?.enabled ?? false) ||
@@ -320,6 +401,15 @@ function applyEngineToLayer(
         : null,
     },
   );
+
+  // Apply MONTIQ Color Grade engine (curves, lift/gamma/gain, skin tone) if needed
+  if (colorNeedsEngine(clip.color)) {
+    const gradedData = applyColorGradeEngine(out.data, workW, workH, clip.color);
+    // Copy graded data back to out.data
+    for (let i = 0; i < gradedData.length; i++) {
+      out.data[i] = gradedData[i];
+    }
+  }
 
   target.putImageData(toImageData(out), 0, 0);
 

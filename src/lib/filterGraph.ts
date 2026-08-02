@@ -426,37 +426,78 @@ function buildVideoClipChain(
     current = next;
   }
 
-  // Color grade (brightness/contrast/saturation/gamma via eq, hue separately).
+  // ─── Color Grade: MONTIQ Professional Color Grading Pipeline ───
   const c = clip.color;
-  const brightnessExpr = paramToFfmpegExpr(c.brightness, "t");
+
+  // 1. Exposure (EV): brightness in eq ≈ 2^EV - 1 for small values
+  const exposureEV = paramToFfmpegExpr(c.exposure, "t");
+  const brightnessExpr = `(${paramToFfmpegExpr(c.brightness, "t")})+min(1, max(-0.9, pow(2,${exposureEV})-1))`;
   const contrastExpr = `(1+(${paramToFfmpegExpr(c.contrast, "t")}))`;
-  const saturationExpr = `(1+(${paramToFfmpegExpr(c.saturation, "t")}))`;
+  const satVal = paramToFfmpegExpr(c.saturation, "t");
+  const vibVal = paramToFfmpegExpr(c.vibrance, "t");
+  const saturationExpr = `(1+(${satVal})+(${vibVal})*0.5)`;
   const gammaExpr = paramToFfmpegExpr(c.gamma, "t");
-  const nextEq = id(`c${tag}_`);
+
+  // 2. Highlights/Shadows/Whites/Blacks via colorlevels
+  const hlVal = c.highlights.value || 0;
+  const shVal = c.shadows.value || 0;
+  const whVal = c.whites.value || 0;
+  const blVal = c.blacks.value || 0;
+  const hasTonals = hlVal !== 0 || shVal !== 0 || whVal !== 0 || blVal !== 0;
+
+  if (hasTonals) {
+    const nextTonals = id(`c${tag}_tonal_`);
+    // colorlevels: input black/white point adjustment
+    const inMin = Math.max(0, 0 + blVal / 255).toFixed(4);
+    const inMax = Math.min(1, 1 + whVal / 255).toFixed(4);
+    const outMin = Math.max(0, -shVal / 300).toFixed(4);
+    const outMax = Math.min(1, 1 + hlVal / 300).toFixed(4);
+    lines.push(
+      `[${current}]colorlevels=rimin=${inMin}:gimin=${inMin}:bimin=${inMin}:rimax=${inMax}:gimax=${inMax}:bimax=${inMax}:romin=${outMin}:gomin=${outMin}:bomin=${outMin}:romax=${outMax}:gomax=${outMax}:bomax=${outMax}[${nextTonals}]`,
+    );
+    current = nextTonals;
+  }
+
+  // 3. eq: brightness + contrast + saturation + gamma
+  const nextEq = id(`c${tag}_eq_`);
   lines.push(
     `[${current}]eq=brightness='${brightnessExpr}':contrast='${contrastExpr}':saturation='${saturationExpr}':gamma='${gammaExpr}'[${nextEq}]`,
   );
   current = nextEq;
 
+  // 4. Hue
   if (c.hue.value !== 0 || c.hue.keyframes.length) {
     const hueExpr = paramToFfmpegExpr(c.hue, "t");
-    const next = id(`c${tag}_`);
+    const next = id(`c${tag}_hue_`);
     lines.push(`[${current}]hue=h='${hueExpr}'[${next}]`);
     current = next;
   }
 
+  // 5. Temperature & Tint via colorbalance
   if (c.temperature.value !== 0 || c.tint.value !== 0) {
-    const rs = (c.temperature.value * 0.3 + c.tint.value * 0.1).toFixed(3);
-    const gs = (c.tint.value * 0.15).toFixed(3);
-    const bs = (-c.temperature.value * 0.3 + c.tint.value * -0.1).toFixed(3);
-    const next = id(`c${tag}_`);
-    lines.push(`[${current}]colorbalance=rs=${rs}:gs=${gs}:bs=${bs}:rm=${rs}:gm=${gs}:bm=${bs}[${next}]`);
+    const tempVal = paramToFfmpegExpr(c.temperature, "t");
+    const tintV = paramToFfmpegExpr(c.tint, "t");
+    const rs = `(${tempVal})*0.3+(${tintV})*0.1`;
+    const gs = `(${tintV})*0.15`;
+    const bs = `(-${tempVal})*0.3+(-${tintV})*0.1`;
+    const next = id(`c${tag}_wb_`);
+    lines.push(`[${current}]colorbalance=rs='${rs}':gs='${gs}':bs='${bs}':rm='${rs}':gm='${gs}':bm='${bs}'[${next}]`);
     current = next;
   }
 
+  // 6. Curves (via curves filter if defined)
+  if (c.curves?.master?.points && c.curves.master.points.length >= 2) {
+    const pts = c.curves.master.points;
+    const curveExpr = pts.map((p) => `${p.x.toFixed(4)}/${p.y.toFixed(4)}`).join(" ");
+    const next = id(`c${tag}_curves_`);
+    lines.push(`[${current}]curves=master='${curveExpr}'[${next}]`);
+    current = next;
+  }
+
+  // 7. LUT (CSS-style via lutToFfmpeg)
   const lutFilters = lutToFfmpeg(c.lut);
   for (const f of lutFilters) {
-    const next = id(`c${tag}_`);
+    const next = id(`c${tag}_lut_`);
     lines.push(`[${current}]${f}[${next}]`);
     current = next;
   }

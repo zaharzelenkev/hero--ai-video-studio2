@@ -1551,26 +1551,41 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
      onProgress?.("Генерация фоновой музыки...");
      try {
         const { generateProceduralMusic, proceduralStyleForTemplate } = await import("./musicGenerator");
+        const { downloadFreeMusicTrack, musicMoodForVideo, selectFreeMusicTrack } = await import("./freeMusicLibrary");
         const { saveBlob } = await import("./db");
 
-        // Стиль — из ЕДИНОЙ маппинг-функции: совпадает с ритм-сеткой, построенной раньше
+        // Стиль ритм-сетки остаётся прежним; сам фон теперь сначала берётся из
+        // бесплатной библиотеки живых инструментальных записей по настроению ролика.
         const mStyle = proceduralStyleForTemplate(activeTemplate.id);
-
-        // детерминированный сид — одна и та же медиатека даёт тот же саундтрек
         const mSeed = project.assets.reduce(
           (acc, a) => acc + (a.id.charCodeAt(0) || 0) + Math.round((a.duration ?? 0) * 13), 7);
-        const mBlob = await generateProceduralMusic(mStyle, project.duration, mSeed);
-        if (!mBlob) throw new Error("procedural music unavailable");
+        const libraryTrack = selectFreeMusicTrack(musicMoodForVideo(activeTemplate.id, title), mSeed);
+        onProgress?.(`Подбираем музыку: ${libraryTrack.title}...`);
+        let mBlob = await downloadFreeMusicTrack(libraryTrack);
+        let musicName = libraryTrack.title;
+        let mime = mBlob?.type || "audio/ogg";
+
+        // Безопасный fallback сохраняет прежнее поведение при отсутствии сети
+        // или временной недоступности открытого архива.
+        if (!mBlob) {
+          onProgress?.("Библиотека недоступна — создаём резервный саундтрек...");
+          mBlob = await generateProceduralMusic(mStyle, project.duration, mSeed);
+          musicName = `AI Music (${mStyle})`;
+          mime = "audio/wav";
+        }
+        if (!mBlob) throw new Error("background music unavailable");
         const mId = "bgm_" + Date.now();
-        const mFile = new File([mBlob], `AI Music (${mStyle})`, { type: "audio/wav" });
+        const mFile = new File([mBlob], musicName, { type: mime });
         await saveBlob(mId, mFile);
         
         finalMusicAsset = {
           id: mId,
-          name: `AI Music (${mStyle})`,
+          name: musicName,
           kind: "audio",
-          mime: "audio/wav",
+          mime,
           blobKey: mId,
+          // Длительность источника может быть больше/меньше ролика: ниже уже
+          // работает существующая безопасная логика loop/fade.
           duration: project.duration,
           createdAt: Date.now()
         };

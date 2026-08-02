@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useProjectStore, timelineDuration, type EditorPage } from "@/store/projectStore";
 import { createEmptyProject } from "@/lib/emptyProject";
 import { mediaPool } from "@/lib/editor/resourcePool";
@@ -30,7 +31,6 @@ import ExportPanelV2 from "./panels/ExportPanelV2";
 import ProductionPanelV2 from "./panels/ProductionPanelV2";
 import OfflineEditPanel from "./panels/OfflineEditPanel";
 import PictureLockPanelV2 from "./panels/PictureLockPanelV2";
-import DirectorRedirectPanel from "./DirectorRedirectPanel";
 import KeyframeEditor from "./KeyframeEditor";
 import { isPictureLocked } from "@/lib/pictureLock";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -48,7 +48,6 @@ const PAGES: { id: EditorPage; label: string; icon: IconName; desc: string }[] =
   { id: "text", label: "Текст", icon: "type", desc: "Титры, шрифты, анимация" },
   { id: "motion", label: "Motion", icon: "wand", desc: "Моушн-графика: титры, lower thirds, callouts, CTA, интро/аутро, kinetic" },
   { id: "animation", label: "Кадры", icon: "keyframe", desc: "Ключевые кадры и кривые" },
-  { id: "ai", label: "AI", icon: "brain", desc: "AI Director" },
   { id: "offline", label: "Черновик", icon: "draft", desc: "Offline Edit: дубли, чистка речи, драматургия" },
   { id: "lock", label: "Picture Lock", icon: "lock", desc: "Финальная сборка: проверка и фиксация монтажа" },
   { id: "export", label: "Экспорт", icon: "rocket", desc: "MP4 / WebM / GIF" },
@@ -81,7 +80,6 @@ const PANEL_COMPONENTS: Record<EditorPage, ComponentType> = {
   text: TextPanelV2,
   motion: MotionGraphicsPanelV2,
   animation: KeyframeEditor,
-  ai: DirectorRedirectPanel,
   offline: OfflineEditPanel,
   lock: PictureLockPanelV2,
   export: ExportPanelV2,
@@ -164,7 +162,6 @@ export default function EditorShellV2() {
   const dirty = useProjectStore((s) => s.dirty);
   const saving = useProjectStore((s) => s.saving);
   const persist = useProjectStore((s) => s.persist);
-  const setTitle = useProjectStore((s) => s.setTitle);
   const selectedClipIds = useProjectStore((s) => s.selectedClipIds);
   const undo = useProjectStore((s) => s.undo);
   const redo = useProjectStore((s) => s.redo);
@@ -173,7 +170,7 @@ export default function EditorShellV2() {
   const applyPictureLockFixes = useProjectStore((s) => s.applyPictureLockFixes);
   const confirmPictureLock = useProjectStore((s) => s.confirmPictureLock);
 
-  const { importFromDevice, busy: importing, status: importStatus } = useMediaImport();
+  const { busy: importing, status: importStatus } = useMediaImport();
 
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -463,10 +460,17 @@ export default function EditorShellV2() {
           title="На главную"
         >
           <span
-            className="flex h-8 w-8 items-center justify-center rounded-lg"
-            style={{ background: "linear-gradient(180deg,#8b7cff,#5c4bd8)", boxShadow: "0 6px 18px -4px rgba(124,108,246,0.5)" }}
+            className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg"
+            style={{ boxShadow: "0 6px 18px -4px rgba(124,108,246,0.5)" }}
           >
-            <Icon name="clapper" size={17} strokeWidth={1.6} className="text-white" />
+            <Image
+              src="/montiq-logo.png"
+              alt="MONTIQ"
+              width={32}
+              height={32}
+              className="h-full w-full object-cover"
+              draggable={false}
+            />
           </span>
           <span className="hidden bg-gradient-to-b from-white to-[#a99dff] bg-clip-text text-[15px] font-extrabold tracking-tight text-transparent lg:inline">
             MONTIQ
@@ -493,17 +497,6 @@ export default function EditorShellV2() {
             <Icon name="redo" size={15} />
           </button>
         </div>
-
-        {/* Импорт медиа с устройства — доступен в любой момент монтажа */}
-        <button
-          onClick={() => void importFromDevice()}
-          disabled={importing}
-          title="Загрузить видео, аудио или фото с устройства"
-          className="btn btn-primary h-8 shrink-0 px-2.5 text-[11px] sm:px-3"
-        >
-          <Icon name="plus" size={14} />
-          <span className="hidden sm:inline">{importing ? "Импорт…" : "Добавить медиа"}</span>
-        </button>
 
         {/* Picture Lock badge — редактор всегда понимает состояние монтажа */}
         {locked ? (
@@ -555,12 +548,6 @@ export default function EditorShellV2() {
         </button>
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <input
-            value={project.title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="hidden w-40 rounded-lg border border-white/[0.08] bg-black/30 px-2.5 py-1.5 text-xs font-medium text-slate-200 outline-none transition focus:border-violet-400/50 xl:block"
-            aria-label="Название проекта"
-          />
           <div className="hidden items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 sm:flex">
             <span
               className={`status-dot ${

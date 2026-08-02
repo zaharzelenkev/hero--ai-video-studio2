@@ -116,7 +116,10 @@ export default function DirectorWorkspace({
         if (!mounted || !p) return;
         if (!(project && project.id === projectId)) loadProjectStore(p);
         if (p.director?.brief) {
-          setBrief((prev) => ({ ...prev, ...p.director!.brief }));
+          // Не восстанавливаем ранее написанный промт (поле «Идея») — пользователь
+          // просил не показывать старый текст; остальные поля брифа сохраняются.
+          const { idea: _ignoredIdea, ...restBrief } = p.director.brief;
+          setBrief((prev) => ({ ...prev, ...restBrief }));
         }
         if (p.director?.preprod) {
           setPreprod(p.director.preprod);

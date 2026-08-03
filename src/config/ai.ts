@@ -38,25 +38,25 @@ export const AI_CONFIG = {
   openRouterApiKey: resolveEnv("OPENROUTER_API_KEY", "NEXT_PUBLIC_OPENROUTER_API_KEY"),
   openRouterApiUrl: "https://openrouter.ai/api/v1/chat/completions",
   /**
-   * Основная модель. `gpt-oss-120b:free` — самая мощная бесплатная модель
-   * OpenRouter: 131K контекст, до 32K токенов ответа (все 12 разделов
-   * препродакшена помещаются в один блок без обрезания), поддерживает
-   * JSON-режим. Список ниже — страховка от ротации free-моделей: клиент
-   * перебирает его и останавливается на первой работающей.
+   * Основная модель. `openrouter/free` — бесплатный роутер OpenRouter:
+   * автоматически выбирает лучшую доступную free-модель под запрос.
+   * Если роутер недоступен — fallback-список из конкретных free-моделей.
+   * Все модели ниже имеют суффикс `:free` — стоимость $0.00.
    */
-  model: "openai/gpt-oss-120b:free",
+  model: "openrouter/free",
   fallbackModels: [
+    "openrouter/free",
     "openai/gpt-oss-120b:free",
     "openai/gpt-oss-20b:free",
-    "google/gemini-2.0-flash-exp:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-coder:free",
-    "qwen/qwen-2.5-72b-instruct:free",
-    "deepseek/deepseek-r1-distill-llama-70b:free",
-    "nvidia/nemotron-3-ultra:free",
-    "z-ai/glm-4.5-air:free",
     "google/gemma-4-31b-it:free",
-    "nousresearch/hermes-3-llama-3.1-405b:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "cohere/north-mini-code:free",
+    "inclusionai/ling-3.0-flash:free",
+    "poolside/laguna-m.1:free",
   ],
 
   // ------------------------------------------------------------------
@@ -65,9 +65,9 @@ export const AI_CONFIG = {
   groqApiKey: resolveEnv("GROQ_API_KEY", "NEXT_PUBLIC_GROQ_API_KEY"),
   groqApiUrl: "https://api.groq.com/openai/v1/chat/completions",
   groqFallbackModels: [
-    "openai/gpt-oss-120b",
-    "qwen/qwen3.6-27b",
     "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
   ],
 
   // НЕ ограничиваем модель по времени: `0` означает «ждать ответ сколько нужно».

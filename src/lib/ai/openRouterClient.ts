@@ -53,8 +53,32 @@ export interface LLMResult {
 
 /** Модель, которая уже успешно отвечала в этом процессе (кэш лимита). */
 let preferredModel: string | null = null;
-/** Модели, которые точно не работают (404/402/нет free-эндпоинта). */
-const blockedModels = new Set<string>();
+/**
+ * Модели, которые временно недоступны (429/5xx/сеть). Ключ — slug модели,
+ * значение — timestamp (ms), после которого модель снова считается доступной.
+ * Free-модели OpenRouter часто попадают под общий лимит аккаунта (429) —
+ * блокируем их на 2 минуты, после чего даём ещё шанс. Если модель вернула
+ * 404/402 (нет free-эндпоинта) — блокируем навсегда (BLOCKED_FOREVER).
+ */
+const blockedModels = new Map<string, number>();
+const BLOCKED_FOREVER = Number.POSITIVE_INFINITY;
+/** Кулдаун после 429/транзиентной ошибки: 2 минуты. */
+const BLOCKED_COOLDOWN_MS = 120_000;
+
+function blockModel(model: string, permanent: boolean) {
+  blockedModels.set(model, permanent ? BLOCKED_FOREVER : Date.now() + BLOCKED_COOLDOWN_MS);
+}
+
+function isBlocked(model: string): boolean {
+  const until = blockedModels.get(model);
+  if (until === undefined) return false;
+  if (until === BLOCKED_FOREVER) return true;
+  if (Date.now() >= until) {
+    blockedModels.delete(model);
+    return false;
+  }
+  return true;
+}
 
 function candidatesFor(requested: string | undefined): string[] {
   const list: string[] = [];
@@ -62,7 +86,7 @@ function candidatesFor(requested: string | undefined): string[] {
   for (const m of [first, ...(AI_CONFIG.fallbackModels || [])]) {
     if (m && !list.includes(m)) list.push(m);
   }
-  return list.filter((m) => !blockedModels.has(m));
+  return list.filter((m) => !isBlocked(m));
 }
 
 export async function callOpenRouter(opts: LLMOptions): Promise<LLMResult> {
@@ -80,10 +104,27 @@ export async function callOpenRouter(opts: LLMOptions): Promise<LLMResult> {
     maxRetries = AI_CONFIG.maxRetries,
   } = opts;
 
-  const candidates = candidatesFor(model);
+  let candidates = candidatesFor(model);
   if (candidates.length === 0) {
-    console.warn("[openrouter] нет ни одной рабочей модели (все заблокированы)");
-    return { ok: false, text: "", usedRemote: false };
+    // Все модели временно заблокированы (rate limit cooldown). Ждём ближайшего
+    // момента разблокировки — не больше 30 секунд, чтобы не вешать запрос.
+    const now = Date.now();
+    let earliestUnblock = Infinity;
+    for (const [, until] of blockedModels) {
+      if (until !== BLOCKED_FOREVER && until > now) {
+        earliestUnblock = Math.min(earliestUnblock, until);
+      }
+    }
+    if (earliestUnblock < Infinity) {
+      const waitMs = Math.min(earliestUnblock - now, 30_000);
+      console.warn(`[openrouter] все модели в кулдауне, жду ${Math.round(waitMs / 1000)}с до разблокировки`);
+      await new Promise((r) => setTimeout(r, waitMs));
+      candidates = candidatesFor(model);
+    }
+    if (candidates.length === 0) {
+      console.warn("[openrouter] нет ни одной рабочей модели (все заблокированы)");
+      return { ok: false, text: "", usedRemote: false };
+    }
   }
 
   /** Лучший (самый длинный) обрезанный ответ — вернём его, если всё обрежется. */
@@ -101,8 +142,11 @@ export async function callOpenRouter(opts: LLMOptions): Promise<LLMResult> {
     });
 
     if (!res) {
-      // Модель бесполезна (декомисшн/нет free-эндпоинта/402) — больше не пробуем.
-      blockedModels.add(activeModel);
+      // Модель бесполезна (декомисшн/нет free-эндпоинта/402/429) — временно
+      // блокируем. Кулдаун даёт шанс восстановиться после rate limit (429);
+      // для постоянных ошибок (404/402) модель пере-блокируется при следующей
+      // попытке, но не сжигает все попытки в текущем вызове.
+      blockModel(activeModel, false);
       if (preferredModel === activeModel) preferredModel = null;
       console.warn(`[openrouter] модель "${activeModel}" недоступна, пробую следующую`);
       continue;

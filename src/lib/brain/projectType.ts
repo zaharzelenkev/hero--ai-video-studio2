@@ -697,15 +697,16 @@ export function detectProjectType(input: DetectionInput): DetectionResult {
   } else if (assets.length > 0) {
     const total = assets.filter(a => a.kind === "video" || a.kind === "image").reduce((s, a) => s + (a.duration || (a.kind === "image" ? 5 : 0)), 0);
     // Для подкастов берём 80% исходников, для TikTok — минимум
+    // Без ограничений: подкаст может быть 2 часа, минимум 10 сек
     if (best.profile.id === "podcast" || best.profile.id === "interview") {
-      expectedDuration = Math.max(60, Math.min(total * 0.85, 600));
+      expectedDuration = Math.max(10, Math.min(total * 0.95, 7200));
     } else if (best.profile.id === "tiktok" || best.profile.id === "instagram-reel") {
-      expectedDuration = Math.max(10, Math.min(total * 0.5, 60));
+      expectedDuration = Math.max(10, Math.min(total * 0.8, 600));
     } else {
-      expectedDuration = Math.max(15, Math.min(total * 0.8, best.profile.id === "short-film" ? 900 : 300));
+      expectedDuration = Math.max(10, Math.min(total * 0.9, 7200));
     }
   } else {
-    expectedDuration = best.profile.id === "podcast" ? 300 : best.profile.id === "tiktok" ? 30 : 60;
+    expectedDuration = best.profile.id === "podcast" ? 600 : best.profile.id === "tiktok" ? 30 : 60;
   }
 
   // Platform

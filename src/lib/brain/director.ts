@@ -116,7 +116,15 @@ export class DirectorBrain {
            targetDuration = baseInfo.targetDurationMin;
        }
     } else {
-       targetDuration = Math.max(baseInfo.targetDurationMin, Math.min(targetDuration, baseInfo.targetDurationMax));
+       // Без ограничений: подкаст может быть 2 часа, минимум 10 сек, максимум 7200 (2 часа)
+       // Для TikTok и коротких форматов всё равно стараемся не раздувать, но не режем жёстко
+       const isLongForm = detectedByType && (detectedByType.type === "podcast" || detectedByType.type === "interview" || detectedByType.type === "documentary" || detectedByType.type === "educational");
+       if (isLongForm) {
+         targetDuration = Math.max(10, Math.min(targetDuration, 7200));
+       } else {
+         // Для остальных — мягкий кламп до 3600 (1 час), но минимум 10 сек
+         targetDuration = Math.max(10, Math.min(targetDuration, 3600));
+       }
     }
 
     const baseInstructions = await getKnowledgeForGenre(detectedGenre);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { flattenSections } from "@/lib/production";
+import { flattenSections, PREPROD_STAGES } from "@/lib/production";
 import type {
   DirectorBrief,
   DirectorSections,
@@ -566,10 +566,11 @@ function stageRegenerationPrompt(
   });
   return (
     ctx +
-    `\n\nПользователь хочет ПЕРЕСОЗДАТЬ раздел "${stage}"${userPatch ? ` с комментарием: «${userPatch}»` : ""}.\n` +
+    `\n\nСгенерируй раздел "${stage}"${userPatch ? ` с учётом комментария пользователя: «${userPatch}»` : ""} ПОЛНОСТЬЮ и ЗАКОНЧЕННО.\n` +
     `Учти все изменения в других разделах (логлайн согласуется с идеей, сценарий с логлайном, storyboard со сценарием и т.д.). ` +
     `Сохрани лучшие детали от предыдущей версии, если они не противоречат обновлениям.\n` +
-    `Верни ТОЛЬКО JSON фрагмент этого раздела (по той же схеме, что и в полном ответе) — без обёртки в дополнительный ключ, без markdown.`
+    `Верни ТОЛЬКО JSON фрагмент этого раздела (по той же схеме, что и в полном ответе) — без обёртки в дополнительный ключ, без markdown.` +
+    `\nНе обрезай ответ: если JSON не помещается в лимит — лучше сократи текст внутри полей, но ВЕРНИ ВСЕ поля и заверши валидный JSON.`
   );
 }
 
@@ -592,6 +593,156 @@ function chatPrompt(
     `\n\nОтвечай ЖИВЫМ текстом от лица режиссёра — в стиле системного промпта. ` +
     `НЕ добавляй JSON. НЕ используй вежливые клише. Давай конкретные режиссёрские решения с таймингами и крупностями, привязанные к этому проекту.`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Пошаговая генерация ОДНОГО раздела (mode: "stage")
+//
+// Один раздел = один вызов LLM с ретраями. Ответ принимается только если модель
+// выдала ПОЛНЫЙ раздел (STAGE_VALIDATORS); обрезанные (finish_reason="length")
+// и невалидные ответы повторяются с увеличенным бюджетом токенов — модель
+// получает больше места «дописать» раздел. Если после всех попыток раздел всё
+// равно не собрался — возвращаем ошибку, а НЕ локальный шаблон: пользователь
+// видит «не получилось» и повторяет шаг, а не получает молча недописанный
+// раздел. Именно так устраняется «AI где-то что-то не дописала».
+// ---------------------------------------------------------------------------
+
+/** Лимит токенов ответа на раздел (пошаговая сборка / пересоздание). */
+const STAGE_MAX_TOKENS: Record<string, number> = {
+  idea: 3000,
+  logline: 2500,
+  treatment: 4500,
+  script: 9000,
+  vision: 3500,
+  storyboard: 3500,
+  shotlist: 4500,
+  planning: 3500,
+  casting: 2500,
+  locations: 2500,
+  risks: 3500,
+};
+
+/**
+ * Проверка «раздел сгенерирован ПОЛНОСТЬЮ». Если ядро раздела пустое —
+ * значит модель «не дописала», ответ не принимается и повторяется.
+ */
+const STAGE_VALIDATORS: Record<string, (d: any) => boolean> = {
+  idea: (d) =>
+    Boolean(d && typeof d === "object") &&
+    (safeStr(d?.refined).length > 0 || safeStr(d?.audience).length > 0),
+  logline: (d) =>
+    Boolean(d && typeof d === "object") && safeStr(d?.primary).length > 0,
+  treatment: (d) =>
+    Boolean(d && typeof d === "object") &&
+    (safeStr(d?.synopsisLong).length > 0 || safeStr(d?.title).length > 0),
+  script: (d) => Array.isArray(d?.scenes) && d.scenes.length > 0,
+  vision: (d) => Array.isArray(d?.scenes) && d.scenes.length > 0,
+  storyboard: (d) => Array.isArray(d?.frames) && d.frames.length > 0,
+  shotlist: (d) => Array.isArray(d?.shots) && d.shots.length > 0,
+  planning: (d) => Array.isArray(d?.schedule) && d.schedule.length > 0,
+  casting: (d) => Array.isArray(d) && d.length > 0,
+  locations: (d) => Array.isArray(d) && d.length > 0,
+  risks: (d) => Array.isArray(d?.risks) && d.risks.length > 0,
+};
+
+function stageDisplayName(stage: string): string {
+  return PREPROD_STAGES.find((s) => s.id === stage)?.short || stage;
+}
+
+/**
+ * Генерирует ОДИН раздел с ретраями. callLLM сам ретраит сетевые сбои/429 и
+ * перебирает запасные бесплатные модели; здесь дополнительно ретраим
+ * обрезанные и невалидные ответы (главная причина «не дописала»). Бюджет
+ * токенов растёт с каждой попыткой, чтобы модель могла дописать ответ целиком.
+ *
+ * Возвращает { data } при успехе или { error } после исчерпания попыток.
+ */
+async function generateStageSection(
+  stage: string,
+  brief: DirectorBrief,
+  projectTitle: string,
+  preprod: PreProduction,
+  userPatch?: string
+): Promise<{ data: Record<string, any> } | { error: string }> {
+  const MAX_ATTEMPTS = 6;
+  const baseTokens = STAGE_MAX_TOKENS[stage] ?? 4000;
+  const label = stageDisplayName(stage);
+  // Общий бюджет времени на один раздел (тот же, что у полной сборки):
+  // если провайдер «замолчал», честно возвращаем ошибку, а не превышаем
+  // maxDuration платформы.
+  const deadline = Date.now() + fullRunDeadlineMs();
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (Date.now() + ATTEMPT_FLOOR_MS > deadline) {
+      console.warn(
+        `[director] stage "${stage}" — общий бюджет времени исчерпан (attempt ${attempt + 1}/${MAX_ATTEMPTS})`
+      );
+      break;
+    }
+    // На обрезанном ответе (finish_reason=length) увеличиваем бюджет токенов:
+    // повтор с тем же лимитом снова упрётся в max_tokens.
+    const maxTokens = Math.min(baseTokens + attempt * 4000, 32768);
+    const llm = await callLLM({
+      messages: [
+        { role: "system", content: DIRECTOR_SYSTEM_PROMPT },
+        { role: "user", content: stageRegenerationPrompt(stage, brief, projectTitle, preprod, userPatch) },
+      ],
+      temperature: 0.75,
+      maxTokens,
+      timeoutMs: 0, // без лимита времени: модель отвечает столько, сколько нужно
+      maxRetries: 4,
+      responseFormat: { type: "json_object" },
+    });
+
+    if (!llm.ok) {
+      console.warn(
+        `[director] stage "${stage}" — LLM call failed (attempt ${attempt + 1}/${MAX_ATTEMPTS})`
+      );
+      continue;
+    }
+    if (llm.truncated) {
+      console.warn(
+        `[director] stage "${stage}" — response truncated at max_tokens=${maxTokens} (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying with a larger budget`
+      );
+      continue;
+    }
+
+    let data: any = null;
+    try {
+      data = JSON.parse(extractJson(llm.text));
+    } catch {
+      data = null;
+    }
+    const valid = STAGE_VALIDATORS[stage] ? STAGE_VALIDATORS[stage](data) : Boolean(data);
+    if (data && valid) {
+      return { data };
+    }
+    console.warn(
+      `[director] stage "${stage}" — response parsed but incomplete/invalid (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying`
+    );
+  }
+  console.warn(`[director] stage "${stage}" — failed after ${MAX_ATTEMPTS} attempts`);
+  return {
+    error: `AI не ответила для раздела «${label}» полностью. Нажмите «Повторить», чтобы сгенерировать раздел заново.`,
+  };
+}
+
+/**
+ * Приводит ответ LLM для одного раздела к ПОЛНОЙ схеме раздела: любые
+ * пропущенные поля добираются из локального базового пакета, а не остаются
+ * пустыми — UI каждого раздела (StageIdea, StageLogline и т.д.) ожидает
+ * целостную структуру (variants, scenes, frames, shots, schedule…).
+ */
+function normalizeStageData(
+  stage: string,
+  data: any,
+  brief: DirectorBrief,
+  base: PreProduction
+): any {
+  if (data == null || typeof data !== "object") return null;
+  const raw: Record<string, any> = { [stage]: data };
+  const normalized = normalizePreprod(raw, brief, base);
+  return (normalized as any)[stage] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -691,37 +842,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === "stage" && stage) {
-      const sys = DIRECTOR_SYSTEM_PROMPT;
-      const usr = stageRegenerationPrompt(
-        String(stage),
-        brief,
-        projectName,
-        basePreprod,
-        userMessage ? String(userMessage) : undefined
-      );
-      const llm = await callLLM({
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: usr },
-        ],
-        temperature: 0.75,
-        maxTokens: 8000,
-        timeoutMs: 0, // без лимита времени — модель отвечает столько, сколько нужно
-        maxRetries: 3,
-        responseFormat: { type: "json_object" },
-      });
-
-      let data: any = null;
-      if (llm.ok) {
-        try {
-          data = JSON.parse(extractJson(llm.text));
-        } catch {
-          data = null;
-        }
+      const stg = String(stage);
+      const patch = userMessage ? String(userMessage) : undefined;
+      // Один раздел — один запрос с ретраями (см. generateStageSection):
+      // раздел принимается только ПОЛНЫМ; при неудаче возвращаем ошибку,
+      // а не подменяем ответ локальным шаблоном.
+      const result = await generateStageSection(stg, brief, projectName, basePreprod, patch);
+      if ("error" in result) {
+        return NextResponse.json({ ok: false, stage: stg, error: result.error });
       }
-      if (!data) data = pickStageFromPreprod(basePreprod, String(stage));
-
-      return NextResponse.json({ stage, data });
+      const data = normalizeStageData(stg, result.data, brief, basePreprod);
+      if (!data) {
+        return NextResponse.json({
+          ok: false,
+          stage: stg,
+          error: `Не удалось собрать раздел «${stageDisplayName(stg)}» — попробуйте ещё раз.`,
+        });
+      }
+      return NextResponse.json({ ok: true, stage: stg, data });
     }
 
     // Полная сборка — самый «дорогой» заказ: все 12 разделов, включая полный
@@ -797,8 +935,9 @@ export async function POST(req: NextRequest) {
     }
     if (mode === "stage" && stage) {
       return NextResponse.json({
-        stage,
-        data: pickStageFromPreprod(basePreprod, String(stage)),
+        ok: false,
+        stage: String(stage),
+        error: `Не удалось получить ответ AI для раздела «${stageDisplayName(String(stage))}» — попробуйте ещё раз.`,
       });
     }
     // Полная сборка: даже при непредвиденной ошибке отдаём полный пакет
@@ -1130,23 +1269,6 @@ function normalizePreprod(
     },
     chat: prevChat,
   };
-}
-
-function pickStageFromPreprod(preprod: PreProduction, stage: string): any {
-  switch (stage) {
-    case "idea": return preprod.idea;
-    case "logline": return preprod.logline;
-    case "treatment": return preprod.treatment;
-    case "script": return preprod.script;
-    case "vision": return preprod.vision;
-    case "storyboard": return preprod.storyboard;
-    case "shotlist": return preprod.shotlist;
-    case "planning": return preprod.planning;
-    case "casting": return preprod.casting;
-    case "locations": return preprod.locations;
-    case "risks": return preprod.risks;
-    default: return null;
-  }
 }
 
 function flattenToLegacy(p: PreProduction, brief: DirectorBrief): DirectorSections {

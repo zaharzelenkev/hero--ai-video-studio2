@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useProjectStore } from "@/store/projectStore";
-import { saveProject, saveBlob } from "@/lib/db";
-import { uid } from "@/lib/id";
+import { saveProject } from "@/lib/db";
 import {
   importFilesAsAssets,
   pickFiles,
@@ -43,12 +42,16 @@ const sessionFilesByAssetId = new Map<string, File>();
  * Окно «Исходники → Черновой монтаж».
  *
  * Открывается вместо прямого перехода в редактор: пользователь загружает
- * исходники (видео/фото/аудио) и нажимает «Черновой монтаж». Монтажный движок
- * (autoEditToProject) собирает черновой ролик ИЗ ВСЕХ загруженных материалов:
- * анализ кадров, распознавание речи, режиссёрский план, склейки по битам,
- * переходы, титры, выравнивание экспозиции, Picture Lock. Затем ролик
- * рендерится в предпросмотр и показывается окно превью с кнопкой
- * «В редактор» — пользователь видит черновик до перехода в редактор.
+ * исходники (видео/фото/аудио) и нажимает «Черновой монтаж».
+ *
+ * ВАЖНО: согласно новым требованиям, после завершения чернового монтажа
+ * мы НЕ показываем отдельный экран предпросмотра. Черновой монтаж — это
+ * внутренний этап работы системы. После сборки мы СРАЗУ открываем
+ * профессиональный редактор уже с готовым черновым монтажом.
+ *
+ * Монтажный движок (autoEditToProject) собирает черновой ролик ИЗ ВСЕХ
+ * загруженных материалов: анализ кадров, распознавание речи, режиссёрский план,
+ * склейки по битам, переходы, титры, выравнивание экспозиции, Picture Lock.
  */
 export default function DraftMontageModal({
   projectId,
@@ -62,21 +65,11 @@ export default function DraftMontageModal({
   const [uploaded, setUploaded] = useState<MediaAsset[]>([]);
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState("");
-  // Этапы: upload (загрузка) → building (монтаж + рендер превью) → preview
-  const [phase, setPhase] = useState<"upload" | "building" | "preview">("upload");
+  // Этапы: upload (загрузка) → building (монтаж). Preview удалён — сразу в редактор.
+  const [phase, setPhase] = useState<"upload" | "building">("upload");
   const [progressMsg, setProgressMsg] = useState("");
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  // Готовый предпросмотр чернового ролика.
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [previewStats, setPreviewStats] = useState("");
-
-  // Освобождаем object URL предпросмотра при закрытии окна.
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
 
   const existingAssets = useProjectStore((s) => s.project?.assets ?? []);
 
@@ -90,7 +83,6 @@ export default function DraftMontageModal({
           setImportStatus(`${p.index}/${p.total} · ${p.name}`)
         );
         if (assets.length === 0) return;
-        // Один ассет на один файл, порядок сохраняется.
         assets.forEach((a, i) => {
           if (i < files.length) sessionFilesByAssetId.set(a.id, files[i]);
         });
@@ -127,9 +119,7 @@ export default function DraftMontageModal({
     }
     setPhase("building");
     try {
-      const style = buildStyleFromBrief(brief);
-      // Тяжёлый движок подгружаем только в момент запуска — страница AI Director
-      // остаётся лёгкой, пока пользователь просто заполняет бриф.
+      const style = buildStyleFromBrief(brief, preprod, sections);
       const { autoEditToProject } = await import("@/lib/autoEdit");
       const draft = await autoEditToProject({
         title,
@@ -139,9 +129,7 @@ export default function DraftMontageModal({
         onProgress: (msg) => setProgressMsg(msg),
       });
 
-      // Сохраняем тот же проект (тот же id), но с готовым черновым монтажом:
-      // документы AI Director (бриф, препродакшен, разделы) и production-план
-      // остаются в проекте для редактора.
+      // Сохраняем тот же проект (тот же id), но с готовым черновым монтажом
       const store = useProjectStore.getState();
       const prevDirector = store.project?.director;
       draft.id = projectId;
@@ -164,42 +152,8 @@ export default function DraftMontageModal({
       store.loadProject(draft);
       store.updateProject(() => draft);
 
-      // Рендерим предпросмотр готового черновика (как на странице результата
-      // генерации): после рендера показываем окно превью с кнопкой «В редактор».
-      let renderedUrl = "";
-      try {
-        const { renderProject } = await import("@/lib/render");
-        const blob = await renderProject(
-          draft,
-          (ratio) =>
-            setProgressMsg(
-              `Рендеринг предпросмотра… ${Math.round(ratio * 100)}%`
-            ),
-          (msg) => console.log("[DraftPreview]", msg)
-        );
-        const previewKey = uid("blob");
-        await saveBlob(previewKey, blob);
-        draft.previewBlobKey = previewKey;
-        draft.updatedAt = Date.now();
-        await saveProject(draft);
-        store.loadProject(draft);
-        store.updateProject(() => draft);
-        renderedUrl = URL.createObjectURL(blob);
-      } catch (e: any) {
-        console.warn("Предпросмотр не отрендерился:", e);
-        // Рендер не удался — всё равно показываем окно результата с кнопкой
-        // «В редактор»: черновик уже сохранён и ждёт в редакторе.
-      }
-
-      const clipCount = draft.tracks.reduce(
-        (sum, t) => sum + t.clips.length,
-        0
-      );
-      setPreviewStats(
-        `${Math.round(draft.duration || 0)}с · ${clipCount} клипов`
-      );
-      setPreviewUrl(renderedUrl);
-      setPhase("preview");
+      // Сразу открываем редактор — без промежуточного экрана предпросмотра
+      onEnterEditor();
     } catch (e: any) {
       console.error("Черновой монтаж не удался:", e);
       setError(
@@ -234,17 +188,14 @@ export default function DraftMontageModal({
       }}
     >
       <div className="w-full max-w-2xl rounded-[24px] border border-white/[0.08] bg-[#0c0c16] shadow-2xl">
-        {/* ------------------------------ header ------------------------------ */}
+        {/* header */}
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-6 py-4">
           <div>
             <div className="eyebrow">Черновой монтаж</div>
-            <h2 className="title mt-0.5 text-lg">
-              {phase === "preview" ? "Черновик готов" : "Загрузите исходники"}
-            </h2>
+            <h2 className="title mt-0.5 text-lg">Загрузите исходники</h2>
             <p className="mt-1 text-[12px] leading-relaxed text-slate-400">
-              {phase === "preview"
-                ? "AI Director собрал ролик из всех прикреплённых материалов."
-                : "AI Director соберёт черновой ролик из всех прикреплённых материалов — каждый исходник будет использован."}
+              AI Director соберёт черновой ролик из всех прикреплённых материалов — каждый исходник будет использован.
+              После сборки вы сразу окажетесь в редакторе.
             </p>
           </div>
           <button
@@ -258,48 +209,7 @@ export default function DraftMontageModal({
         </div>
 
         <div className="space-y-4 px-6 py-5">
-          {/* --------------------------- preview ----------------------------- */}
-          {phase === "preview" ? (
-            <>
-              {previewUrl ? (
-                <video
-                  src={previewUrl}
-                  controls
-                  autoPlay
-                  loop
-                  playsInline
-                  className="mx-auto max-h-[46vh] w-full rounded-2xl border border-white/[0.08] bg-black"
-                />
-              ) : (
-                <div className="rounded-2xl border border-amber-400/25 bg-amber-500/[0.06] px-4 py-5 text-center text-[12px] leading-relaxed text-amber-100">
-                  Предпросмотр не отрендерился, но черновой монтаж сохранён — откройте
-                  редактор, чтобы посмотреть и поправить его.
-                </div>
-              )}
-              {previewStats && (
-                <div className="text-center text-[11px] font-semibold text-slate-400">
-                  Черновой монтаж · {previewStats} · {allAssets.length} исходников
-                </div>
-              )}
-              <div className="space-y-2 pt-1">
-                <button
-                  onClick={onEnterEditor}
-                  className="btn btn-primary h-12 w-full text-sm font-extrabold shadow-lg shadow-violet-500/20 transition hover:shadow-violet-500/40"
-                >
-                  <Icon name="clapper" size={16} />
-                  В редактор
-                </button>
-                <button
-                  onClick={onClose}
-                  className="w-full text-center text-[11px] font-semibold text-slate-500 transition hover:text-slate-300"
-                >
-                  Вернуться в AI Director
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-          {/* --------------------------- drop zone ---------------------------- */}
+          {/* drop zone */}
           <button
             onClick={() => void pickFiles(MEDIA_ACCEPT, true).then(importFiles)}
             disabled={importing || phase !== "upload"}
@@ -318,7 +228,7 @@ export default function DraftMontageModal({
             </span>
           </button>
 
-          {/* ------------------------ uploaded sources ------------------------- */}
+          {/* uploaded sources */}
           {uploaded.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
@@ -383,6 +293,9 @@ export default function DraftMontageModal({
                 <div className="mt-0.5 text-[11px] text-slate-400">
                   {progressMsg || "Интеллектуальный анализ материалов…"}
                 </div>
+                <div className="mt-1 text-[10px] text-slate-500">
+                  После завершения вы сразу окажетесь в редакторе с готовым роликом
+                </div>
               </div>
               <div className="h-1 w-56 overflow-hidden rounded-full bg-white/[0.08]">
                 <div className="h-full w-full origin-left animate-shimmer rounded-full bg-gradient-to-r from-violet-500 to-violet-300" />
@@ -390,7 +303,7 @@ export default function DraftMontageModal({
             </div>
           )}
 
-          {/* ----------------------------- actions ----------------------------- */}
+          {/* actions */}
           <div className="space-y-2">
             <button
               onClick={() => void startMontage()}
@@ -408,8 +321,6 @@ export default function DraftMontageModal({
               Открыть редактор без чернового монтажа
             </button>
           </div>
-            </>
-          )}
         </div>
       </div>
     </div>
@@ -417,11 +328,23 @@ export default function DraftMontageModal({
 }
 
 /**
- * Стиль чернового монтажа из брифа режиссёра: платформа → формат и шаблон,
- * темп → скорость склеек, настроение → цветокоррекция, хронометраж → таргет.
- * Включает максимально «умную» сборку (анализ кадров, речь, субтитры).
+ * Стиль чернового монтажа из брифа режиссёра с профессиональной детекцией типа проекта.
+ *
+ * Определяет:
+ * - что за тип видео (16 типов)
+ * - какая цель ролика
+ * - какой сценарий (из AI Director если есть)
+ * - какой стиль выбрал пользователь
+ * - какая длительность ожидается
+ * - какой темп нужен
+ *
+ * От этого зависит абсолютно вся логика монтажа.
  */
-export function buildStyleFromBrief(brief: DirectorBrief): GenerationStyle {
+export function buildStyleFromBrief(
+  brief: DirectorBrief,
+  preprod?: PreProduction | null,
+  sections?: DirectorSections | null
+): GenerationStyle {
   const rawPrompt = [
     brief.idea,
     brief.goal ? `Цель: ${brief.goal}` : "",
@@ -439,15 +362,74 @@ export function buildStyleFromBrief(brief: DirectorBrief): GenerationStyle {
     .join(". ");
 
   const style = parsePromptToStyle(rawPrompt);
-  const plat = (brief.platform || "").toLowerCase();
-  const ideaMood = `${brief.idea} ${brief.style} ${brief.mood}`.toLowerCase();
 
-  // Темп из брифа
-  if (/очень быстр|быстр|динамич|энергич|драйв/.test(brief.tempo)) style.pace = "fast";
-  else if (/спокойн|медлен|плавн|лирич|задумчив/.test(brief.tempo)) style.pace = "slow";
-  else if (/средн/.test(brief.tempo)) style.pace = "medium";
+  // Профессиональная детекция типа проекта (16 типов) — главный приоритет
+  try {
+    const { detectProjectType } = require("@/lib/brain/projectType") as typeof import("@/lib/brain/projectType");
+    const detection = detectProjectType({
+      brief,
+      preprod,
+      sections,
+      rawPrompt,
+      platformHint: brief.platform,
+      styleHint: brief.style,
+    });
+
+    // Применяем профессиональный профиль
+    const prof = detection.profile;
+
+    // Темп из профиля (переопределяет старый эвристический)
+    if (prof.pace.id === "very-fast" || prof.pace.id === "fast" || prof.pace.id === "dynamic") {
+      style.pace = "fast" as any;
+      if (prof.pace.id === "very-fast" || prof.pace.id === "dynamic") style.pace = "dynamic" as any;
+    } else if (prof.pace.id === "slow" || prof.pace.id === "very-slow") {
+      style.pace = "slow" as any;
+    } else {
+      style.pace = "medium" as any;
+    }
+
+    // Content type из профессионального детектора
+    const { projectTypeToContentType, projectTypeToTemplateId } = require("@/lib/brain/projectType") as typeof import("@/lib/brain/projectType");
+    style.contentType = projectTypeToContentType(detection.type) as any;
+    style.templateId = projectTypeToTemplateId(detection.type);
+
+    // Длительность из детектора
+    if (!style.targetDuration || style.targetDuration === 10) {
+      style.targetDuration = Math.round(detection.expectedDurationSec);
+    }
+
+    // Сохраняем детекцию в rawPrompt для движка (чтобы AI Director тоже знал)
+    style.rawPrompt = `${rawPrompt}. [DETECTED_TYPE: ${detection.type}, GOAL: ${detection.goal.label}, STRUCTURE: ${detection.scenarioStructure.join("->")}, PROFILE: ${prof.labelRu}]`;
+
+  } catch {
+    // Фоллбек к старой логике если детектор недоступен в рантайме (например, тесты)
+    const plat = (brief.platform || "").toLowerCase();
+    const ideaMood = `${brief.idea} ${brief.style} ${brief.mood}`.toLowerCase();
+
+    if (/очень быстр|быстр|динамич|энергич|драйв/.test(brief.tempo)) style.pace = "fast";
+    else if (/спокойн|медлен|плавн|лирич|задумчив/.test(brief.tempo)) style.pace = "slow";
+    else if (/средн/.test(brief.tempo)) style.pace = "medium";
+
+    if (/tiktok|тикток|reels|shorts|шортс|клип|вертикаль|9:16|vk|вк клип/.test(plat)) {
+      style.contentType = "tiktok";
+    } else if (/youtube|ютуб/.test(plat)) {
+      style.contentType = "youtube";
+    } else if (/кино|документ/.test(plat)) {
+      style.contentType = "documentary";
+    } else if (/презентаци/.test(plat)) {
+      style.contentType = "presentation";
+    } else if (/instagram|инстаграм/.test(plat)) {
+      style.contentType = "shorts";
+    }
+    if (/подкаст|интервью|разговор/.test(ideaMood)) style.contentType = "podcast";
+    if (/свадьб|wedding/.test(ideaMood)) style.contentType = "wedding";
+    if (/путешеств|travel|тревел/.test(ideaMood)) style.contentType = "travel";
+    if (/обуч|курс|урок|tutorial/.test(ideaMood)) style.contentType = "educational";
+    if (/реклам|продаж|бренд/.test(ideaMood)) style.contentType = "ad";
+  }
 
   // Настроение/стиль → цветокоррекция (учёт «ё» в «тёплый» и т.п.)
+  const ideaMood = `${brief.idea} ${brief.style} ${brief.mood}`.toLowerCase();
   if (/ч[её]рно-бел|ч\/б|монохром|black and white/.test(ideaMood)) {
     style.colorGrade = "bw";
     style.bw = true;
@@ -463,35 +445,18 @@ export function buildStyleFromBrief(brief: DirectorBrief): GenerationStyle {
     style.colorGrade = "vivid";
   }
 
-  // Платформа → тип контента (шаблон монтажа подберёт движок)
-  if (/tiktok|тикток|reels|shorts|шортс|клип|вертикаль|9:16|vk|вк клип/.test(plat)) {
-    style.contentType = "tiktok";
-  } else if (/youtube|ютуб/.test(plat)) {
-    style.contentType = "youtube";
-  } else if (/кино|документ/.test(plat)) {
-    style.contentType = "documentary";
-  } else if (/презентаци/.test(plat)) {
-    style.contentType = "presentation";
-  } else if (/instagram|инстаграм/.test(plat)) {
-    style.contentType = "shorts";
-  }
-  if (/подкаст|интервью|разговор/.test(ideaMood)) style.contentType = "podcast";
-  if (/свадьб|wedding/.test(ideaMood)) style.contentType = "wedding";
-  if (/путешеств|travel|тревел/.test(ideaMood)) style.contentType = "travel";
-  if (/обуч|курс|урок|tutorial/.test(ideaMood)) style.contentType = "educational";
-  if (/реклам|продаж|бренд/.test(ideaMood)) style.contentType = "ad";
-
   const dur = parseInt(brief.duration, 10);
   if (Number.isFinite(dur) && dur > 0) style.targetDuration = dur;
 
-  // Всегда максимально умная сборка: анализ кадров, распознавание речи,
-  // субтитры, синхронизация с битами музыки, полное покрытие исходников.
+  // Всегда максимально умная сборка
   style.intelligentCuts = true;
   style.emotionDetection = true;
   style.autoSubtitles = true;
   style.beatSync = true;
   style.kenBurns = true;
   style.addCaptions = true;
-  style.templateId = "auto";
+  if (!style.templateId || style.templateId === "auto") {
+    // оставляем как есть — уже определён детектором
+  }
   return style;
 }

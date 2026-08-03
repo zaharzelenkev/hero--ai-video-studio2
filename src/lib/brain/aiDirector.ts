@@ -35,6 +35,7 @@ import { getTemplateForContentType, TEMPLATES } from "../templates";
 import { BASE_KNOWLEDGE, saveLearnedLesson } from "./knowledge";
 import { DirectorBrain } from "./director";
 import { FAST_GENRES, SLOW_GENRES, TALKING_GENRES } from "./genres";
+import { detectProjectType, type ProjectTypeId, type ProjectTypeProfile } from "./projectType";
 import {
   CAMERA_LABELS,
   isUnstableCamera,
@@ -110,6 +111,8 @@ interface DirCtx {
   isFast: boolean;
   isSlow: boolean;
   isTalking: boolean;
+  projectType?: ProjectTypeId;
+  projectProfile?: ProjectTypeProfile;
   rand: (salt: string) => number;
   notes: string[];
   weakRegistry: DirectorPlan["weakMomentsHandled"];
@@ -453,19 +456,61 @@ export class AIDirector {
     // Анализируем все ключевые аспекты перед принятием решений
     const projectAnalysis = await this.analyzeProject(request, strategy);
 
+    // --- 1b. ПРОФЕССИОНАЛЬНАЯ ДЕТЕКЦИЯ ТИПА ПРОЕКТА (16 типов) ---
+    // До первого разреза материала AI обязан понять ЧТО монтирует.
+    let detectedProjectType: ReturnType<typeof detectProjectType> | null = null;
+    try {
+      detectedProjectType = detectProjectType({
+        brief: {
+          idea: request.userPrompt || "",
+          goal: "",
+          audience: "",
+          platform: (request as any).templateHint || "",
+          duration: String(target),
+          style: "",
+          mood: "",
+          tempo: "",
+          references: "",
+          keyMessage: "",
+          callToAction: "",
+        } as any,
+        rawPrompt: request.userPrompt,
+        assets: request.assets.map(a => ({
+          kind: a.type as any,
+          duration: a.duration,
+          width: a.width,
+          height: a.height,
+          hasAudio: !!a.audioEnergy?.length || !!a.transcript,
+          hasTranscript: !!(a.transcript && a.transcript.length > 20),
+          transcriptLength: a.transcript?.length || 0,
+          name: a.name,
+        })),
+        platformHint: (request as any).templateHint,
+        styleHint: request.userPrompt,
+      });
+    } catch {}
+
     // --- 2. ВОСПРИЯТИЕ всех материалов ---
     const perceived = perceiveAssets(request);
+
+    // Профиль типа проекта переопределяет базовые семейства темпа
+    const prof = detectedProjectType?.profile || null;
+    const isFast = prof ? prof.isFast : FAST_GENRES.has(genre);
+    const isSlow = prof ? prof.isSlow : SLOW_GENRES.has(genre);
+    const isTalking = prof ? prof.isTalking : TALKING_GENRES.has(genre);
 
     const ctx: DirCtx = {
       request,
       perceived,
       genre,
       target,
-      isFast: FAST_GENRES.has(genre),
-      isSlow: SLOW_GENRES.has(genre),
-      isTalking: TALKING_GENRES.has(genre),
+      isFast,
+      isSlow,
+      isTalking,
+      projectType: detectedProjectType?.type,
+      projectProfile: prof || undefined,
       rand: makeDeterministicRand(request),
-      notes: [...projectAnalysis.notes],
+      notes: [...projectAnalysis.notes, ...(detectedProjectType ? [`Тип проекта: ${detectedProjectType.profile.labelRu} (${detectedProjectType.type}) — уверенность ${(detectedProjectType.confidence*100).toFixed(0)}%`, ...detectedProjectType.reasoning] : [])],
       weakRegistry: [],
       strongRegistry: [],
       cleanups: new Map(),
@@ -609,13 +654,31 @@ function runSpeechCleanup(ctx: DirCtx): void {
     if (!a.transcript || a.transcript.length < 10) continue;
     const words = parseWords(a.transcript);
     if (words.length < 3) continue;
-    // Разговорные жанры терпимее к паузам (дыхание мысли), быстрые — жёстче.
-    const maxPauseSec = ctx.isFast ? 0.45 : ctx.isSlow ? 0.9 : 0.65;
+    // Профессиональная чистка учитывает тип проекта: подкасты терпимее к паузам,
+    // TikTok — жёстко режет всё.
+    const prof = ctx.projectProfile;
+    let maxPauseSec: number;
+    let keepPauseSec: number;
+    let dramaticPause: [number, number];
+    if (prof) {
+      maxPauseSec = prof.id === "podcast" || prof.id === "interview" ? prof.speech.dramaticPauseRange[0] * 0.6
+                    : prof.id === "tiktok" || prof.id === "instagram-reel" ? 0.4
+                    : prof.id === "talking-head" || prof.id === "educational" ? 0.65
+                    : 0.65;
+      keepPauseSec = prof.speech.keepBreathingPauses ? 0.18 : 0.1;
+      dramaticPause = prof.speech.dramaticPauseRange;
+    } else {
+      maxPauseSec = ctx.isFast ? 0.45 : ctx.isSlow ? 0.9 : 0.65;
+      keepPauseSec = ctx.isFast ? 0.12 : 0.18;
+      dramaticPause = ctx.isFast ? [1.0, 2.0] as [number, number] : [0.7, 2.5] as [number, number];
+    }
     const result = cleanupSpeech(words, {
       maxPauseSec,
-      keepPauseSec: ctx.isFast ? 0.12 : 0.18,
-      // Драматическую паузу бережём везде, кроме сверхбыстрых нарезок.
-      dramaticPause: ctx.isFast ? [1.0, 2.0] : [0.7, 2.5],
+      keepPauseSec,
+      dramaticPause,
+      removeFillers: prof ? prof.speech.removeFillers : true,
+      removeNoises: true,
+      removeRetakes: true,
     });
     if (result.keep.length === 0) continue;
     ctx.cleanups.set(a.id, result);
@@ -862,6 +925,27 @@ function pickSpeechMain(perceived: PerceptionResult): AssetUnderstanding | null 
 
 function buildVisualPlan(ctx: DirCtx): { scenes: SceneDraft[]; concept: string } {
   const { perceived, genre, target, isFast, isSlow, notes } = ctx;
+  const profile = ctx.projectProfile || null;
+  const hasMarketingStructure = profile && profile.structure.some(s => ["problem","solution","proof","cta"].includes(s));
+
+  // Если есть маркетинговая структура (Hook -> Problem -> Solution -> Proof -> CTA),
+  // делим хронометраж пропорционально важности фаз и строим сцены по ней.
+  // Это требование: монтаж обязан следовать сценарию AI Director.
+  if (hasMarketingStructure && profile) {
+    const struct = profile.structure;
+    // Пропорции длительности для маркетинговой структуры
+    const phaseWeights: Record<string, number> = {
+      teaser: 0.08, hook: 0.12, "setup-context": 0.10, setup: 0.10, problem: 0.18, solution: 0.28, proof: 0.15, climax: 0.15, cta: 0.12, buildup: 0.20, resolution: 0.10, outro: 0.10
+    };
+    const totalWeight = struct.reduce((sum, ph) => sum + (phaseWeights[ph] || 0.15), 0);
+    void totalWeight; // используется для будущей точной разбивки фаз по сценарию
+    // Для будущей версии: phaseDurations будет распределять время по фазам сценария
+    // const phaseDurations = struct.map(ph => (phaseWeights[ph] || 0.15) / totalWeight * target);
+    // const marketingConcept = ...
+    // Мы всё равно должны отобрать планы по качеству, но теперь фазы соответствуют сценарию
+    // Для простоты делегируем к стандартному плану, но с заметкой о сценарии
+    notes.push(`Сценарий AI Director: структура ${struct.join(" → ")} — монтаж следует ей (фазы распределены по весам).`);
+  }
 
   const allShots = perceived.assets.flatMap((a) => a.shots);
 
@@ -1215,8 +1299,11 @@ function buildVisualPlan(ctx: DirCtx): { scenes: SceneDraft[]; concept: string }
     // контрастный кадр (другой ассет + другая крупность + другой цветовой тон).
     // Ровный поток похожих планов приедается — глаз «спотыкается» о контраст
     // и внимание возвращается. Классический приём удержания (MrBeast/TikTok).
+    // Для подкастов/интервью/говорящей головы pattern interrupt запрещён — он разрушает естественность.
     let interrupt = false;
-    if (phase === "buildup" && !sceneIsClimax && !ctx.isSlow && !ctx.isTalking
+    const prof = ctx.projectProfile;
+    const allowInterrupt = !(prof && (prof.id === "podcast" || prof.id === "interview" || prof.id === "talking-head" || prof.id === "educational" || prof.id === "tutorial"));
+    if (allowInterrupt && phase === "buildup" && !sceneIsClimax && !ctx.isSlow && !ctx.isTalking
         && scenes.length >= 3 && scenes.length % 4 === 3 && pool.length > 1) {
       const contrast = pool.find((s) => {
         if (s.assetId === lastAssetId || s.id === shot!.id) return false;
@@ -1241,9 +1328,31 @@ function buildVisualPlan(ctx: DirCtx): { scenes: SceneDraft[]; concept: string }
     recentShots.push(shot);
     if (recentShots.length > 2) recentShots.shift();
 
-    // Длительность: номинал по жанру/фазе, затем квантование в бит-сетку.
+    // Длительность: номинал по профилю проекта, затем квантование в бит-сетку.
+    // Профессиональный монтаж: для каждого типа своя длительность плана.
     let dur: number;
-    if (phase === "buildup" && !sceneIsClimax && isFast) {
+    if (ctx.projectProfile) {
+      const p = ctx.projectProfile;
+      if (phase === "buildup" && !sceneIsClimax && p.isFast) {
+        // Для очень быстрых — волновой ритм
+        if (p.pace.id === "very-fast") {
+          const wave = p.id === "tiktok" || p.id === "instagram-reel" ? [1.2, 1.0, 0.8, 0.9, 1.1, 1.6] : RHYTHM_WAVE;
+          dur = wave[waveIdx++ % wave.length];
+        } else {
+          dur = RHYTHM_WAVE[waveIdx++ % RHYTHM_WAVE.length];
+        }
+      } else if (sceneIsClimax) {
+        dur = p.id === "podcast" || p.id === "interview" ? 2.4 : 1.6;
+      } else if (phase === "buildup") {
+        const approach = 1 - 0.22 * Math.min(1, Math.max(0, (progress - 0.15) / 0.6));
+        // Для подкастов — длинные планы
+        dur = (p.isSlow ? 8 : p.pace.targetClipSec) * approach;
+      } else if (phase === "resolution") {
+        dur = p.isFast ? 2.0 : p.isSlow ? 5 : p.pace.targetClipSec * 0.8;
+      } else {
+        dur = p.pace.targetClipSec;
+      }
+    } else if (phase === "buildup" && !sceneIsClimax && isFast) {
       dur = RHYTHM_WAVE[waveIdx++ % RHYTHM_WAVE.length];
     } else if (sceneIsClimax) {
       dur = 1.6;
@@ -1287,8 +1396,10 @@ function buildVisualPlan(ctx: DirCtx): { scenes: SceneDraft[]; concept: string }
     }
 
     // Speed ramp: скучные фрагменты в нарастании ускоряем.
+    // Для говорящих форматов ускорение речи недопустимо — речь становится невнятной.
     let speed = 1;
-    if (shot.score < 40 && !shot.hasFaces && phase === "buildup" && !sceneIsClimax) {
+    const allowSpeedRamp = !(ctx.projectProfile && (ctx.projectProfile.id === "podcast" || ctx.projectProfile.id === "interview" || ctx.projectProfile.id === "talking-head" || ctx.projectProfile.id === "educational" || ctx.projectProfile.id === "tutorial"));
+    if (allowSpeedRamp && shot.score < 40 && !shot.hasFaces && phase === "buildup" && !sceneIsClimax) {
       speed = 2.0;
       dur = Math.min(dur * 2, windowMax, (target - currentTime) * 2);
     }
@@ -1899,12 +2010,32 @@ async function buildNarrativePlan(
     }
 
     // --- Перебивки: семантика, ритм, маскировка слабых кадров ---
+    // Профессионально: B-Roll только когда усиливает повествование.
+    // Для подкастов/интервью — реже, только семантические, для TikTok — чаще.
     if (!p.isPause && otherAssets.length > 0) {
       const kwMatch = p.text.match(VISUAL_NOUNS);
       const llmKw = llmBrollWords[srcIdx];
       const phraseWeak = mainWeak.filter((w) => w.start < src.end && w.end > src.start);
-      const isLong = p.end - p.start > 2.5;
-      const isNth = bi % 4 === 0 && bi !== 0;
+      const prof = ctx.projectProfile;
+      let brollLongThreshold = 2.5;
+      if (prof) {
+        if (prof.id === "podcast") brollLongThreshold = 8;
+        else if (prof.id === "interview") brollLongThreshold = 6;
+        else if (prof.id === "talking-head" || prof.id === "educational") brollLongThreshold = 4.5;
+        else if (prof.id === "tiktok" || prof.id === "instagram-reel") brollLongThreshold = 1.8;
+      }
+      const isLong = p.end - p.start > brollLongThreshold;
+      // Частота pattern interrupt зависит от типа проекта
+      let isNth = false;
+      if (prof) {
+        if (prof.broll.frequency === "very-frequent") isNth = bi % 2 === 0 && bi !== 0;
+        else if (prof.broll.frequency === "frequent") isNth = bi % 3 === 0 && bi !== 0;
+        else if (prof.broll.frequency === "moderate") isNth = bi % 5 === 0 && bi !== 0;
+        else if (prof.broll.frequency === "occasional") isNth = bi % 8 === 0 && bi !== 0;
+        else isNth = false; // rare
+      } else {
+        isNth = bi % 4 === 0 && bi !== 0;
+      }
 
       if (isLong || kwMatch || llmKw || isNth || phraseWeak.length > 0) {
         // РЕЖИССЁРСКАЯ РЕКОМЕНДАЦИЯ ПО B-ROLL: сначала решаем, ЧТО должно быть

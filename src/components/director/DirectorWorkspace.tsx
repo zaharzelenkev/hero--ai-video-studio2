@@ -18,6 +18,7 @@ import type {
 import { buildOfflinePreprod } from "@/lib/brain/offlinePreprod";
 import PreprodControlBar from "./PreprodControlBar";
 import DirectorWizard from "./DirectorWizard";
+import DraftMontageModal from "./DraftMontageModal";
 import ModeSwitcher, { type DirectorMode } from "./ModeSwitcher";
 import StageIdea from "./stages/StageIdea";
 import StageLogline from "./stages/StageLogline";
@@ -49,6 +50,23 @@ const TEMPOS = ["Очень быстрый", "Быстрый", "Средний",
 const DURATIONS = [
   "15", "20", "30", "45", "60", "90", "120", "180",
   "300", "420", "600", "900",
+];
+
+// Порядок пошаговой сборки: кнопка «Запустить AI Director» сначала отвечает
+// на «Замысел», затем кнопка «Далее» по одному подключает остальные разделы —
+// каждый отдельным запросом, чтобы AI успевала написать каждый раздел ПОЛНОСТЬЮ.
+const STEP_STAGES: PreprodStage[] = [
+  "idea",
+  "logline",
+  "treatment",
+  "script",
+  "vision",
+  "storyboard",
+  "shotlist",
+  "planning",
+  "casting",
+  "locations",
+  "risks",
 ];
 
 const emptyBrief = (): DirectorBrief => ({
@@ -114,6 +132,17 @@ export default function DirectorWorkspace({
   const [notice, setNotice] = useState("");
   const [saved, setSaved] = useState(false);
   const [busyStage, setBusyStage] = useState<string | null>(null);
+  // Окно «Исходники → Черновой монтаж»: кнопка «В редактор» открывает его,
+  // а не ведёт сразу в редактор. После загрузки исходников и нажатия
+  // «Черновой монтаж» AI собирает черновой ролик из всех материалов.
+  const [draftModalOpen, setDraftModalOpen] = useState(false);
+  // Пошаговая сборка: «Запустить AI Director» отвечает сначала на Замысел,
+  // затем кнопка «Далее» по одному догенерирует остальные разделы. Каждый
+  // раздел — отдельный запрос, поэтому AI пишет каждый пункт целиком.
+  const [stepping, setStepping] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [stepDone, setStepDone] = useState(false);
+  const [stepError, setStepError] = useState("");
   // true — предыдущий полный запуск не удался: при повторе отправляем серверу
   // текущий preprod, чтобы он переиспользовал уже сгенерированные блоки
   // и догенерировал только недостающие. Сбрасывается при любом изменении брифа.
@@ -214,7 +243,7 @@ export default function DirectorWorkspace({
     return Math.round((done / keys.length) * 100);
   }, [preprod, filledCount]);
 
-  const canGenerate = brief.idea.trim().length >= 4 && stage !== "generating";
+  const canGenerate = brief.idea.trim().length >= 4 && stage !== "generating" && !stepping;
 
   const generate = async (stg: PreprodStage | "full" = "full") => {
     setError("");
@@ -302,6 +331,92 @@ export default function DirectorWorkspace({
     }
   };
 
+  /**
+   * Пошаговая генерация одного раздела. Каждый раздел — отдельный запрос
+   * (mode: "stage"), поэтому AI пишет его целиком; сервер возвращает ошибку,
+   * если раздел не получился полным, и шаг можно повторить.
+   */
+  const generateStep = async (stg: PreprodStage, basePreprod?: PreProduction) => {
+    setBusyStage(stg);
+    setStepError("");
+    try {
+      const current = basePreprod || preprod || buildOfflinePreprod(brief);
+      const res = await fetch("/api/director", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brief,
+          projectTitle: project?.title || brief.idea || "Новый проект",
+          mode: "stage",
+          stage: stg,
+          preprod: current,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setStepError(data.error || "Не удалось получить ответ AI. Попробуйте ещё раз.");
+        setStepDone(false);
+        return;
+      }
+      setPreprod((prev) => {
+        const next = { ...(prev || current), [stg]: data.data } as PreProduction;
+        next.updatedAt = Date.now();
+        setSections(flattenSections(next, brief));
+        return next;
+      });
+      setActiveStage(stg);
+      setStepDone(true);
+    } catch {
+      setStepError("Не удалось связаться с AI Director. Проверьте API-ключ и попробуйте ещё раз.");
+      setStepDone(false);
+    } finally {
+      setBusyStage(null);
+    }
+  };
+
+  /**
+   * «Запустить AI Director» — старт пошаговой сборки: сначала AI отвечает
+   * на Замысел, дальше — кнопкой «Далее».
+   */
+  const startStepFlow = async () => {
+    setError("");
+    setNotice("");
+    setStepError("");
+    const base = preprod || buildOfflinePreprod(brief);
+    setPreprod(base);
+    setSections(flattenSections(base, brief));
+    setStage("result");
+    setStepping(true);
+    setStepIndex(0);
+    setStepDone(false);
+    setActiveStage(STEP_STAGES[0]);
+    await generateStep(STEP_STAGES[0], base);
+  };
+
+  /** «Далее» — сгенерировать следующий раздел или завершить сборку. */
+  const nextStep = () => {
+    const next = STEP_STAGES[stepIndex + 1];
+    if (!next) {
+      setStepping(false);
+      setStepDone(false);
+      setStepIndex(0);
+      setStepError("");
+      setActiveStage("idea");
+      setNotice(`Все ${STEP_STAGES.length} разделов готовы — AI ответила по каждому пункту полностью.`);
+      return;
+    }
+    setStepIndex((i) => i + 1);
+    setStepDone(false);
+    setStepError("");
+    setActiveStage(next);
+    void generateStep(next);
+  };
+
+  /** «Повторить» — перегенерировать текущий раздел после ошибки. */
+  const retryStep = () => {
+    void generateStep(STEP_STAGES[stepIndex]);
+  };
+
   // В pro-режиме генерацию запускает только кнопка после заполнения брифа.
   // Раньше она срабатывала уже после первых четырёх полей и отправляла AI
   // неполный контекст; оставшиеся ответы заменялись общими заготовками.
@@ -345,12 +460,22 @@ export default function DirectorWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preprod, activeStage, brief]);
 
+  /**
+   * «В редактор»: сначала сохраняем план, затем открываем окно загрузки
+   * исходников с кнопкой «Черновой монтаж» (а не ведём сразу в редактор).
+   */
   const goToEditor = async () => {
     try {
       if (preprod && sections) await persistPlan();
     } catch {
       /* persistPlan already shows error */
     }
+    setDraftModalOpen(true);
+  };
+
+  /** Прямой переход в редактор (пропустить черновой монтаж / после монтажа). */
+  const enterEditor = () => {
+    setDraftModalOpen(false);
     router.push(`/editor/${projectId}`);
   };
 
@@ -479,12 +604,17 @@ export default function DirectorWorkspace({
       )}
 
       <button
-        onClick={() => generate("full")}
-        disabled={!canGenerate}
+        onClick={() => void startStepFlow()}
+        disabled={!canGenerate || busyStage !== null}
         className={`btn btn-primary mt-5 h-11 w-full text-sm ${stage === "generating" ? "is-loading" : ""}`}
       >
         {stage === "generating" ? (
           "Режиссёр работает…"
+        ) : stepping ? (
+          <>
+            <Icon name="sparkles" size={16} />
+            Собираю по шагам: {Math.min(stepIndex + 1, STEP_STAGES.length)}/{STEP_STAGES.length}
+          </>
         ) : (
           <>
             <Icon name="clapper" size={16} />
@@ -525,83 +655,213 @@ export default function DirectorWorkspace({
     </div>
   );
 
+  const stepLoading = (
+    <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.015] p-10 text-center">
+      <div className="relative mb-7 flex h-16 w-16 items-center justify-center">
+        <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-violet-400" style={{ animationDuration: "1.4s" }} />
+        <div className="absolute inset-2 animate-spin rounded-full border border-transparent border-b-violet-500/50" style={{ animationDuration: "2.2s", animationDirection: "reverse" }} />
+        <span className="text-violet-200">
+          <Icon name="clapper" size={26} strokeWidth={1.5} />
+        </span>
+      </div>
+      <h3 className="title mb-1.5 text-base">
+        Режиссёр отвечает на раздел «{STAGE_LABELS[STEP_STAGES[stepIndex]]}»
+      </h3>
+      <p className="max-w-sm text-[13px] text-slate-400">
+        {stepIndex === 0
+          ? "Формулирую замысел…"
+          : "Пишу раздел полностью и без сокращений — это займёт немного времени."}
+      </p>
+      <div className="mt-5 h-1 w-56 overflow-hidden rounded-full bg-white/[0.08]">
+        <div className="h-full w-full origin-left animate-shimmer rounded-full bg-gradient-to-r from-violet-500 to-violet-300" />
+      </div>
+    </div>
+  );
+
   const resultPanel = preprod && sections && (
     <div className="space-y-5">
-      <div className="surface-card relative overflow-hidden rounded-[20px] p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-violet-600/20 blur-[80px]" />
-        <div className="relative flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="eyebrow">Препродакшен</div>
-            <h2 className="title mt-1 truncate text-lg">
-              {preprod.treatment.title || brief.idea || "Production Book"}
-            </h2>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="badge badge-primary">{readiness}%</span>
-            {saved && (
-              <span className="badge badge-ok">
-                <Icon name="check" size={11} />
-                Сохранено
+      {stepping ? (
+        <>
+          {/* Шапка пошаговой сборки: показываем прогресс и текущий раздел */}
+          <div className="surface-card rounded-[20px] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="eyebrow">Пошаговая сборка</div>
+                <h2 className="title mt-1 text-lg">
+                  Раздел {stepIndex + 1} из {STEP_STAGES.length} — {STAGE_LABELS[STEP_STAGES[stepIndex]]}
+                </h2>
+                <p className="mt-1 text-[12px] text-slate-400">
+                  AI отвечает на каждый пункт отдельно и полностью — без «недописанных» разделов.
+                </p>
+              </div>
+              <span className="badge badge-primary">
+                {stepIndex + (stepDone ? 1 : 0)}/{STEP_STAGES.length}
               </span>
-            )}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {STEP_STAGES.map((s, i) => {
+                const done = i < stepIndex || (i === stepIndex && stepDone);
+                const current = i === stepIndex && !done;
+                return (
+                  <span
+                    key={s}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${
+                      done
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30"
+                        : current
+                          ? "bg-violet-500/20 text-violet-100 border border-violet-400/40 ring-1 ring-violet-300/20"
+                          : "bg-white/[0.04] text-slate-500 border border-white/10"
+                    }`}
+                  >
+                    {done ? "✓" : i + 1} {STAGE_LABELS[s]}
+                  </span>
+                );
+              })}
+            </div>
           </div>
-        </div>
-        <p className="mt-3 text-[13px] leading-relaxed text-slate-300">{preprod.logline.primary}</p>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {brief.platform && <Chip>{brief.platform}</Chip>}
-          {brief.duration && <Chip>{brief.duration}с</Chip>}
-          {brief.tempo && <Chip>{brief.tempo}</Chip>}
-          {brief.mood && <Chip>{brief.mood}</Chip>}
-          {preprod.treatment.genre && <Chip>{preprod.treatment.genre}</Chip>}
-        </div>
-      </div>
 
-      {busyStage && (
-        <div className="rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-[11px] text-violet-100">
-          Перестраиваю раздел «{busyStage}» с учётом правок…
-        </div>
+          {stepError && (
+            <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-[12px] leading-relaxed text-rose-100">
+              <div className="flex items-center gap-2 font-bold">
+                <Icon name="alert" size={14} />
+                Не удалось получить полный ответ
+              </div>
+              <p className="mt-1">{stepError}</p>
+              <button
+                onClick={retryStep}
+                disabled={busyStage !== null}
+                className="btn btn-ghost mt-3 px-3 py-1.5 text-[10px]"
+              >
+                <Icon name="refresh" size={12} />
+                Повторить
+              </button>
+            </div>
+          )}
+
+          {busyStage === STEP_STAGES[stepIndex] ? (
+            stepLoading
+          ) : stepDone ? (
+            <>
+              <StageComponent
+                brief={brief}
+                preprod={preprod}
+                updatePreprod={updatePreprod}
+                onRegenerate={(s) => generate(s)}
+                busy={busyStage !== null}
+              />
+
+              {stepIndex < STEP_STAGES.length - 1 ? (
+                <div className="surface-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <p className="text-[12px] text-slate-400">
+                    Раздел «{STAGE_LABELS[STEP_STAGES[stepIndex]]}» готов. Продолжаем?
+                  </p>
+                  <button
+                    onClick={nextStep}
+                    disabled={busyStage !== null}
+                    className="btn btn-primary px-5 py-2.5 text-[13px] font-bold rounded-full shadow-lg shadow-violet-500/20 transition hover:shadow-violet-500/40 disabled:opacity-40"
+                  >
+                    Далее: {STAGE_LABELS[STEP_STAGES[stepIndex + 1]]}
+                    <Icon name="arrow-right" size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="surface-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <p className="text-[12px] text-emerald-300">
+                    <Icon name="check" size={13} className="inline" />{" "}
+                    Все {STEP_STAGES.length} разделов готовы — по каждому пункту AI ответила полностью.
+                  </p>
+                  <button
+                    onClick={nextStep}
+                    disabled={busyStage !== null}
+                    className="btn btn-primary px-5 py-2.5 text-[13px] font-bold rounded-full disabled:opacity-40"
+                  >
+                    Завершить
+                    <Icon name="check" size={14} />
+                  </button>
+                </div>
+              )}
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <div className="surface-card relative overflow-hidden rounded-[20px] p-5">
+            <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-violet-600/20 blur-[80px]" />
+            <div className="relative flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="eyebrow">Препродакшен</div>
+                <h2 className="title mt-1 truncate text-lg">
+                  {preprod.treatment.title || brief.idea || "Production Book"}
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="badge badge-primary">{readiness}%</span>
+                {saved && (
+                  <span className="badge badge-ok">
+                    <Icon name="check" size={11} />
+                    Сохранено
+                  </span>
+                )}
+              </div>
+            </div>
+            <p className="mt-3 text-[13px] leading-relaxed text-slate-300">{preprod.logline.primary}</p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {brief.platform && <Chip>{brief.platform}</Chip>}
+              {brief.duration && <Chip>{brief.duration}с</Chip>}
+              {brief.tempo && <Chip>{brief.tempo}</Chip>}
+              {brief.mood && <Chip>{brief.mood}</Chip>}
+              {preprod.treatment.genre && <Chip>{preprod.treatment.genre}</Chip>}
+            </div>
+          </div>
+
+          {busyStage && (
+            <div className="rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-[11px] text-violet-100">
+              Перестраиваю раздел «{busyStage}» с учётом правок…
+            </div>
+          )}
+
+          {notice && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
+              {notice}
+            </div>
+          )}
+
+          <StageComponent
+            brief={brief}
+            preprod={preprod}
+            updatePreprod={updatePreprod}
+            onRegenerate={(s) => generate(s)}
+            busy={busyStage !== null}
+          />
+
+          <div className="surface-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="flex gap-2">
+              <button
+                onClick={() => generate("full")}
+                disabled={busyStage !== null}
+                className="btn btn-ghost px-4 py-2 text-[11px]"
+              >
+                <Icon name="refresh" size={13} />
+                Перегенерировать
+              </button>
+              <button
+                onClick={persistPlan}
+                className="btn btn-ghost px-4 py-2 text-[11px]"
+              >
+                <Icon name="save" size={13} />
+                {saved ? "Сохранено" : "Сохранить"}
+              </button>
+            </div>
+            <button
+              onClick={() => void goToEditor()}
+              className="btn btn-primary px-5 py-2 text-[11px]"
+            >
+              В редактор
+              <Icon name="arrow-right" size={14} />
+            </button>
+          </div>
+        </>
       )}
-
-      {notice && (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
-          {notice}
-        </div>
-      )}
-
-      <StageComponent
-        brief={brief}
-        preprod={preprod}
-        updatePreprod={updatePreprod}
-        onRegenerate={(s) => generate(s)}
-        busy={busyStage !== null}
-      />
-
-      <div className="surface-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="flex gap-2">
-          <button
-            onClick={() => generate("full")}
-            disabled={busyStage !== null}
-            className="btn btn-ghost px-4 py-2 text-[11px]"
-          >
-            <Icon name="refresh" size={13} />
-            Перегенерировать
-          </button>
-          <button
-            onClick={persistPlan}
-            className="btn btn-ghost px-4 py-2 text-[11px]"
-          >
-            <Icon name="save" size={13} />
-            {saved ? "Сохранено" : "Сохранить"}
-          </button>
-        </div>
-        <button
-          onClick={() => void goToEditor()}
-          className="btn btn-primary px-5 py-2 text-[11px]"
-        >
-          В редактор
-          <Icon name="arrow-right" size={14} />
-        </button>
-      </div>
     </div>
   );
 
@@ -700,6 +960,21 @@ export default function DirectorWorkspace({
           </div>
         )}
       </main>
+
+      {/* Окно «Исходники → Черновой монтаж»: открывается вместо прямого
+          перехода в редактор. Монтируется только при открытии — состояние
+          каждого открытия начинается с чистого листа. */}
+      {draftModalOpen && (
+        <DraftMontageModal
+          projectId={projectId}
+          title={project?.title || brief.idea || "Новый проект"}
+          brief={brief}
+          preprod={preprod}
+          sections={sections}
+          onClose={() => setDraftModalOpen(false)}
+          onEnterEditor={enterEditor}
+        />
+      )}
     </div>
   );
 }

@@ -559,22 +559,6 @@ export default function EditorShellV2() {
             </span>
           </div>
           <button
-            onClick={() => {
-              const state = useProjectStore.getState();
-              const assets = state.project?.assets ?? [];
-              if (assets.length === 0) {
-                alert("Сначала загрузите исходные материалы через медиатеку.");
-                return;
-              }
-              alert(`Автомонтаж запущен с ${assets.length} материалами.\n\n• Все исходники включены в черновой ролик.\n• Речь не обрезается в середине фразы.\n• После создания вы автоматически перейдёте в редактор для правок.`);
-            }}
-            className="btn btn-primary h-8 px-3.5 text-[11px] font-extrabold shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 transition"
-            title="Создать черновой монтаж со всеми исходными материалами (без обрезки речи)"
-          >
-            <Icon name="wand" size={14} />
-            <span className="hidden sm:inline">Автомонтаж</span>
-          </button>
-          <button
             onClick={() => void persist()}
             disabled={!dirty}
             className="btn btn-ghost h-8 px-2.5 text-xs sm:px-3"
@@ -617,7 +601,7 @@ export default function EditorShellV2() {
       ) : lockStage === "review" ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-400/15 bg-amber-500/[0.06] px-3 py-1.5 text-[10px] font-medium text-amber-200/90">
           <Icon name="clipboard" size={12} />
-          <span>Режим финальной сборки: автомонтаж завершён. Проверьте отчёт Picture Lock и подтвердите монтаж.</span>
+          <span>Режим финальной сборки: черновой монтаж завершён. Проверьте отчёт Picture Lock и подтвердите монтаж.</span>
           <button
             onClick={() => setActivePage("lock")}
             className="ml-auto rounded-md border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 font-bold transition hover:bg-amber-500/30"

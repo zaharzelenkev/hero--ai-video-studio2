@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
 import { STAGE_ICONS, STAGE_LABELS } from "./stageIcons";
@@ -617,7 +618,7 @@ export default function DirectorWorkspace({
           </>
         ) : (
           <>
-            <Icon name="clapper" size={16} />
+            <Image src="/director-icon.png" alt="AI Director" width={16} height={16} className="rounded" />
             Запустить AI Director
           </>
         )}
@@ -628,7 +629,7 @@ export default function DirectorWorkspace({
   const emptyState = (
     <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.015] p-10 text-center">
       <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-200">
-        <Icon name="clapper" size={30} strokeWidth={1.5} />
+        <Image src="/director-icon.png" alt="AI Director" width={30} height={30} className="rounded" />
       </div>
       <h3 className="title mb-2 text-lg">Расскажите о проекте</h3>
       <p className="max-w-md text-[13px] leading-relaxed text-slate-400">
@@ -644,7 +645,7 @@ export default function DirectorWorkspace({
         <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-violet-400" style={{ animationDuration: "1.4s" }} />
         <div className="absolute inset-2 animate-spin rounded-full border border-transparent border-b-violet-500/50" style={{ animationDuration: "2.2s", animationDirection: "reverse" }} />
         <span className="text-violet-200">
-          <Icon name="clapper" size={30} strokeWidth={1.5} />
+          <Image src="/director-icon.png" alt="AI Director" width={30} height={30} className="rounded" />
         </span>
       </div>
       <h3 className="title mb-1.5 text-base">Режиссёр работает</h3>
@@ -661,7 +662,7 @@ export default function DirectorWorkspace({
         <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-violet-400" style={{ animationDuration: "1.4s" }} />
         <div className="absolute inset-2 animate-spin rounded-full border border-transparent border-b-violet-500/50" style={{ animationDuration: "2.2s", animationDirection: "reverse" }} />
         <span className="text-violet-200">
-          <Icon name="clapper" size={26} strokeWidth={1.5} />
+          <Image src="/director-icon.png" alt="AI Director" width={26} height={26} className="rounded" />
         </span>
       </div>
       <h3 className="title mb-1.5 text-base">

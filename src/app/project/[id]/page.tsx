@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { loadProject } from "@/lib/db";
 import { useProjectStore } from "@/store/projectStore";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -124,7 +125,11 @@ export default function ProjectPage() {
                       : "bg-white/[0.05] text-slate-400 group-hover:text-slate-200"
                   }`}
                 >
-                  <Icon name={STAGE_ICONS[i]} size={18} />
+                  {i === 0 ? (
+                    <Image src="/director-icon.png" alt="AI Director" width={18} height={18} className="rounded" />
+                  ) : (
+                    <Icon name={STAGE_ICONS[i]} size={18} />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-sm font-bold text-slate-100">

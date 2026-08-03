@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import UploadZone from "./UploadZone";
 import PromptForm from "./PromptForm";
 import { Icon } from "@/components/ui/Icon";
@@ -221,13 +222,14 @@ export default function GenerationScreenV2() {
             <div className="pointer-events-none absolute -bottom-28 -left-14 h-56 w-56 rounded-full bg-violet-800/15 blur-[100px]" />
 
             <div className="relative flex flex-col items-start gap-5 sm:flex-row sm:items-center">
-              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl"
-                style={{
-                  background: "linear-gradient(180deg, #8b7cff 0%, #5c4bd8 100%)",
-                  boxShadow: "0 16px 40px -8px rgba(124,108,246,0.55), inset 0 1px 0 rgba(255,255,255,0.25)",
-                }}
-              >
-                <Icon name="clapper" size={30} strokeWidth={1.5} className="text-white transition-transform duration-300 group-hover:scale-105" />
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl overflow-hidden shadow-lg shadow-violet-500/20">
+                <Image 
+                  src="/director-icon.png" 
+                  alt="AI Director" 
+                  width={64} 
+                  height={64} 
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex items-center gap-2.5">

@@ -54,6 +54,20 @@ const DURATIONS = [
   "300", "420", "600", "900", "1200", "1800", "3600", "7200",
 ];
 
+function formatDurationLabel(d: string) {
+  const sec = parseInt(d, 10);
+  if (isNaN(sec)) return `${d}с`;
+  if (sec < 60) return `${sec}с`;
+  if (sec < 3600) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return s > 0 ? `${m} мин ${s}с` : `${m} мин`;
+  }
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return m > 0 ? `${h} ч ${m} мин` : `${h} ч`;
+}
+
 // Порядок пошаговой сборки: кнопка «Запустить AI Director» сначала отвечает
 // на «Замысел», затем кнопка «Далее» по одному подключает остальные разделы —
 // каждый отдельным запросом, чтобы AI успевала написать каждый раздел ПОЛНОСТЬЮ.
@@ -555,10 +569,10 @@ export default function DirectorWorkspace({
               ))}
             </select>
           </Field>
-          <Field label="Длина, сек">
+          <Field label="Длительность">
             <select value={brief.duration} onChange={(e) => set("duration", e.target.value)} className={`${inputCls} appearance-none`}>
               {DURATIONS.map((d) => (
-                <option key={d} value={d} className="bg-[#0c0c16]">{d}с</option>
+                <option key={d} value={d} className="bg-[#0c0c16]">{formatDurationLabel(d)}</option>
               ))}
             </select>
           </Field>

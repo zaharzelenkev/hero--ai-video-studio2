@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   title: "MONTIQ — AI Production Studio",
   description:
     "AI Production Studio для полного цикла создания видео: от идеи, сценария и режиссуры до анализа материалов, монтажа, финального звука, графики и экспорта.",
+  verification: {
+    google: "7b9c1L_pGpyyvpEFdQXVAXOf27TsG-ri6fRVnQwngTE",
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

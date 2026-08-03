@@ -564,13 +564,40 @@ function stageRegenerationPrompt(
     stage,
     userMessage: userPatch,
   });
+  // Пример «правильного» формата зависит от раздела: object-разделы (idea,
+  // script...) возвращают { поле: ... }, array-разделы (casting, locations)
+  // возвращают массив [...]. Пример помогает модели не обернуть ответ
+  // в дополнительный ключ «${stage}».
+  const stageExamples: Record<string, string> = {
+    idea: `{ "refined": "...", "audience": "...", "potential": 7, "pros": [...], "variants": [...] }`,
+    logline: `{ "primary": "...", "hero": "...", "goal": "...", "conflict": "...", "variants": [...] }`,
+    treatment: `{ "title": "...", "genre": "...", "synopsisLong": "...", "act1": "...", "characters": [...] }`,
+    script: `{ "concept": "...", "scenes": [ { "number": 1, "heading": "...", "action": "...", "durationSec": 5 }, ... ] }`,
+    vision: `{ "overallStyle": "...", "scenes": [ { "sceneNumber": 1, "shot": { ... } }, ... ] }`,
+    storyboard: `{ "frames": [ { "number": 1, "description": "...", "shotSize": "MS" }, ... ] }`,
+    shotlist: `{ "shots": [ { "number": 1, "description": "...", "shotType": "MS" }, ... ] }`,
+    planning: `{ "schedule": [ { "day": 1, "location": "..." }, ... ], "checklists": [...] }`,
+    casting: `[ { "role": "...", "description": "...", "look": "..." }, ... ]`,
+    locations: `[ { "name": "...", "description": "...", "mood": "..." }, ... ]`,
+    risks: `{ "readiness": 70, "risks": [ { "severity": "medium", "description": "...", "mitigation": "..." }, ... ] }`,
+  };
+  const goodExample = stageExamples[stage] || `{ ...поля раздела «${stage}»... }`;
+  const arrayStages = new Set(["casting", "locations"]);
+  const badExample = arrayStages.has(stage)
+    ? `{ "${stage}": [ ... ] }`
+    : `{ "${stage}": { ... } }`;
+
   return (
     ctx +
     `\n\nСгенерируй раздел "${stage}"${userPatch ? ` с учётом комментария пользователя: «${userPatch}»` : ""} ПОЛНОСТЬЮ и ЗАКОНЧЕННО.\n` +
     `Учти все изменения в других разделах (логлайн согласуется с идеей, сценарий с логлайном, storyboard со сценарием и т.д.). ` +
     `Сохрани лучшие детали от предыдущей версии, если они не противоречат обновлениям.\n` +
-    `Верни ТОЛЬКО JSON фрагмент этого раздела (по той же схеме, что и в полном ответе) — без обёртки в дополнительный ключ, без markdown.` +
-    `\nНе обрезай ответ: если JSON не помещается в лимит — лучше сократи текст внутри полей, но ВЕРНИ ВСЕ поля и заверши валидный JSON.`
+    `Верни ТОЛЬКО JSON — СОДЕРЖИМОЕ раздела «${stage}» БЕЗ ОБЁРТКИ.\n` +
+    `НЕ включай ключ «${stage}» снаружи — верни только внутреннюю структуру.\n` +
+    `Правильно: ${goodExample}\n` +
+    `НЕПРАВИЛЬНО: ${badExample}\n` +
+    `Без markdown, без пояснений до или после JSON.\n` +
+    `Не обрезай ответ: если JSON не помещается в лимит — лучше сократи текст внутри полей, но ВЕРНИ ВСЕ поля и заверши валидный JSON.`
   );
 }
 
@@ -698,12 +725,16 @@ async function generateStageSection(
       console.warn(
         `[director] stage "${stage}" — LLM call failed (attempt ${attempt + 1}/${MAX_ATTEMPTS})`
       );
+      // Пауза перед ретраем: даём rate limit-окну провайдера истечь,
+      // иначе повторный вызов мгновенно упрётся в тот же 429.
+      if (attempt < MAX_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, 3000));
       continue;
     }
     if (llm.truncated) {
       console.warn(
         `[director] stage "${stage}" — response truncated at max_tokens=${maxTokens} (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying with a larger budget`
       );
+      // На обрезании не ждём — увеличенный maxTokens решит проблему.
       continue;
     }
 
@@ -713,13 +744,39 @@ async function generateStageSection(
     } catch {
       data = null;
     }
-    const valid = STAGE_VALIDATORS[stage] ? STAGE_VALIDATORS[stage](data) : Boolean(data);
-    if (data && valid) {
+
+    // Проверка валидности: сначала на исходных данных, потом — после
+    // разворачивания (если LLM обернула ответ в ключ раздела).
+    // Порядок важен: если данные уже в правильном формате, валидатор пройдёт
+    // без разворачивания. Если обёрнуты ({ "idea": { refined: ... } }) —
+    // валидатор на обёртке не пройдёт, тогда разворачиваем и проверяем снова.
+    const isValid = (d: any) =>
+      d != null && (STAGE_VALIDATORS[stage] ? STAGE_VALIDATORS[stage](d) : Boolean(d));
+
+    if (data && !isValid(data)) {
+      // LLM часто оборачивает ответ в ключ раздела (например, возвращает
+      // { "idea": { "refined": ... } } вместо { "refined": ... }) или
+      // { "casting": [...] } вместо [...]. Если распарсенный JSON содержит
+      // верхнеуровневый ключ, совпадающий с именем раздела — разворачиваем
+      // его содержимое и проверяем валидатор ещё раз.
+      if (typeof data === "object" && !Array.isArray(data) && stage in data && data[stage] != null) {
+        const inner = data[stage];
+        if (typeof inner === "object" && isValid(inner)) {
+          console.warn(`[director] stage "${stage}" — unwrapped { "${stage}": ... } → inner object/array`);
+          data = inner;
+        }
+      }
+    }
+
+    if (data && isValid(data)) {
       return { data };
     }
     console.warn(
       `[director] stage "${stage}" — response parsed but incomplete/invalid (attempt ${attempt + 1}/${MAX_ATTEMPTS}), retrying`
     );
+    // Короткая пауза между ретраями валидации — провайдер мог выдать мусор
+    // из-за перегрузки; даём 1.5 секунды перед следующим запросом.
+    if (attempt < MAX_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, 1500));
   }
   console.warn(`[director] stage "${stage}" — failed after ${MAX_ATTEMPTS} attempts`);
   return {

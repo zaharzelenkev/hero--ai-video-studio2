@@ -47,7 +47,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "podcast",
     name: "Podcast / Interview",
     targetDurationMin: 60,
-    targetDurationMax: 7200,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "none",
     coreDirectives: [
@@ -61,7 +61,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "interview",
     name: "Interview",
     targetDurationMin: 45,
-    targetDurationMax: 7200,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "neutral",
     coreDirectives: [
@@ -159,7 +159,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "education",
     name: "Education / Tutorial",
     targetDurationMin: 60,
-    targetDurationMax: 7200,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "neutral",
     coreDirectives: [
@@ -201,7 +201,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "documentary",
     name: "Documentary",
     targetDurationMin: 120,
-    targetDurationMax: 7200,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "cinematic",
     coreDirectives: [

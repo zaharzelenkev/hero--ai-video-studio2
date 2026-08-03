@@ -117,7 +117,16 @@ export function buildOfflinePreprod(brief: DirectorBrief): PreProduction {
   };
 
   // --- SCRIPT ---
-  const sceneCount = isShort ? 4 : duration >= 90 ? 7 : 5;
+  // Длительность до 2 часов: подкасты и длинные интервью требуют много сцен
+  // 10с-60с коротыш → 4-5 сцен, 60-180с → 5-7, 180-600с → 7-10, 600-1800с (10-30мин) → 12-18, 1800-3600с (30-60мин) → 18-25, 3600-7200с (1-2ч) → 25-40
+  let sceneCount: number;
+  if (isShort) sceneCount = 4;
+  else if (duration <= 60) sceneCount = 5;
+  else if (duration <= 180) sceneCount = 7;
+  else if (duration <= 600) sceneCount = 10;
+  else if (duration <= 1800) sceneCount = 15;
+  else if (duration <= 3600) sceneCount = 22;
+  else sceneCount = 32; // 2 часа — подробный план
   const phaseDurations = splitDuration(duration, sceneCount);
   const headings = isShort
     ? ["ЭКСТ. УЛИЦА — ДЕНЬ", "ИНТ. ПОМЕЩЕНИЕ — ДЕНЬ", "ИНТ. ПРОЦЕСС — ДЕНЬ", "ЭКСТ./ИНТ. ФИНАЛ — ДЕНЬ"]

@@ -156,11 +156,13 @@ const FULL_CHUNKS: ChunkSpec[] = [
   "finalText": "ОПЦИОНАЛЬНО: полный текст сценария в классической разметке для актёра. Если не помещается — пропусти поле, мы соберём его сами из scenes."
 }
 ВАЖНО: количество сцен и длительности — сумма всех durationSec должна РОВНО
-совпадать с длительностью из брифа: 15-30с → 4-5 сцен; 60с → 5-7; 90-180с → 6-10;
-300-900с → 12-25 полноценных сцен с завязкой/развитием/развязкой.
-Сценарий — конкретная сюжетная линия под ТЕМУ проекта (герои, локации, диалоги
-из темы), а не универсальный шаблон. Учитывай логлайн и treatment из контекста.
-Пиши СЖАТО: action — 1-3 предложения, dialogue — только ключевые реплики.`,
+совпадать с длительностью из брифа:
+15-30с → 4-5 сцен; 60с → 5-7; 90-180с → 6-10;
+300-900с (5-15мин) → 12-25; 900-1800с (15-30мин) → 15-25;
+1800-3600с (30-60мин, подкаст/интервью) → 20-35 сцен; >3600с — 25-40, но кратко (action 1-2 предложения).
+Сценарий — конкретная сюжетная линия под ТЕМУ проекта (герои, локации, диалоги из темы), а не шаблон.
+Учитывай логлайн и treatment из контекста. Пиши СЖАТО: action — 1-3 предложения, dialogue — только ключевые реплики.
+Для подкастов/интервью на 1 час: ~25 сцен по 2-3 мин, структура Hook→Problem→Solution→Proof→CTA сохраняется, но внутри длинные смысловые блоки.`,
     maxTokens: 9000,
     validate: (d) =>
       Boolean(d?.script && typeof d.script === "object") &&
@@ -934,6 +936,14 @@ export async function POST(req: NextRequest) {
     const deadline = Date.now() + fullRunDeadlineMs();
     const partial: PreProduction = partialPreprodFrom(basePreprod);
     const warnings: string[] = [];
+    // Если пользователь запросил >3600с (1 час), предупреждаем: бесплатная модель OpenRouter не тянет 2-часовые сценарии качественно
+    // Для чернового монтажа 2 часа разрешены, но сценарий AI Director ограничен 1 часом для стабильности
+    try {
+      const origDur = parseInt(String((rawBrief as any)?.duration || brief.duration || "0"), 10);
+      if (Number.isFinite(origDur) && origDur > 3600) {
+        warnings.push(`Запрошена длительность ${origDur}с (>1 часа). Бесплатная модель OpenRouter не стабильна на 2-часовых сценариях, поэтому сценарий ограничен 1 часом (3600с). Черновой монтаж при этом может быть до 2 часов из исходников.`);
+      }
+    } catch {}
     let reusedChunks = 0;
 
     for (const chunk of FULL_CHUNKS) {
@@ -1019,12 +1029,19 @@ export async function POST(req: NextRequest) {
 function normalizeBrief(raw: unknown): DirectorBrief {
   if (raw && typeof raw === "object") {
     const b = raw as Partial<DirectorBrief>;
+    // Для AI Director ограничиваем максимум 3600с (1 час) — бесплатная модель OpenRouter не тянет 2-часовые сценарии
+    // Для чернового монтажа (autoEdit) 2 часа разрешены через сырые материалы.
+    let durStr = String(b.duration || "");
+    const durNum = parseInt(durStr, 10);
+    if (Number.isFinite(durNum) && durNum > 3600) {
+      durStr = "3600";
+    }
     return {
       idea: String(b.idea || ""),
       goal: String(b.goal || ""),
       audience: String(b.audience || ""),
       platform: String(b.platform || ""),
-      duration: String(b.duration || ""),
+      duration: durStr,
       style: String(b.style || ""),
       mood: String(b.mood || ""),
       tempo: String(b.tempo || ""),

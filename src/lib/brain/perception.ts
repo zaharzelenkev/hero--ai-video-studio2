@@ -100,12 +100,11 @@ export function parseTranscriptPhrases(
   for (let i = 1; i < words.length; i++) {
     const w = words[i];
     const gap = w.start - cur.end;
-    // >= 0.35: строгое «> 0.4» втаскивало хвостовые филлеры внутрь фразы
-    // при паузе ровно-в-узел (фильтр их тогда уже не видел).
-    if (gap >= 0.35 || cur.end - cur.start > 4.0) {
+    const endsWithSentence = /[.!?]["'»)]?\s*$/.test(cur.text.trim());
+    const longThought = cur.end - cur.start > 6.0; // мысль не должна быть длиннее 6 сек (теряется внимание)
+    const forceSplit = gap >= 0.35 || cur.end - cur.start > 4.0 || endsWithSentence || longThought;
+    if (forceSplit) {
       phrases.push({ ...cur, assetId });
-      // Пауза 0.7–2.5с между мыслями — драматический момент (reaction beat),
-      // профи оставляют его в монтаже, а не режут как мёртвый воздух.
       if (opts?.keepPauses && gap >= 0.7 && gap <= 2.5) {
         phrases.push({ start: cur.end, end: w.start, text: "[ПАУЗА]", isPause: true, assetId });
       }
@@ -125,7 +124,23 @@ export function mergeUltraShortPhrases(phrases: SpeechPhrase[], minLen = 0.45): 
   const merged: SpeechPhrase[] = [];
   for (const p of phrases) {
     const last = merged[merged.length - 1];
-    if (last && !last.isPause && !p.isPause && last.end - last.start < minLen) {
+    if (!last || last.isPause || p.isPause) {
+      merged.push({ ...p });
+      continue;
+    }
+    // Не сливаем через границу предложения — это разные мысли
+    const lastEndsSentence = /[.!?]["'»)]?\s*$/.test(last.text.trim());
+    if (lastEndsSentence) {
+      merged.push({ ...p });
+      continue;
+    }
+    // Не сливаем если это начало новой мысли (вопрос, восклицание, важное слово)
+    const startsNewThought = /^[А-ЯA-Z]*[?!]|^(итак|значит|короче|послушай|смотри|важно|главное|секрет|внимание)/i.test(p.text.trim());
+    if (startsNewThought && last.end - last.start >= 0.8) {
+      merged.push({ ...p });
+      continue;
+    }
+    if (last.end - last.start < minLen) {
       last.end = p.end;
       last.text += " " + p.text;
     } else {
@@ -232,6 +247,19 @@ export interface Shot {
   hue?: number;
   /** Композиция кадра 0..10: правило третей для лиц, центрирование, воздух. */
   composition: number;
+  /** Оценка освещения 0..10: резкость, контраст, отсутствие пересвета/провала */
+  lightingScore?: number;
+  /** Направление взгляда: left, right, center, или unknown */
+  gazeDirection?: "left" | "right" | "center" | "up" | "down" | "unknown";
+  /** Оценка взгляда (looking room) 0..10 */
+  gazeScore?: number;
+  /** Эмоциональная насыщенность 0..10 */
+  emotionScore?: number;
+  /** Полнота действия 0..1: начинается и заканчивается ли действие внутри плана */
+  actionCompleteness?: number;
+  /** Начало и конец действия внутри плана, если есть */
+  actionStart?: number;
+  actionEnd?: number;
   dark: boolean;
   /** Кинематографичная тёмная сцена (неон, ночь): художественный выбор, не брак. */
   cinematicDark: boolean;
@@ -343,6 +371,7 @@ const MOTION_ENERGY: Record<VideoSegmentMetadata["motionLevel"], number> = {
   shake: 1,
 };
 
+
 function aggregateShot(
   asset: PerceivedAssetInput,
   segs: VideoSegmentMetadata[],
@@ -389,11 +418,20 @@ function aggregateShot(
     }
   }
 
-  // Композиция по правилу третей: лицо на пересечении третей — сильная
-  // композиция (профессиональная съёмка), лицо в самом центре — нейтрально,
-  // лицо у края/в углу — слабо. Кадры без лиц оцениваем по «воздуху» (небо/
-  // пустота сверху), если сегменты не дают информации — нейтральные 5.
+  const q = wq / wSum;
+  const a = wa / wSum;
+  const brightness = wSum > 0 ? wb / wSum : undefined;
+  const contrast = wSum > 0 ? wc / wSum : undefined;
+  const colorfulness = wSum > 0 ? wcol / wSum : undefined;
+  const darkRatio = darkW / wSum;
+  const blurryRatio = blurryW / wSum;
+  const dark = darkRatio > 0.5;
+  const cinematicDark = dark && (contrast ?? 0) >= 150;
+
+  // Композиция по правилу третей + оценка взгляда (looking room)
   let composition = 5;
+  let gazeDirection: "left" | "right" | "center" | "up" | "down" | "unknown" = "unknown";
+  let gazeScore = 5;
   if (hasFaces && faceX !== undefined && faceY !== undefined) {
     const nearLine = (v: number, line: number) => Math.abs(v - line) <= 0.13;
     const thirds = [1 / 3, 2 / 3];
@@ -405,17 +443,29 @@ function aggregateShot(
     else if (centered) composition = 6;
     else if (faceX < 0.1 || faceX > 0.9 || faceY < 0.08 || faceY > 0.92) composition = 3;
     else composition = 5;
-  }
 
-  const q = wq / wSum;
-  const a = wa / wSum;
-  const brightness = wSum > 0 ? wb / wSum : undefined;
-  const contrast = wSum > 0 ? wc / wSum : undefined;
-  const colorfulness = wSum > 0 ? wcol / wSum : undefined;
-  const darkRatio = darkW / wSum;
-  const blurryRatio = blurryW / wSum;
-  const dark = darkRatio > 0.5;
-  const cinematicDark = dark && (contrast ?? 0) >= 150;
+    if (faceX < 0.38) {
+      gazeDirection = "right";
+      gazeScore = faceX > 0.2 && faceX < 0.38 ? 8 : 5;
+    } else if (faceX > 0.62) {
+      gazeDirection = "left";
+      gazeScore = faceX < 0.8 && faceX > 0.62 ? 8 : 5;
+    } else if (Math.abs(faceX - 0.5) < 0.1) {
+      gazeDirection = "center";
+      gazeScore = 7;
+    } else if (faceY !== undefined && faceY < 0.35) {
+      gazeDirection = "down";
+      gazeScore = 5;
+    } else if (faceY !== undefined && faceY > 0.65) {
+      gazeDirection = "up";
+      gazeScore = 5;
+    }
+
+    if ((gazeDirection === "right" && faceX > 0.78) || (gazeDirection === "left" && faceX < 0.22)) {
+      gazeScore = 2;
+      composition = Math.min(composition, 4);
+    }
+  }
 
   const dominantMotion = (Object.entries(motionW).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "static") as VideoSegmentMetadata["motionLevel"];
   const cameraMotion = inferCameraMotion(faceSamples, dominantMotion, hasAction);
@@ -428,15 +478,55 @@ function aggregateShot(
   else if (cinematicDark) emotion = "dramatic";
   else if (momentum <= 0.35 && !dark) emotion = "calm";
 
-  // Итоговая оценка: та же шкала, что использовалась монтажным ядром,
-  // + штрафы за нестабильность/брак — число должно объясняться.
+  // Освещение: яркость 90-180 + контраст 80-180 = хорошее
+  let lightingScore = 5;
+  if (brightness !== undefined && contrast !== undefined) {
+    const brightOk = brightness >= 90 && brightness <= 180 ? 9 : brightness >= 70 && brightness <= 200 ? 7 : brightness < 50 || brightness > 220 ? 3 : 5;
+    const contrastOk = contrast >= 80 && contrast <= 180 ? 9 : contrast >= 50 && contrast <= 220 ? 6 : 3;
+    lightingScore = Math.round((brightOk * 0.6 + contrastOk * 0.4));
+  }
+
+  // Эмоциональная насыщенность
+  let emotionScore = 5;
+  {
+    let emo = 5;
+    if (hasFaces) emo += 2;
+    if (hasAction) emo += 1.5;
+    if ((colorfulness !== undefined && colorfulness > 25) || (contrast !== undefined && contrast > 120)) emo += 1;
+    if (audioPeak >= 0.7) emo += 1.5;
+    else if (audioPeak >= 0.4) emo += 0.7;
+    emotionScore = Math.min(10, Math.max(1, Math.round(emo)));
+  }
+
+  // Завершённость действия
+  let actionCompleteness = 0.5;
+  {
+    if (segs.length >= 2) {
+      const firstHasAction = segs[0].hasAction;
+      const lastHasAction = segs[segs.length - 1].hasAction;
+      const middleHasAction = segs.slice(1, -1).some(s => s.hasAction);
+      if (!firstHasAction && !lastHasAction && middleHasAction) {
+        actionCompleteness = 0.95;
+      } else if (firstHasAction && lastHasAction) {
+        actionCompleteness = 0.3;
+      } else if (firstHasAction || lastHasAction) {
+        actionCompleteness = 0.6;
+      } else {
+        actionCompleteness = 0.5;
+      }
+    }
+  }
+
+  // Итоговая оценка
   let score = q * 10 + a * 5;
   if (hasFaces) score += 20;
   if (hasAction) score += 30;
   score += Math.min(18, (colorfulness ?? 0) * 0.4);
-  // Композиция: лицо на третях добавляет (профессиональная постановка кадра),
-  // лицо в углу кадра — срезает (кадр «мимо»).
   score += (composition - 5) * 1.5;
+  score += (gazeScore - 5) * 0.8;
+  score += (lightingScore - 5) * 0.6;
+  score += (emotionScore - 5) * 0.5;
+  score += actionCompleteness * 5;
   if (audioPeak > 0.7) score *= 1.25;
   else if (audioPeak > 0.4) score *= 1.1;
   else if (audioPeak > 0 && audioPeak <= 0.2 && !hasFaces && !hasAction) score -= 20;
@@ -460,6 +550,13 @@ function aggregateShot(
   if (hasFaces) reasons.push(size === "close" ? "крупный план лица" : "человек в кадре");
   if (composition >= 7) reasons.push("кадр по правилу третей");
   if (composition <= 3) reasons.push("лицо в углу кадра (слабая композиция)");
+  if (gazeScore >= 7) reasons.push(`хороший looking room: взгляд ${gazeDirection}`);
+  if (gazeScore <= 2) reasons.push("взгляд упирается в край кадра");
+  if (lightingScore >= 8) reasons.push("отличное освещение");
+  if (lightingScore <= 3) reasons.push("плохое освещение");
+  if (emotionScore >= 7) reasons.push("эмоционально насыщенный");
+  if (actionCompleteness >= 0.9) reasons.push("действие полностью в кадре");
+  if (actionCompleteness <= 0.35) reasons.push("действие обрезано");
   if (hasAction) reasons.push("действие в кадре");
   if (cameraMotion !== "static" && cameraMotion !== "unknown") reasons.push(`камера: ${CAMERA_LABELS[cameraMotion]}`);
   if (q >= 8) reasons.push("высокое качество");
@@ -471,8 +568,6 @@ function aggregateShot(
   if (blurryRatio > 0.4) reasons.push("смазанный кадр");
   if (cameraMotion === "shake") reasons.push("тряска камеры");
 
-  // Подрезаем бракованные края плана (до 50% с каждой стороны): нарезка
-  // начинается и заканчивается на живом кадре, а не на мерцании/темноте.
   let cutIn = start;
   let cutOut = end;
   let trimmed = 0;
@@ -499,6 +594,24 @@ function aggregateShot(
     cutOut = end;
   }
 
+  // Не режем в середине действия: если действие началось после cutIn и заканчивается до cutOut — оставляем
+  // Если обрезали середину действия — расширяем до его границ
+  if (hasAction && segs.length >= 2) {
+    const actionStartIdx = segs.findIndex(s => s.hasAction);
+    const actionEndIdx = segs.length - 1 - [...segs].reverse().findIndex(s => s.hasAction);
+    if (actionStartIdx >= 0 && actionEndIdx >= 0) {
+      const aStart = segs[actionStartIdx].startTime;
+      const aEnd = segs[actionEndIdx].endTime;
+      // Если действие почти полностью внутри, но мы обрезали его — возвращаем
+      if (aStart >= cutIn && aStart < cutIn + 0.5 && cutIn > start) {
+        cutIn = Math.max(start, aStart - 0.1);
+      }
+      if (aEnd <= cutOut && aEnd > cutOut - 0.5 && cutOut < end) {
+        cutOut = Math.min(end, aEnd + 0.1);
+      }
+    }
+  }
+
   return {
     id: `${asset.id}#shot${index}@${start.toFixed(1)}`,
     assetId: asset.id,
@@ -520,6 +633,13 @@ function aggregateShot(
     colorfulness: colorfulness !== undefined ? Math.round(colorfulness * 10) / 10 : undefined,
     hue: dominantHueOf(hueHist),
     composition,
+    lightingScore,
+    gazeDirection,
+    gazeScore,
+    emotionScore,
+    actionCompleteness,
+    actionStart: hasAction ? start : undefined,
+    actionEnd: hasAction ? end : undefined,
     dark,
     cinematicDark,
     blurry: blurryRatio > 0.4,

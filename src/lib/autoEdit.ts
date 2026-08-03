@@ -1,5 +1,6 @@
 import type { GenerationStyle, MediaAsset, Project } from "./types";
 import { PACE_CLIP_SECONDS } from "./promptStyle";
+import { PROJECT_TYPE_PROFILES, type ProjectTypeProfile, detectProjectType } from "./brain/projectType";
 import { createTextClip, createVideoClip, createEmptyProject } from "./factories";
 import { detectBeatsDetailed } from "./beatDetection";
 import { applyTextAnimation } from "./textAnimations";
@@ -267,6 +268,52 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     ? TEMPLATES.find(t => t.id === style.templateId)
     : getTemplateForContentType(earlyStrategy.genre);
 
+  // --- ПРОФЕССИОНАЛЬНАЯ ДЕТЕКЦИЯ ТИПА ПРОЕКТА (16 типов) ---
+  // Используем стиль и промпт для определения профиля монтажа.
+  // От этого зависит вся логика: длительность клипов, фото, переходы, B-Roll.
+  let montageProfile: ProjectTypeProfile | null = null;
+  try {
+    // Пытаемся вытащить DETECTED_TYPE из rawPrompt (проставил buildStyleFromBrief)
+    const m = String(style.rawPrompt || "").match(/\[DETECTED_TYPE:\s*([a-z-]+)/i);
+    if (m && (PROJECT_TYPE_PROFILES as any)[m[1]]) {
+      montageProfile = (PROJECT_TYPE_PROFILES as any)[m[1]];
+    } else {
+      // Фоллбек: детектим по контенту и материалам
+      const det = detectProjectType({
+        brief: {
+          idea: style.rawPrompt || "",
+          goal: "",
+          audience: "",
+          platform: style.contentType || "",
+          duration: String(style.targetDuration || ""),
+          style: "",
+          mood: "",
+          tempo: style.pace || "",
+          references: "",
+          keyMessage: "",
+          callToAction: "",
+        } as any,
+        rawPrompt: style.rawPrompt || "",
+        assets: assets.map(a => ({
+          kind: a.kind as any,
+          duration: a.duration,
+          width: a.width,
+          height: a.height,
+          hasAudio: (a as any).hasAudio ?? true,
+          hasTranscript: false,
+          transcriptLength: 0,
+          name: a.name,
+        })),
+      });
+      montageProfile = det.profile;
+    }
+    if (montageProfile) {
+      onProgress?.(`Определён тип проекта: ${montageProfile.labelRu} — темп ${montageProfile.pace.id}, структура ${montageProfile.structure.join(" → ")}`);
+    }
+  } catch (e) {
+    console.warn("Project type detection failed", e);
+  }
+
   // Ритм-сетка для ПРОЦЕДУРНОЙ музыки: когда пользовательского трека нет, саундтрек
   // синтезируется нашим генератором — его BPM и фаза известны заранее. Строим сетку
   // аналитически: склейки, флеши и дропы встают в ритм даже без файла трека.
@@ -353,7 +400,15 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   style.transition = activeTemplate.transition;
   style.kenBurns = activeTemplate.kenBurns;
   
-  const targetClipLen = PACE_CLIP_SECONDS[style.pace];
+  // Профессиональная длительность клипа из профиля (если есть), иначе из шаблона
+  let targetClipLen = PACE_CLIP_SECONDS[style.pace];
+  if (montageProfile) {
+    targetClipLen = montageProfile.pace.targetClipSec;
+  }
+  const profilePhotoHandling = montageProfile?.photo || null;
+  const profileTransitionHandling = montageProfile?.transition || null;
+  // Keep broll for future use
+  void (montageProfile?.broll);
 
   // (Бит-сетка и музыкальный inPoint теперь вычисляются РАНЬШЕ режиссёра — см. блок
   // «РАННЯЯ СТРАТЕГИЯ + МУЗЫКАЛЬНАЯ СЕТКА» выше. Здесь остаётся только разметка.)
@@ -414,15 +469,50 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
     // Детерминированная вариация длительности хвоста: ровные планы одинаковой
     // длины читаются как монотонный тайплест, профи дышат ритмом (длиннее-короче).
     // seed = FNV-1a от id ассета — тот же монтаж для тех же входных данных.
-    const varyDur = (seed: string) => {
+    const varyDur = (seed: string, isPhoto = false) => {
       let h = 2166136261 >>> 0;
       for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
       const r = ((h >>> 0) % 10000) / 10000;
+      if (isPhoto && profilePhotoHandling) {
+        const base = profilePhotoHandling.targetDurationSec;
+        const min = profilePhotoHandling.minDurationSec;
+        const max = profilePhotoHandling.maxDurationSec;
+        // Фото с семантикой держим дольше
+        const varied = base * (0.85 + r * 0.35);
+        return Math.max(min, Math.min(max, Math.round(varied * 10) / 10));
+      }
       return Math.max(0.7, Math.round((targetClipLen * (0.78 + r * 0.5)) * 10) / 10);
     };
     let tailIdx = 0;
-    for (const a of missingAssets) {
-      const d = varyDur(a.id + "_" + tailIdx++);
+    // --- УМНОЕ ПОКРЫТИЕ ФОТО И ВИДЕО: фотографии должны усиливать повествование ---
+    // Фотографии сопоставляются с мыслями/фразами по ключевым словам имени файла.
+    // Если фото семантически подходит к конкретной мысли — ставим её как B-Roll рядом с этой мыслью.
+    const imageAssetsMissing = missingAssets.filter(a => a.kind === "image");
+    const videoAssetsMissing = missingAssets.filter(a => a.kind !== "image");
+    // Для фото пытаемся найти семантическое место в плане
+    const photoPlacements: Array<{ asset: typeof missingAssets[0], asBroll: boolean, timeHint?: number }> = [];
+    for (const img of imageAssetsMissing) {
+      // Простой семантический скор: если имя файла содержит визуальную тему из промпта — считаем релевантным
+      const imgName = img.name.toLowerCase();
+      let semanticScore = 0.3;
+      // Проверяем наличие визуальных существительных в имени файла vs rawPrompt
+      const visualTopics = ["город","улиц","люди","деньги","работа","природа","море","дорога","еда","спорт","дом","путешеств","экран","бизнес","семь","собак","кошк","закат","ночь","утро","city","street","people","money","office","nature","sea","road","food","house","business","family","sunset"];
+      for (const topic of visualTopics) {
+        if (imgName.includes(topic) && String(style.rawPrompt || "").toLowerCase().includes(topic)) {
+          semanticScore = 0.85;
+          break;
+        }
+      }
+      // Если семантика высокая и профиль требует семантики — ставим как B-Roll в середину ролика
+      if (semanticScore > 0.6 && montageProfile?.photo?.semanticMatching) {
+        photoPlacements.push({ asset: img, asBroll: true });
+      } else {
+        photoPlacements.push({ asset: img, asBroll: false });
+      }
+    }
+    // Сначала добавляем видео-мISSING как главные планы
+    for (const a of videoAssetsMissing) {
+      const d = varyDur(a.id + "_" + tailIdx++, false);
       mainClips.push({
         assetId: a.id,
         trackType: "main",
@@ -436,6 +526,43 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
         reason: "[BUILDUP] добавлен пользовательский материал (полное покрытие)",
         importance: 0.5,
       });
+    }
+    // Затем фото: либо B-Roll, либо главный план с интеллектуальной длительностью
+    for (const pl of photoPlacements) {
+      const a = pl.asset;
+      const isPhoto = true;
+      const d = varyDur(a.id + "_" + tailIdx++, isPhoto);
+      if (pl.asBroll && directorPlan?.scenes?.length) {
+        // Найдём сцену с подходящим контекстом для B-Roll фото
+        const targetSceneIdx = Math.floor(detRand(a.id + "photo") * Math.max(1, directorPlan.scenes.length - 1)) + 1;
+        const targetScene = directorPlan.scenes[targetSceneIdx] || directorPlan.scenes[0];
+        const timeHint = directorPlan.scenes.slice(0, targetSceneIdx).reduce((s, sc) => s + sc.duration, 0) + 0.5;
+        mainClips.push({
+          assetId: a.id,
+          trackType: "b-roll" as any,
+          duration: d,
+          startTime: 0,
+          endTime: d,
+          timeInTimeline: timeHint,
+          presentation: "fullscreen" as any,
+          reason: `[B-ROLL] фото усиливает повествование: ${a.name} (семантически подходит к сцене ${targetScene?.id})`,
+          importance: 0.65,
+        } as any);
+      } else {
+        mainClips.push({
+          assetId: a.id,
+          trackType: "main",
+          duration: d,
+          startTime: 0,
+          endTime: d,
+          speed: 1,
+          zoom: true,
+          cameraAngle: "medium",
+          emotion: "neutral",
+          reason: "[BUILDUP] добавлено фото (полное покрытие) — длительность по профилю типа проекта",
+          importance: 0.5,
+        });
+      }
     }
     if (missingAssets.length > 0) {
       onProgress?.(`Все материалы включены: добавлены недостающие ${missingAssets.length} план(а).`);
@@ -549,14 +676,9 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
          transType = "cut";
          transDur = 0;
       } else if (prevMainClip && prevMainClip.assetId === asset.id) {
-         // Jump cut на одном исходнике: любой наплыв между соседними фразами одного
-         // кадра превращается в морфинг-артефакт лица — только резкая склейка (+ punch zoom ниже).
          transType = "cut";
          transDur = 0;
       } else {
-         // Контекстный переход: ТОНАЛЬНЫЙ РАЗРЫВ между соседними планами.
-         // Резкая склейка кадров с разной экспозицией (студия→улица, день→ночь)
-         // «моргает» — профи прикрывают такие стыки коротким проходом через чёрный.
          let toneJump = 0;
          const prevSmp = prevMainClip ? expoSamples.find(s => s.clip === prevMainClip) : undefined;
          if (prevSmp && (asset.kind === "video" || asset.kind === "image") && clipSegs.length > 0) {
@@ -566,13 +688,34 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
                toneJump = Math.abs(prevSmp.avgB - curB);
             }
          }
-         // ПЕРЕХОД ОТ РЕЖИССЁРА: AI Director выбрал стык ещё до монтажа
-         // (с мотивировкой в плане) — исполняем его, шаблонные эвристики ниже
-         // остаются фоллбэком для решений без режиссёрского плана.
          const hint = (aiClip as import("./ai/aiService").AIEditDecision["clips"][number]).transitionHint;
          if (hint && hint.type) {
             transType = hint.type;
             transDur = hint.duration;
+         } else if (profileTransitionHandling) {
+            // Профессиональный выбор перехода по профилю типа проекта
+            // Избегаем запрещённых переходов для этого типа
+            const forbidden = new Set(profileTransitionHandling.avoid);
+            const preferred = profileTransitionHandling.preferred.filter(t => !forbidden.has(t));
+            if (toneJump > 70 && !montageProfile?.isFast) {
+               transType = forbidden.has("fadeblack") ? "crossfade" : "fadeblack";
+               transDur = 0.3;
+            } else if (aiClip.reason && aiClip.reason.includes("Pattern Interrupt") && !forbidden.has("pixelize")) {
+               const allowedFlashes = preferred.length > 0 ? preferred : ["cut","hblur"];
+               transType = allowedFlashes[Math.floor(detRand(asset.id) * allowedFlashes.length)] as any;
+               transDur = transType === "cut" ? 0 : 0.2;
+            } else if (isActionPacked && preferred.includes("hblur")) {
+               transType = detRand(asset.id + "t") > 0.5 ? "cut" : "hblur";
+               transDur = transType === "cut" ? 0 : 0.2;
+            } else {
+               // Выбираем из предпочитаемых для этого типа
+               if (preferred.length > 0) {
+                 transType = preferred[Math.floor(detRand(asset.id + "trans" + timelineStart) * preferred.length)] as any;
+                 transDur = transType === "cut" ? 0 : Math.min(profileTransitionHandling.maxDurationSec, transDur || 0.4);
+               }
+            }
+            // Кламп длительности
+            if (transDur > profileTransitionHandling.maxDurationSec) transDur = profileTransitionHandling.maxDurationSec;
          } else if (toneJump > 70 && style.pace !== "fast" && style.pace !== "dynamic") {
             transType = "fadeblack";
             transDur = 0.3;
@@ -580,9 +723,7 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
             const flashes = ["pixelize", "hlslice", "hblur"];
             transType = flashes[Math.floor(detRand(asset.id) * flashes.length)] as any;
             transDur = 0.2;
-            // We will push noise after clip is created
          } else if (isActionPacked && detRand(asset.id) > 0.3) {
-            // Match on Action
             transType = detRand(asset.id + "t") > 0.5 ? "cut" : "hblur";
             transDur = transType === "cut" ? 0 : 0.2;
          } else if (style.pace === "fast" || style.pace === "dynamic") {
@@ -822,18 +963,43 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
          clip.speed = 1; // рamp управляет временем сам; speed остаётся номинальным
       }
 
-      // Dynamic Ken Burns (only if not already heavily cropped by camera angle, or if it's an image).
+      // Dynamic Ken Burns — профессиональный подбор движения по типу проекта и содержимому кадра.
       // На кадрах с лицами — ТОЛЬКО центрированные наезды: панорамирование срезает лицо.
+      // Для фото: движение должно усиливать повествование (zoom-in к детали, zoom-out для establishing).
+      // Фото с семантикой: подбираем движение по правилу — первый кадр отъезд, дальше наезд.
       if (aiClip.zoom || (asset.kind === "image" && style.kenBurns)) {
         if (!((aiClip as any).cameraAngle === "close")) {
-           let motions: import("./types").CameraMotion[] = hasFacesInClip
-              ? ["zoom-in", "zoom-out"]
-              : ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
-           if (asset.kind === "image" && !hasFacesInClip) {
-              // Осмысленное движение фото: первый кадр — establishing (отъезд),
-              // дальнейшие — наезд к деталям (эмоция нарастает).
-              motions = timelineStart === 0 ? ["zoom-out", "pan-left"] : ["zoom-in","zoom-in","pan-right"];
+           let motions: import("./types").CameraMotion[];
+           // Если есть профиль — используем его предпочитаемые движения
+           if (profilePhotoHandling && profilePhotoHandling.preferKenBurns) {
+             const allowed = profilePhotoHandling.kenBurnsTypes;
+             if (hasFacesInClip) {
+               motions = (allowed.includes("zoom-in") || allowed.includes("zoom-out")) 
+                 ? (["zoom-in","zoom-out"] as any).filter((m: any) => allowed.includes(m))
+                 : ["zoom-in","zoom-out"] as any;
+               if (motions.length === 0) motions = ["zoom-in","zoom-out"] as any;
+             } else {
+               motions = allowed.length > 0 ? allowed as any : ["zoom-in","zoom-out","pan-left","pan-right","pan-up","pan-down"] as any;
+             }
+             // Для фото: первый кадр — establishing (отъезд), дальнейшие — наезд к деталям
+             if (asset.kind === "image" && !hasFacesInClip) {
+               if (timelineStart === 0) {
+                 const estab = (["zoom-out","pan-left","pan-right"] as any).filter((m: any) => allowed.includes(m));
+                 motions = estab.length > 0 ? estab : (["zoom-out","pan-left"] as any);
+               } else {
+                 const detail = (["zoom-in","pan-right","pan-up"] as any).filter((m: any) => allowed.includes(m));
+                 motions = detail.length > 0 ? detail : (["zoom-in","zoom-in","pan-right"] as any);
+               }
+             }
+           } else {
+             motions = hasFacesInClip
+                ? ["zoom-in", "zoom-out"]
+                : ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"];
+             if (asset.kind === "image" && !hasFacesInClip) {
+                motions = timelineStart === 0 ? ["zoom-out", "pan-left"] : ["zoom-in","zoom-in","pan-right"];
+             }
            }
+           // Детерминированный выбор
            clip.cameraMotion = motions[Math.floor(detRand(asset.id + "cam" + timelineStart) * motions.length)];
         }
       }
@@ -1415,6 +1581,32 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   }
 
   project.duration = cursor;
+
+  // --- AUTO-MONTAGE REFINEMENT (второй проход): улучшаем темп, переходы, драматургию ---
+  // Черновой монтаж уже собрал историю из лучших дублей. Теперь дорабатываем, не перестраивая заново.
+  if (montageProfile) {
+    try {
+      const { refineMontage, suggestTempoAdjustments } = await import("./brain/autoMontageRefine");
+      const refineResult = refineMontage({
+        clips: (videoTrack.clips as any) as import("./types").VideoClip[],
+        bRollClips: (bRollTrack!.clips as any) as import("./types").VideoClip[],
+        profile: montageProfile,
+        beats,
+        downbeats,
+        totalDuration: project.duration,
+      });
+      for (const note of refineResult.notes) {
+        onProgress?.(`Рефайн: ${note}`);
+        // Добавляем в журнал режиссёра если есть
+        if (directorPlan?.directorNotes) directorPlan.directorNotes.push(`Автомонтаж рефайн: ${note}`);
+      }
+      const tempoNotes = suggestTempoAdjustments(videoTrack.clips as any, montageProfile);
+      for (const tn of tempoNotes) onProgress?.(`Темп: ${tn}`);
+      if (refineResult.adjusted) onProgress?.("Автомонтаж улучшил переходы и темп под тип проекта");
+    } catch (e) {
+      console.warn("Auto-montage refinement failed", e);
+    }
+  }
 
   // --- SOUND EFFECTS (SFX) GENERATION ---
   // Create an SFX track

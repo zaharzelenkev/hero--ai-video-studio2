@@ -16,8 +16,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "tiktok",
     name: "TikTok / Reels / Shorts",
-    targetDurationMin: 15,
-    targetDurationMax: 60,
+    targetDurationMin: 10,
+    targetDurationMax: 600,
     pace: "dynamic",
     colorGrade: "vivid",
     coreDirectives: [
@@ -31,8 +31,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "travel",
     name: "Cinematic Travel",
-    targetDurationMin: 30,
-    targetDurationMax: 120,
+    targetDurationMin: 10,
+    targetDurationMax: 3600,
     pace: "slow",
     colorGrade: "cinematic",
     coreDirectives: [
@@ -47,7 +47,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "podcast",
     name: "Podcast / Interview",
     targetDurationMin: 60,
-    targetDurationMax: 600,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "none",
     coreDirectives: [
@@ -61,7 +61,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "interview",
     name: "Interview",
     targetDurationMin: 45,
-    targetDurationMax: 480,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "neutral",
     coreDirectives: [
@@ -74,8 +74,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "vlog",
     name: "Vlog",
-    targetDurationMin: 30,
-    targetDurationMax: 300,
+    targetDurationMin: 10,
+    targetDurationMax: 3600,
     pace: "dynamic",
     colorGrade: "warm",
     coreDirectives: [
@@ -86,10 +86,10 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     ]
   },
   {
-    genreId: "gaming",
+        genreId: "gaming",
     name: "Gaming",
-    targetDurationMin: 20,
-    targetDurationMax: 180,
+    targetDurationMin: 10,
+    targetDurationMax: 3600,
     pace: "fast",
     colorGrade: "vivid",
     coreDirectives: [
@@ -100,10 +100,10 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     ]
   },
   {
-    genreId: "fitness",
+        genreId: "fitness",
     name: "Fitness / Sport",
-    targetDurationMin: 15,
-    targetDurationMax: 90,
+    targetDurationMin: 10,
+    targetDurationMax: 3600,
     pace: "fast",
     colorGrade: "dramatic",
     coreDirectives: [
@@ -116,8 +116,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "wedding",
     name: "Wedding",
-    targetDurationMin: 60,
-    targetDurationMax: 240,
+    targetDurationMin: 10,
+    targetDurationMax: 3600,
     pace: "slow",
     colorGrade: "warm",
     coreDirectives: [
@@ -130,8 +130,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "food",
     name: "Food / Cooking",
-    targetDurationMin: 15,
-    targetDurationMax: 120,
+    targetDurationMin: 10,
+    targetDurationMax: 1800,
     pace: "medium",
     coreDirectives: [
       "Финальное блюдо — первым кадром (food porn hook), потом процесс.",
@@ -144,8 +144,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "musicvideo",
     name: "Music Video",
-    targetDurationMin: 30,
-    targetDurationMax: 240,
+    targetDurationMin: 10,
+    targetDurationMax: 1800,
     pace: "fast",
     colorGrade: "teal-orange",
     coreDirectives: [
@@ -159,7 +159,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "education",
     name: "Education / Tutorial",
     targetDurationMin: 60,
-    targetDurationMax: 600,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "neutral",
     coreDirectives: [
@@ -170,10 +170,10 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     ]
   },
   {
-    genreId: "realestate",
+        genreId: "realestate",
     name: "Real Estate",
-    targetDurationMin: 30,
-    targetDurationMax: 120,
+    targetDurationMin: 10,
+    targetDurationMax: 3600,
     pace: "slow",
     colorGrade: "neutral",
     coreDirectives: [
@@ -186,8 +186,8 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
   {
     genreId: "ad",
     name: "Product Promo",
-    targetDurationMin: 15,
-    targetDurationMax: 30,
+    targetDurationMin: 10,
+    targetDurationMax: 600,
     pace: "fast",
     colorGrade: "vivid",
     coreDirectives: [
@@ -201,7 +201,7 @@ export const BASE_KNOWLEDGE: GenreKnowledge[] = [
     genreId: "documentary",
     name: "Documentary",
     targetDurationMin: 120,
-    targetDurationMax: 600,
+    targetDurationMax: 3600,
     pace: "medium",
     colorGrade: "cinematic",
     coreDirectives: [

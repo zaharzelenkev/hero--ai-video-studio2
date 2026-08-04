@@ -18,7 +18,9 @@ import type { Project } from "./types";
  * (maxDim = max(W, H)), с гарантированно валидными видео и аудио. Финальная
  * сборка декодирует уже только такие файлы — куча остаётся ограниченной, а
  * битые кадры исходника вычищаются на этом этапе. Исходники при этом не
- * изменяются. Изображения и аудио-треки не трогаем.
+ * изменяются. Гигантские изображения (панорамы 8-12K), которые иначе держали
+ * бы полное разрешение в куче через -loop 1, уменьшаются до maxDim (PNG).
+ * Аудио-треки не трогаем.
  */
 export interface NormalizeCtx {
   /** Выполнить ffmpeg с массивом аргументов, вернуть exit code. */
@@ -42,12 +44,14 @@ export async function normalizeVideoInputs(
 ): Promise<NormalizeResult> {
   const result: NormalizeResult = { created: [], replacements: new Map() };
 
-  // Собираем видео-исходники, реально используемые в таймлайне.
+  // Собираем видео- и (большие) изображения-исходники, используемые в таймлайне.
   const usedVideoAssetIds = new Set<string>();
   for (const track of project.tracks) {
     if (track.type !== "video") continue;
     for (const clip of track.clips) {
-      if (clip.type === "video") usedVideoAssetIds.add((clip as { assetId: string }).assetId);
+      if (clip.type === "video" || clip.type === "image") {
+        usedVideoAssetIds.add((clip as { assetId: string }).assetId);
+      }
     }
   }
 
@@ -57,10 +61,18 @@ export async function normalizeVideoInputs(
     const asset = project.assets.find((a) => a.id === assetId);
     const src = assetFileNames.get(assetId);
     if (!asset || !src) continue;
-    // Изображения держим как есть (идут через -loop 1). Нормализуем только видео.
-    if (asset.kind !== "video") continue;
+    if (asset.kind !== "video" && asset.kind !== "image") continue;
 
-    const out = `norm_${asset.id}.mp4`;
+    const isImage = asset.kind === "image";
+    // Обычные изображения (не больше канваса) не трогаем: они и так дешёвые.
+    if (isImage) {
+      const w = asset.width ?? 0;
+      const h = asset.height ?? 0;
+      const big = w > dim * 1.25 || h > dim * 1.25 || (w === 0 && h === 0);
+      if (!big) continue;
+    }
+
+    const out = isImage ? `norm_${asset.id}.png` : `norm_${asset.id}.mp4`;
     // Умещаем в квадрат maxDim с сохранением пропорций, затем округляем стороны
     // до чётных — libx264 (yuv420p) требует чётные размеры кадра.
     const vf = `scale=w='min(iw\\,${dim})':h='min(ih\\,${dim})':force_original_aspect_ratio=decrease,scale='trunc(iw/2)*2':'trunc(ih/2)*2'`;
@@ -69,19 +81,27 @@ export async function normalizeVideoInputs(
       "-err_detect", "ignore_err",
       "-i", src,
       "-map", "0:v:0",
-      "-map", "0:a?",
       "-vf", vf,
-      "-r", String(fps),
-      "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-crf", "18",
-      "-pix_fmt", "yuv420p",
-      "-c:a", "aac",
-      "-b:a", "192k",
-      "-ac", "2",
-      "-movflags", "+faststart",
-      out,
     ];
+    if (isImage) {
+      // Один кадр, PNG — сохраняем формат «изображение» (и альфу, если есть):
+      // дальше клип идёт через -loop 1, как и раньше.
+      args.push("-frames:v", "1", "-y", out);
+    } else {
+      args.push(
+        "-map", "0:a?",
+        "-r", String(fps),
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-ac", "2",
+        "-movflags", "+faststart",
+        out,
+      );
+    }
 
     ctx.onLog?.(`Подготовка материала «${asset.name}»...`);
     let code = -1;

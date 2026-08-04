@@ -59,6 +59,54 @@ export interface CompileOptions {
   renderMgOverlay?: MgOverlayRenderer | null;
   /** Измерение текста для раскладки моушн-графики (canvas в браузере). */
   measureText?: MgMeasureText;
+  /**
+   * Считать VFX-цепочки (blend/gbrap: LUT-микс, glow, bloom, лучи, blend-режимы)
+   * в «рабочем» разрешении ≤ EFFECT_WORK_MAX по длинной стороне и поднимать
+   * результат до канваса. По умолчанию включается автоматически, когда оценка
+   * памяти blend-цепочек грозит исчерпать 2 ГБ wasm-кучи (см. estimateBlendOps).
+   */
+  effectWork?: boolean;
+}
+
+/**
+ * Предел «рабочего» разрешения VFX-цепочек. Каждая alphaAwareBlend/gbrap-цепочка
+ * держит в wasm-куче ~24 МБ на мегапиксель канваса (на 4K ≈ 200 МБ), а куча
+ * ограничена 2 ГБ. Без этого 4K-экспорт с несколькими эффектами падает на первом
+ * кадре: «Error while filtering: Out of memory» → «Conversion failed!». Эффекты
+ * (glow/bloom/лучи/LUT-микс/blend-режимы) — «мягкие»: их можно считать в
+ * уменьшенном разрешении и поднять до канваса без заметной потери качества.
+ */
+const EFFECT_WORK_MAX = 1920;
+
+/** Рабочее разрешение эффектов для канваса W×H (чётное, сохраняет пропорции). */
+function effectWorkSize(W: number, H: number): { w: number; h: number } {
+  const s = Math.min(1, EFFECT_WORK_MAX / Math.max(W, H));
+  return {
+    w: Math.max(2, Math.round((W * s) / 2) * 2),
+    h: Math.max(2, Math.round((H * s) / 2) * 2),
+  };
+}
+
+/** Грубая оценка числа blend-операций в проекте (для авто-включения effectWork). */
+function estimateBlendOps(project: Project): number {
+  let ops = 0;
+  for (const track of project.tracks) {
+    if (track.type !== "video") continue;
+    for (const clip of track.clips as VideoClip[]) {
+      const vfx = clip.vfx;
+      if (vfx) {
+        if (vfx.lut?.enabled && vfx.lut.preset && vfx.lut.preset !== "none") ops++;
+        if (vfx.glow?.enabled) ops++;
+        if (vfx.bloom?.enabled) ops++;
+        if (vfx.lightRays?.enabled) ops++;
+      }
+      if (clip.blendMode && clip.blendMode !== "normal") ops++;
+      for (const e of clip.effects || []) {
+        if (e === "glow") ops++;
+      }
+    }
+  }
+  return ops;
 }
 
 function escFilterArg(v: string | number): string {
@@ -151,6 +199,9 @@ function applyVfxFilters(
   inputs: InputEntry[],
   fps: number,
   opts: CompileOptions,
+  effW: number,
+  effH: number,
+  atWork: boolean,
 ): string {
   const vfx = clip.vfx;
   if (!vfx) return current;
@@ -245,13 +296,16 @@ function applyVfxFilters(
 
   // --- Световые лучи: PNG-текстура лучей (генерируется в JS, как превью)
   //     блендится screen-режимом поверх клипа с восстановлением альфы.
+  //     Вход сразу приводим к рабочему разрешению VFX (иначе gbrp-конверсия
+  //     полного 4K-кадра съедает кучу). Масштаб только при atWork: иначе
+  //     размер PNG лучей совпадает с кадром клипа (в т.ч. для PiP-слоёв).
   const rays = opts.lightRays?.find((r) => r.clipId === clip.id);
   if (rays) {
     const raysIdx = inputs.length;
     inputs.push({ pre: ["-loop", "1", "-t", String(Math.max(0.1, clip.duration))], path: rays.path });
     const raysId = id(`c${tag}_rays_`);
     lines.push(
-      `[${raysIdx}:v]fps=${fps},settb=1/${fps},setpts=PTS-STARTPTS,format=gbrp[${raysId}]`,
+      `[${raysIdx}:v]fps=${fps},settb=1/${fps},setpts=PTS-STARTPTS${atWork ? `,scale=${effW}:${effH}` : ""},format=gbrp[${raysId}]`,
     );
     const strength = clamp(rays.strength ?? 0.5, 0, 1);
     current = alphaAwareBlend(current, raysId, `all_mode=screen:all_opacity=${strength.toFixed(2)}`, lines);
@@ -298,6 +352,7 @@ function buildVideoClipChain(
   fitMode: "cover" | "native",
   lines: string[],
   opts: CompileOptions = {},
+  effectWork = false,
 ): ClipChainResult {
   const idx = inputs.length;
   const override = opts.vfxOverrides?.get(clip.id);
@@ -535,8 +590,23 @@ function buildVideoClipChain(
     current = next;
   }
 
-  // Полноценный VFX-блок (порядок совпадает с движком превью).
-  current = applyVfxFilters(current, clip, lines, inputs, fps, opts);
+  // Полноценный VFX-блок (порядок совпадает с движком превью). При большом
+  // канвасе (или множестве эффектов) blend/gbrap-цепочки VFX считаются в
+  // рабочем разрешении ≤1920px и поднимаются до канваса — иначе 4K-кадры в
+  // gbrp-конверсиях исчерпывают 2 ГБ wasm-кучи («Out of memory» на 1-м кадре).
+  // Обвязка только для cover-кадров (= канвас по размеру): у contain/native
+  // (PiP) кадр меньше канваса и масштабирование его исказило бы.
+  const workSize = effectWorkSize(canvasW, canvasH);
+  const atWork =
+    effectWork &&
+    (workSize.w !== canvasW || workSize.h !== canvasH) &&
+    actualFitMode === "cover";
+  if (atWork) {
+    const down = id(`c${tag}_wrd_`);
+    lines.push(`[${current}]scale=${workSize.w}:${workSize.h}[${down}]`);
+    current = down;
+  }
+  current = applyVfxFilters(current, clip, lines, inputs, fps, opts, workSize.w, workSize.h, atWork);
 
   for (const effectId of clip.effects || []) {
     if (effectId === "glow") {
@@ -553,6 +623,12 @@ function buildVideoClipChain(
        lines.push(`[${current}]${preset.ffmpeg}[${next}]`);
        current = next;
     }
+  }
+
+  if (atWork) {
+    const up = id(`c${tag}_wru_`);
+    lines.push(`[${current}]scale=${canvasW}:${canvasH}[${up}]`);
+    current = up;
   }
 
   if (clip.mask.enabled) {
@@ -700,6 +776,16 @@ export function compileProjectToFfmpeg(
   const H = exportSettings.height;
   const fps = exportSettings.fps;
 
+  // Авто-включение рабочего разрешения VFX: канвас крупнее EFFECT_WORK_MAX
+  // И blend-цепочки в полном разрешении рискуют исчерпать 2 ГБ wasm-кучи
+  // (~24 МБ/Мп на цепочку; порог 15 Мп·операций ≈ 360 МБ — с запасом под
+  // потолком кучи). Для канваса ≤1920px рабочее разрешение = канвас, т.е.
+  // обвязка не меняет граф — флаг там просто не срабатывает.
+  const effectWork =
+    options.effectWork ??
+    (Math.max(W, H) > EFFECT_WORK_MAX &&
+      estimateBlendOps(project) * ((W * H) / 1e6) > 15);
+
   // Собираем список .cube файлов, которые понадобятся рендеру.
   for (const track of project.tracks) {
     if (track.type !== "video") continue;
@@ -733,7 +819,7 @@ export function compileProjectToFfmpeg(
         lines.push(`color=c=black:s=${W}x${H}:d=${gap}:r=${fps},format=yuv420p[${fillLabel}]`);
         segments.push({ label: fillLabel, duration: gap, transition: { type: "cut", duration: 0 }, idx: -1 });
       }
-      const { label, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "cover", lines, options);
+      const { label, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "cover", lines, options, effectWork);
       segments.push({ label, duration: clip.duration, transition: clip.transitionIn, idx });
       cursor = clip.start + clip.duration;
 
@@ -802,7 +888,7 @@ export function compileProjectToFfmpeg(
   // Overlay video/image tracks.
   for (const track of overlayTracks) {
     for (const clip of track.clips as VideoClip[]) {
-      const { label: rawLabel, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "native", lines, options);
+      const { label: rawLabel, idx } = buildVideoClipChain(clip, inputs, fileNameFor, fps, W, H, "native", lines, options, effectWork);
       const start = clip.start;
       const end = clip.start + clip.duration;
       // buildVideoClipChain resets this clip's PTS to start at 0. Since it will be
@@ -843,7 +929,26 @@ export function compileProjectToFfmpeg(
         lines.push(`[${composite}]split=2[${bgA}][${bgB}]`);
         // all_opacity=1: прозрачность слоя уже в альфе цепочки (colorchannelmixer),
         // оверлей сам смешает с фоном с учётом альфы.
-        const bs = alphaAwareBlend(bgA, ovf, `all_mode=${bm}:all_opacity=1`, lines);
+        // При effectWork бленд считаем в рабочем разрешении (память), результат
+        // поднимаем до канваса — для «мягких» blend-режимов визуально то же самое.
+        const workSize = effectWorkSize(W, H);
+        const atWork = effectWork && (workSize.w !== W || workSize.h !== H);
+        let blendA: string = bgA;
+        let blendB: string = ovf;
+        if (atWork) {
+          const bwa = id("bwa_");
+          const bwb = id("bwb_");
+          lines.push(`[${bgA}]scale=${workSize.w}:${workSize.h}[${bwa}]`);
+          lines.push(`[${ovf}]scale=${workSize.w}:${workSize.h}[${bwb}]`);
+          blendA = bwa;
+          blendB = bwb;
+        }
+        let bs = alphaAwareBlend(blendA, blendB, `all_mode=${bm}:all_opacity=1`, lines);
+        if (atWork) {
+          const bwu = id("bwu_");
+          lines.push(`[${bs}]scale=${W}:${H}[${bwu}]`);
+          bs = bwu;
+        }
         const next = id("ov_");
         lines.push(`[${bgB}][${bs}]overlay=0:0:enable='between(t\\,${start}\\,${end})'[${next}]`);
         composite = next;

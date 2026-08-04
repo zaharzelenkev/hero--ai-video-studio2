@@ -399,6 +399,31 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
   }
   style.transition = activeTemplate.transition;
   style.kenBurns = activeTemplate.kenBurns;
+
+  // --- ПАРАЛЛЕЛЬНАЯ ПОДГОТОВКА МУЗЫКИ ИЗ ОТКРЫТОЙ БИБЛИОТЕКИ (ускорение готовности) ---
+  // Пока движок собирает таймлайн (разметка клипов, переходы, SFX), фоном
+  // скачиваем трек, который выбрал бы блок генерации ниже: тот же шаблон,
+  // заголовок и (детерминированный) seed. Итоговый выбор музыки не меняется —
+  // меняется только время ожидания: видео готово раньше. Если загрузка не
+  // успеет или сеть недоступна, блок генерации получит null и, как и раньше,
+  // перейдёт на процедурный резервный саундтрек. Трек из кэша библиотеки
+  // берётся мгновенно, поэтому повторные автомонтажи не ждут сеть вовсе.
+  let musicPrefetch: Promise<Blob | null> | null = null;
+  let musicPrefetchTrackId: string | null = null;
+  if (!musicAsset && typeof window !== "undefined" && typeof fetch !== "undefined") {
+    musicPrefetch = (async () => {
+      try {
+        const { downloadFreeMusicTrack, musicMoodForVideo, selectFreeMusicTrack } = await import("./freeMusicLibrary");
+        const pfSeed = project.assets.reduce(
+          (acc, a) => acc + (a.id.charCodeAt(0) || 0) + Math.round((a.duration ?? 0) * 13), 7);
+        const pfTrack = selectFreeMusicTrack(musicMoodForVideo(activeTemplate.id, title), pfSeed);
+        musicPrefetchTrackId = pfTrack.id;
+        return await downloadFreeMusicTrack(pfTrack);
+      } catch {
+        return null;
+      }
+    })();
+  }
   
   // Профессиональная длительность клипа из профиля (если есть), иначе из шаблона
   let targetClipLen = PACE_CLIP_SECONDS[style.pace];
@@ -1753,7 +1778,12 @@ export async function autoEditToProject(input: AutoEditInput): Promise<Project> 
           (acc, a) => acc + (a.id.charCodeAt(0) || 0) + Math.round((a.duration ?? 0) * 13), 7);
         const libraryTrack = selectFreeMusicTrack(musicMoodForVideo(activeTemplate.id, title), mSeed);
         onProgress?.(`Подбираем музыку: ${libraryTrack.title}...`);
-        let mBlob = await downloadFreeMusicTrack(libraryTrack);
+        // Если фоновая загрузка успела и выбрала тот же трек — берём её результат
+        // (никакой новой сети), иначе качаем сейчас, как раньше. Повторный вызов
+        // в любом случае возьмёт файл из локального кэша библиотеки.
+        let mBlob = musicPrefetch && libraryTrack.id === musicPrefetchTrackId
+          ? await musicPrefetch
+          : await downloadFreeMusicTrack(libraryTrack);
         let musicName = libraryTrack.title;
         let mime = mBlob?.type || "audio/ogg";
 

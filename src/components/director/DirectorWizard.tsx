@@ -30,7 +30,7 @@ interface PointResult {
   timestamp: number;
 }
 
-export default function DirectorWizard() {
+export default function DirectorWizard({ onDraftMontage }: { onDraftMontage?: () => void }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [results, setResults] = useState<PointResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -170,7 +170,7 @@ export default function DirectorWizard() {
             <h3 className="text-xl font-extrabold text-emerald-200 mb-2">Все 12 пунктов готовы</h3>
             <p className="text-sm text-emerald-100/80 mb-4">AI Director завершил работу. Теперь можно перейти к автомонтажу, где весь исходный материал будет использован для создания чернового ролика.</p>
             <div className="flex gap-3 justify-center">
-              <button onClick={() => alert("В редакторе откроется окно, где вы загрузите исходники и нажмёте «Черновой монтаж»: AI Director соберёт черновой ролик из всех прикреплённых материалов — каждый исходник будет использован.")} className="btn btn-ghost px-5 py-2 text-sm font-bold rounded-full border border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10 transition">
+              <button onClick={() => onDraftMontage?.()} className="btn btn-ghost px-5 py-2 text-sm font-bold rounded-full border border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10 transition">
                 Перейти к черновому монтажу
               </button>
               <button onClick={restart} className="btn btn-ghost px-5 py-2 text-sm font-bold rounded-full border border-white/10 text-slate-300 hover:bg-white/5 transition">

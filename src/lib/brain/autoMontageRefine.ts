@@ -158,18 +158,39 @@ export function refineMontage(input: RefineInput): RefineResult {
     notes.push(`Монотонность крупностей: ${maxStreak} одинаковых планов подряд — рекомендуется чередовать wide/medium/close для ${profile.labelRu}`);
   }
 
-  // 7. ФОТО: проверяем длительность фото-планов
-  let photoIssues = 0;
-  for (const clip of clips) {
-    // На самом деле проверяем по длительности и профилю
-    if (profile.photo) {
-      if (clip.duration < profile.photo.minDurationSec * 0.8 || clip.duration > profile.photo.maxDurationSec * 1.2) {
-        photoIssues++;
+  // 7. ФОТО: проверяем и ИСПРАВЛЯЕМ длительность фото-планов по профилю.
+  // Фото без проблем с источником (бесконечная длительность) просто растягиваются/сжимаются
+  // до допустимого диапазона. Видео-клипы трогаем только для явных нарушений (< 80% минимума).
+  let photoFixed = 0;
+  if (profile.photo) {
+    const minDur = profile.photo.minDurationSec;
+    const maxDur = profile.photo.maxDurationSec;
+    for (const clip of clips) {
+      if (clip.type !== "image") continue;
+      if (clip.duration < minDur) {
+        clip.duration = Math.round(minDur * 100) / 100;
+        photoFixed++;
+        adjusted = true;
+      } else if (clip.duration > maxDur * 1.2) {
+        clip.duration = Math.round(maxDur * 100) / 100;
+        photoFixed++;
+        adjusted = true;
       }
     }
   }
-  if (photoIssues > 0) {
-    notes.push(`Найдено ${photoIssues} фото-клипов с неоптимальной длительностью для ${profile.labelRu} (норма ${profile.photo.minDurationSec}-${profile.photo.maxDurationSec}с)`);
+  if (photoFixed > 0) {
+    notes.push(`Исправлено фото-клипов с неоптимальной длительностью: ${photoFixed} для ${profile.labelRu} (норма ${profile.photo.minDurationSec}-${profile.photo.maxDurationSec}с)`);
+  }
+
+  // 8. ПЕРЕСЧЁТ СТАРТОВ: после исправления длительностей клипы на основной
+  // дорожке должны идти без дыр и перекрытий.
+  if (adjusted && clips.length > 1) {
+    const sorted = [...clips].sort((a, b) => a.start - b.start);
+    let cursor = sorted[0].start;
+    for (const clip of sorted) {
+      clip.start = Math.round(cursor * 100) / 100;
+      cursor = clip.start + clip.duration;
+    }
   }
 
   return { notes, adjusted };

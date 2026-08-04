@@ -933,7 +933,7 @@ export default function DirectorWorkspace({
             {!loaded ? (
               <div className="flex h-64 items-center justify-center text-sm text-slate-500">Загружаем проект…</div>
             ) : (
-              <DirectorWizard />
+              <DirectorWizard onDraftMontage={() => void goToEditor()} />
             )}
           </>
         ) : (

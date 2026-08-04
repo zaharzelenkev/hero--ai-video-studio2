@@ -89,9 +89,62 @@ function commonsApiUrl(file: string): string {
   return `https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&prop=imageinfo&iiprop=url&titles=${encodeURIComponent(title)}`;
 }
 
-/** Загружает файл выбранного открытого трека в Blob для локального рендера. */
-export async function downloadFreeMusicTrack(track: FreeMusicTrack, timeoutMs = 15_000): Promise<Blob | null> {
+/** Префикс ключей локального кэша в IndexedDB: скачанные треки переиспользуются
+ *  между автомонтажами — повторные ролики не ждут сеть и не качают файл заново. */
+const LIBRARY_CACHE_PREFIX = "lib_music_";
+
+/** Признак Ogg-семейства MIME. Wikimedia отдаёт эти файлы как application/ogg
+ *  (а не audio/ogg) — проверять строго `audio/` нельзя, иначе библиотека всегда
+ *  считалась бы «недоступной», даже когда файл успешно скачан. */
+function isOggFamily(type: string): boolean {
+  return /(?:^|[+/-])(ogg|opus|vorbis)(?:;|$)/i.test(type);
+}
+
+/** Это аудио? Принимаем стандартное `audio/*`, ogg-семейство (включая
+ *  application/ogg и video/ogg от Wikimedia) — а запасным критерием служит
+ *  сигнатура контейнера "OggS" (см. sniffOgg ниже). */
+function isAudioType(type: string): boolean {
+  return /^audio\//i.test(type) || isOggFamily(type);
+}
+
+/** Нормализует MIME ogg-семейства в audio/ogg, чтобы движок рендера и экспорт
+ *  всегда видели аудио-тип (extFor/extForMime строят расширение по MIME). */
+function normalizeAudioBlob(blob: Blob): Blob {
+  const type = (blob.type || "").toLowerCase();
+  if (isOggFamily(type) && type !== "audio/ogg") {
+    return new Blob([blob], { type: "audio/ogg" });
+  }
+  return blob;
+}
+
+/** Запасной критерий валидности: сигнатура Ogg-контейнера ("OggS") в первых
+ *  байтах — если CDN отдал пустой или нестандартный Content-Type. */
+async function sniffOgg(blob: Blob): Promise<boolean> {
+  try {
+    if (blob.size < 4) return false;
+    const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+    return head[0] === 0x4f && head[1] === 0x67 && head[2] === 0x67 && head[3] === 0x53;
+  } catch {
+    return false;
+  }
+}
+
+/** Загружает файл выбранного открытого трека в Blob для локального рендера.
+ *  Сначала проверяет локальный кэш IndexedDB (мгновенно, работает и офлайн);
+ *  затем качает через MediaWiki API + upload.wikimedia.org. При любой неудаче
+ *  возвращает null — вызывающий код переходит на процедурный резервный саундтрек. */
+export async function downloadFreeMusicTrack(track: FreeMusicTrack, timeoutMs = 10_000): Promise<Blob | null> {
   if (typeof fetch === "undefined") return null;
+
+  // 1. Быстрый путь — трек уже скачан ранее (IndexedDB).
+  if (typeof indexedDB !== "undefined") {
+    try {
+      const { loadBlob } = await import("./db");
+      const cached = await loadBlob(LIBRARY_CACHE_PREFIX + track.id);
+      if (cached && cached.size >= 8_000) return normalizeAudioBlob(cached);
+    } catch { /* кэш недоступен — просто скачиваем */ }
+  }
+
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeout = controller ? globalThis.setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
@@ -107,9 +160,23 @@ export async function downloadFreeMusicTrack(track: FreeMusicTrack, timeoutMs = 
     const audioResponse = await fetch(sourceUrl, { signal: controller?.signal });
     if (!audioResponse.ok) return null;
     const blob = await audioResponse.blob();
-    // Ответы с HTML/ошибкой иногда приходят с кодом 200 через CDN — не кладём их в проект.
-    if (blob.size < 8_000 || !/^audio\//.test(blob.type || "audio/ogg")) return null;
-    return blob;
+
+    // Валидация: это реальный аудиофайл, а не HTML-страница ошибки (такие ответы
+    // иногда приходят с кодом 200 через CDN). Принимаем audio/*, ogg-семейство
+    // MIME (включая application/ogg от Wikimedia) и сигнатуру контейнера "OggS".
+    const type = (blob.type || "").toLowerCase();
+    const valid = blob.size >= 8_000 && (isAudioType(type) || await sniffOgg(blob));
+    if (!valid) return null;
+    const normalized = normalizeAudioBlob(blob);
+
+    // 2. Кэшируем, чтобы следующий автомонтаж не ждал сеть.
+    if (typeof indexedDB !== "undefined") {
+      try {
+        const { saveBlob } = await import("./db");
+        await saveBlob(LIBRARY_CACHE_PREFIX + track.id, normalized);
+      } catch { /* кэш не критичен — трек уже в руках */ }
+    }
+    return normalized;
   } catch {
     return null;
   } finally {

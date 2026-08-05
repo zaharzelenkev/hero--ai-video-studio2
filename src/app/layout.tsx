@@ -23,6 +23,7 @@ export const metadata: Metadata = {
   ],
   verification: {
     google: "7b9c1L_pGpyyvpEFdQXVAXOf27TsG-ri6fRVnQwngTE",
+    yandex: "7469cca07f01d265",
   },
   icons: {
     icon: "/montiq-logo.png",

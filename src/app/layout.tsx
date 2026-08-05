@@ -24,7 +24,8 @@ export const metadata: Metadata = {
     yandex: "7469cca07f01d265",
   },
   icons: {
-    icon: "/montiq-logo.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
   },
 };
 

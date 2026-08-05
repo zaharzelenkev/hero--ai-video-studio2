@@ -19,7 +19,7 @@ export function Logo({
 }) {
   const mark = (
     <span
-      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl"
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full"
       style={{
         width: size,
         height: size,
@@ -35,7 +35,7 @@ export function Logo({
         draggable={false}
       />
       <span
-        className="pointer-events-none absolute inset-0 rounded-xl"
+        className="pointer-events-none absolute inset-0 rounded-full"
         style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.12)" }}
       />
     </span>

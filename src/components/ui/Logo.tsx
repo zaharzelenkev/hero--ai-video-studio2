@@ -19,7 +19,7 @@ export function Logo({
 }) {
   const mark = (
     <span
-      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full"
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[20%]"
       style={{
         width: size,
         height: size,
@@ -28,14 +28,14 @@ export function Logo({
     >
       <Image
         src="/montiq-logo.png"
-        alt="Release cut"
+        alt="Release Cut"
         width={size}
         height={size}
         className="h-full w-full object-cover"
         draggable={false}
       />
       <span
-        className="pointer-events-none absolute inset-0 rounded-full"
+        className="pointer-events-none absolute inset-0 rounded-[20%]"
         style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.12)" }}
       />
     </span>
@@ -46,13 +46,13 @@ export function Logo({
       <Link
         href={href}
         className="group flex items-center gap-2.5 rounded-lg transition-opacity hover:opacity-90"
-        aria-label="Release cut — на главную"
+        aria-label="Release Cut — на главную"
       >
         {mark}
         {showText && (
           <span className="flex flex-col leading-none">
             <span className="font-extrabold tracking-tight" style={{ fontSize: size * 0.42 }}>
-              Release cut
+              Release Cut
             </span>
             <span
               className="uppercase tracking-[0.26em] font-medium"
@@ -71,7 +71,7 @@ export function Logo({
       {showText && (
         <span className="flex flex-col leading-none">
           <span className="font-extrabold tracking-tight" style={{ fontSize: size * 0.42 }}>
-            Release cut
+            Release Cut
           </span>
           <span
             className="uppercase tracking-[0.26em] font-medium"

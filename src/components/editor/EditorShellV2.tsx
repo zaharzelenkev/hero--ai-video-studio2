@@ -465,7 +465,7 @@ export default function EditorShellV2() {
           >
             <Image
               src="/montiq-logo.png"
-              alt="Release cut"
+              alt="Release Cut"
               width={32}
               height={32}
               className="h-full w-full object-cover"
@@ -473,7 +473,7 @@ export default function EditorShellV2() {
             />
           </span>
           <span className="hidden bg-gradient-to-b from-white to-[#a99dff] bg-clip-text text-[15px] font-extrabold tracking-tight text-transparent lg:inline">
-            Release cut
+            Release Cut
           </span>
         </Link>
 

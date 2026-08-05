@@ -85,7 +85,7 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
             <span className="text-gradient">Ваше видео успешно создано!</span>
           </h1>
           <p className="mx-auto max-w-2xl text-base text-slate-300">
-            Release cut проанализировал ваши материалы и создал профессиональный монтаж с AI
+            Release Cut проанализировал ваши материалы и создал профессиональный монтаж с AI
           </p>
         </div>
 
@@ -205,7 +205,7 @@ export default function SuccessPage(props: { params: Promise<{ id: string }> }) 
                 className="btn btn-primary flex-1 px-6 py-4 text-base"
               >
                 <Icon name="clapper" size={17} />
-                Открыть редактор Release cut
+                Открыть редактор Release Cut
               </button>
               <button
                 onClick={() => router.push("/")}

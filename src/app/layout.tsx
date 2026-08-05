@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     "видеоролики под ключ",
     "релиз кат",
     "релиз кут",
-    "Release Cut",
+    "release cut",
     "release kut",
     "релиз кат студия",
     "релиз кут видео",

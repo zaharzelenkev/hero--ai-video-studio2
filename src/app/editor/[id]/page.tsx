@@ -44,7 +44,7 @@ export default function EditorPage() {
             <div className="absolute -inset-1 rounded-[20px] border-2 border-violet-500/30 border-t-violet-500 animate-spin" />
           </div>
           <h2 className="title mb-2 text-xl">Загрузка рабочей среды</h2>
-          <p className="text-sm text-slate-400">Подготавливаем инструменты MONTIQ...</p>
+          <p className="text-sm text-slate-400">Подготавливаем инструменты Release cut...</p>
         </div>
       </div>
     );

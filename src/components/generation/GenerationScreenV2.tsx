@@ -200,7 +200,7 @@ export default function GenerationScreenV2() {
               <Icon name="film" size={26} className="text-violet-300" />
             </div>
             <h1 className="title text-5xl sm:text-6xl">
-              <span className="text-gradient">MONTIQ</span>
+              <span className="text-gradient">Release cut</span>
             </h1>
             <p className="mt-3 text-base font-medium text-slate-200 sm:text-lg">AI Production Studio</p>
             <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400 sm:text-base">

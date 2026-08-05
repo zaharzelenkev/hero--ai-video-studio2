@@ -28,7 +28,7 @@ export function Logo({
     >
       <Image
         src="/montiq-logo.png"
-        alt="MONTIQ"
+        alt="Release cut"
         width={size}
         height={size}
         className="h-full w-full object-cover"
@@ -46,13 +46,13 @@ export function Logo({
       <Link
         href={href}
         className="group flex items-center gap-2.5 rounded-lg transition-opacity hover:opacity-90"
-        aria-label="MONTIQ — на главную"
+        aria-label="Release cut — на главную"
       >
         {mark}
         {showText && (
           <span className="flex flex-col leading-none">
             <span className="font-extrabold tracking-tight" style={{ fontSize: size * 0.42 }}>
-              MONTIQ
+              Release cut
             </span>
             <span
               className="uppercase tracking-[0.26em] font-medium"
@@ -71,7 +71,7 @@ export function Logo({
       {showText && (
         <span className="flex flex-col leading-none">
           <span className="font-extrabold tracking-tight" style={{ fontSize: size * 0.42 }}>
-            MONTIQ
+            Release cut
           </span>
           <span
             className="uppercase tracking-[0.26em] font-medium"

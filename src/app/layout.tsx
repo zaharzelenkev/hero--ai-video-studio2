@@ -3,13 +3,11 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MONTIQ (Монтикью) — AI Production Studio | Нейросетевая студия видеомонтажа",
+  title: "Release cut — AI Production Studio | Нейросетевая студия видеомонтажа",
   description:
-    "MONTIQ (Монтикью) — автоматизированная AI Production Studio для создания и монтажа видео. Генерация видеороликов под ключ с помощью ИИ: от идеи и сценария до монтажа, звука, графики и экспорта.",
+    "Release cut — автоматизированная AI Production Studio для создания и монтажа видео. Генерация видеороликов под ключ с помощью ИИ: от идеи и сценария до монтажа, звука, графики и экспорта.",
   keywords: [
-    "montiq",
-    "монтикью",
-    "монтикю",
+    "Release cut",
     "AI Production Studio",
     "нейросеть для видео",
     "видеомонтаж нейросеть",
@@ -26,7 +24,8 @@ export const metadata: Metadata = {
     yandex: "7469cca07f01d265",
   },
   icons: {
-    icon: "/montiq-logo.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
   },
 };
 

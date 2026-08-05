@@ -125,7 +125,7 @@ export const MG_KINDS: MgKindMeta[] = [
     icon: "✨",
     desc: "Появление логотипа (картинка или монограмма) с wordmark",
     duration: 4,
-    text: "Release cut",
+    text: "Release Cut",
     x: 0,
     y: 0,
     fontSize: 60,

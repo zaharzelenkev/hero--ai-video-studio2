@@ -10,14 +10,10 @@ import { Logo } from "@/components/ui/Logo";
 import type { UploadedItem } from "./types";
 import { inferKind, readAudioMeta, readImageMeta, readVideoMeta } from "@/lib/media";
 import { parsePromptToStyle } from "@/lib/promptStyle";
-import { autoEditToProject } from "@/lib/autoEdit";
-import { renderProject } from "@/lib/render";
 import { saveBlob, saveProject, listProjects, deleteProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import type { MediaAsset, Project } from "@/lib/types";
 import { createProductionPlan } from "@/lib/production";
-import { ensureMinDuration } from "@/lib/minDuration";
-import { finalizePictureLock } from "@/lib/pictureLock";
 
 type Stage = "idle" | "reading" | "generating" | "error";
 
@@ -81,6 +77,14 @@ export default function GenerationScreenV2() {
     setErrorMsg("");
     setProgress(0);
 
+    // Тяжёлый пайплайн (автомонтаж, рендер, Picture Lock) подгружаем лениво и
+    // параллельно — статические импорты вталкивали ~150 КБ кода в стартовый
+    // бандл главной страницы и затормаживали каждый переход на неё (логотип).
+    const autoEditP = import("@/lib/autoEdit");
+    const renderP = import("@/lib/render");
+    const pictureLockP = import("@/lib/pictureLock");
+    const minDurationP = import("@/lib/minDuration");
+
     try {
       setProgressLabel("Готовим материалы...");
       const assets: MediaAsset[] = [];
@@ -113,6 +117,7 @@ export default function GenerationScreenV2() {
 
       let project;
       if (items.length > 0) {
+        const { autoEditToProject } = await autoEditP;
         project = await autoEditToProject({
           title: prompt.slice(0, 40) || "Новый проект",
           assets,
@@ -127,12 +132,15 @@ export default function GenerationScreenV2() {
 
       project.production = productionPlan;
 
+      const { ensureMinDuration } = await minDurationP;
       ensureMinDuration(project, 10);
 
       setProgressLabel("Picture Lock: финальная проверка монтажа…");
+      const { finalizePictureLock } = await pictureLockP;
       project = finalizePictureLock(project);
 
       setProgressLabel("Подготовка видеодвижка...");
+      const { renderProject } = await renderP;
       const blob = await renderProject(
         project,
         (ratio) => {

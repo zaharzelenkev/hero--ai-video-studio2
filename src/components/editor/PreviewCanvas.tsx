@@ -58,6 +58,7 @@ export default function PreviewCanvas() {
   const lastTickRef = useRef<number>(0);
   const expectedPlayheadRef = useRef<number>(0);
   const audioSigRef = useRef<string>("");
+  const lastFrameSigRef = useRef<string>("");
 
   const resolution = useProjectStore((s) => s.project?.resolution);
   const projectId = useProjectStore((s) => s.project?.id);
@@ -110,6 +111,16 @@ export default function PreviewCanvas() {
         canvas.width = width;
         canvas.height = height;
       }
+
+      // Холодная оптимизация: когда воспроизведение остановлено и ничего не
+      // менялось (плейхед, проект, сетки), не тратим CPU/батарею на повторный
+      // рендер одного и того же кадра 60 раз/с. Кисть VFX и AI-пипетка рисуют
+      // транзиентно (liveStroke) — при них пропускать нельзя.
+      const brushActive =
+        vfxBrush.state.liveStroke !== null || vfxBrush.state.clipId !== null || vfxBrush.state.aiPickClipId !== null;
+      const frameSig = `${state.isPlaying ? 1 : 0}|${time.toFixed(3)}|${project.updatedAt}|${guides ? 1 : 0}|${width}x${height}`;
+      if (!state.isPlaying && !brushActive && frameSig === lastFrameSigRef.current) return;
+      lastFrameSigRef.current = frameSig;
 
       syncVideoElements(project, time, {
         isPlaying: state.isPlaying,

@@ -102,14 +102,20 @@ export default function MediaPool() {
     };
   }, [project?.assets]);
 
-  const usageCount = useCallback(
-    (assetId: string) =>
-      project?.tracks.reduce(
-        (n, t) => n + t.clips.filter((c) => (c as { assetId?: string }).assetId === assetId).length,
-        0,
-      ) ?? 0,
-    [project],
-  );
+  // Карта «ассет → сколько раз используется на таймлайне»: один проход по
+  // клипам вместо O(ассетов × клипов) на каждый элемент списка.
+  const usageMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const track of project?.tracks ?? []) {
+      for (const clip of track.clips) {
+        const assetId = (clip as { assetId?: string }).assetId;
+        if (assetId) map.set(assetId, (map.get(assetId) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [project?.tracks]);
+
+  const usageCount = useCallback((assetId: string) => usageMap.get(assetId) ?? 0, [usageMap]);
 
   if (!project) return <div className="p-3 text-xs text-slate-500">Проект не загружен</div>;
 

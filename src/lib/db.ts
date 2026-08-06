@@ -91,8 +91,10 @@ export async function loadProject(id: string): Promise<Project | undefined> {
 
 export async function listProjects(): Promise<Project[]> {
   const db = await getDb();
-  const all = await db.getAll("projects");
-  return all.sort((a, b) => b.updatedAt - a.updatedAt);
+  // Используем индекс updatedAt вместо чтения всех записей и JS-сортировки:
+  // при десятках проектов с превью-кадрами это заметно быстрее.
+  const all = await db.getAllFromIndex("projects", "updatedAt");
+  return all.reverse();
 }
 
 export async function deleteProject(id: string): Promise<void> {

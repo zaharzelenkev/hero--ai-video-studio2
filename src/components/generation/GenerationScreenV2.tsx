@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import UploadZone from "./UploadZone";
@@ -14,8 +14,31 @@ import { saveBlob, saveProject, listProjects, deleteProject } from "@/lib/db";
 import { uid } from "@/lib/id";
 import type { MediaAsset, Project } from "@/lib/types";
 import { createProductionPlan } from "@/lib/production";
+import { warmupHeavyModules } from "@/lib/editor/idleWarmup";
+import { TEMPLATES } from "@/lib/templates";
 
 type Stage = "idle" | "reading" | "generating" | "error";
+
+/**
+ * Этапы пайплайна генерации: пользователь всегда видит, что именно делает
+ * система и сколько шагов осталось — никаких «чёрных ящиков» и ожиданий.
+ */
+const PIPELINE_STEPS: { id: string; label: string; icon: "film" | "sparkles" | "lock" | "rocket" | "check" }[] = [
+  { id: "materials", label: "Материалы", icon: "film" },
+  { id: "analysis", label: "AI-анализ и монтаж", icon: "sparkles" },
+  { id: "lock", label: "Picture Lock — контроль", icon: "lock" },
+  { id: "render", label: "Рендер", icon: "rocket" },
+  { id: "done", label: "Готово", icon: "check" },
+];
+
+/** По текущей подписи прогресса определяем активный этап пайплайна. */
+function pipelineIndexFromLabel(label: string): number {
+  const l = label.toLowerCase();
+  if (l.includes("picture lock") || l.includes("финальная проверк")) return 2;
+  if (l.includes("рендер") || l.includes("видеодвиж") || l.includes("экспорт") || l.includes("финального видео")) return 3;
+  if (l.includes("готовим материал") || l.includes("сохран") || l.includes("картинка готова") || l.includes("файл готов")) return 0;
+  return 1;
+}
 
 export default function GenerationScreenV2() {
   const router = useRouter();
@@ -30,6 +53,9 @@ export default function GenerationScreenV2() {
 
   useEffect(() => {
     listProjects().then(setRecentProjects).catch(() => {});
+    // Пока пользователь читает экран, фон подгружает тяжёлые модули
+    // автомонтажа и рендера — первая генерация стартует без задержки.
+    warmupHeavyModules(1500);
   }, []);
 
   const startDirector = async (mode: "basic" | "pro" = "basic") => {
@@ -84,6 +110,10 @@ export default function GenerationScreenV2() {
     const renderP = import("@/lib/render");
     const pictureLockP = import("@/lib/pictureLock");
     const minDurationP = import("@/lib/minDuration");
+    // FFmpeg (движок рендера) начинаем грузить сразу: пока идёт AI-анализ и
+    // автомонтаж (секунды), wasm успевает загрузиться — рендер стартует без
+    // дополнительного ожидания.
+    const ffmpegWarmP = import("@/lib/ffmpeg").then((m) => m.getFFmpeg()).catch(() => undefined);
 
     try {
       setProgressLabel("Готовим материалы...");
@@ -140,6 +170,8 @@ export default function GenerationScreenV2() {
       project = finalizePictureLock(project);
 
       setProgressLabel("Подготовка видеодвижка...");
+      // Дожидаемся параллельно загруженного FFmpeg (см. ffmpegWarmP выше).
+      await ffmpegWarmP;
       const { renderProject } = await renderP;
       const blob = await renderProject(
         project,
@@ -267,6 +299,8 @@ export default function GenerationScreenV2() {
                 <PromptForm prompt={prompt} onChange={setPrompt} templateId={templateId} onTemplateChange={setTemplateId} />
               </div>
 
+              <ContextHint prompt={prompt} templateId={templateId} />
+
               {stage === "error" && (
                 <div className="mt-6 flex flex-col items-center justify-center rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-6 text-center animate-scale-in">
                   <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
@@ -287,7 +321,8 @@ export default function GenerationScreenV2() {
               )}
 
               {busy && (
-                <div className="mt-5 space-y-3">
+                <div className="mt-6 space-y-4">
+                  {/* Прогресс всего пайплайна */}
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.07]">
                     <div
                       className="relative h-full overflow-hidden rounded-full transition-all duration-300"
@@ -296,6 +331,40 @@ export default function GenerationScreenV2() {
                       <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />
                     </div>
                   </div>
+
+                  {/* Этапы — пользователь всегда видит, что делает система */}
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+                    {PIPELINE_STEPS.map((step, i) => {
+                      const activeIdx =
+                        progress >= 1 ? PIPELINE_STEPS.length - 1 : pipelineIndexFromLabel(progressLabel);
+                      const state = i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
+                      return (
+                        <div key={step.id} className="flex items-center gap-1.5 sm:gap-2">
+                          {i > 0 && <div className={`h-px w-3 sm:w-5 ${state === "done" ? "bg-violet-400/60" : "bg-white/10"}`} />}
+                          <div
+                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-all duration-300 ${
+                              state === "done"
+                                ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+                                : state === "active"
+                                  ? "border-violet-400/50 bg-violet-500/15 text-violet-100 shadow-[0_0_16px_-6px_rgba(124,108,246,0.8)]"
+                                  : "border-white/[0.07] bg-white/[0.02] text-slate-500"
+                            }`}
+                          >
+                            {state === "done" ? (
+                              <Icon name="check" size={11} className="text-emerald-400" />
+                            ) : state === "active" ? (
+                              <span className="h-2 w-2 animate-pulse rounded-full bg-violet-300" />
+                            ) : (
+                              <Icon name={step.icon} size={11} />
+                            )}
+                            <span className="hidden sm:inline">{step.label}</span>
+                            <span className="sm:hidden">{step.label.split(" ")[0]}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   <p className="text-center text-xs text-slate-400">{progressLabel}</p>
                 </div>
               )}
@@ -336,36 +405,96 @@ export default function GenerationScreenV2() {
               <span className="badge badge-muted">{recentProjects.length}</span>
             </div>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-              {recentProjects.map((p) => (
-                <div
-                  key={p.id}
-                  className="group relative overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5 transition-all duration-300 hover:border-violet-500/40 hover:bg-white/[0.04]"
-                >
-                  <button onClick={() => router.push(`/editor/${p.id}`)} className="block w-full text-left">
-                    <div className="mb-3 flex h-20 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/[0.14] to-violet-800/[0.08] border border-white/[0.05]">
-                      <Icon name="film" size={28} className="text-violet-300/70" />
-                    </div>
-                    <p className="mb-1 truncate text-xs font-semibold text-slate-200">{p.title || "Без названия"}</p>
-                    <p className="text-[10px] text-slate-500">
-                      {Math.round(p.duration)}с · {p.tracks.reduce((n, t) => n + t.clips.length, 0)} клипов
-                    </p>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await deleteProject(p.id);
-                      setRecentProjects(await listProjects());
-                    }}
-                    className="icon-btn absolute right-2 top-2 hidden h-6 w-6 bg-black/60 group-hover:flex"
-                    aria-label="Удалить проект"
+              {recentProjects.map((p) => {
+                const thumb = p.assets?.find((a) => a.thumbnail)?.thumbnail;
+                const clipCount = p.tracks.reduce((n, t) => n + t.clips.length, 0);
+                return (
+                  <div
+                    key={p.id}
+                    className="group relative overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5 transition-all duration-300 hover:border-violet-500/40 hover:bg-white/[0.04]"
                   >
-                    <Icon name="trash" size={13} />
-                  </button>
-                </div>
-              ))}
+                    <button onClick={() => router.push(`/editor/${p.id}`)} className="block w-full text-left" title="Открыть в редакторе">
+                      <div className="mb-3 flex h-20 items-center justify-center overflow-hidden rounded-xl border border-white/[0.05] bg-gradient-to-br from-violet-500/[0.14] to-violet-800/[0.08]">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumb} alt="" className="h-full w-full object-cover" draggable={false} />
+                        ) : (
+                          <Icon name="film" size={28} className="text-violet-300/70" />
+                        )}
+                      </div>
+                      <p className="mb-1 truncate text-xs font-semibold text-slate-200">{p.title || "Без названия"}</p>
+                      <p className="text-[10px] text-slate-500">
+                        {Math.round(p.duration)}с · {clipCount} клипов
+                      </p>
+                    </button>
+                    <button
+                      onClick={() => router.push(`/director/${p.id}?mode=basic`)}
+                      className="absolute bottom-3 right-2 hidden h-6 w-6 items-center justify-center rounded-lg bg-violet-500/25 text-violet-100 transition hover:bg-violet-500/45 group-hover:flex"
+                      title="Продолжить в AI Director"
+                      aria-label="Продолжить в AI Director"
+                    >
+                      <Icon name="compass" size={12} />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await deleteProject(p.id);
+                        setRecentProjects(await listProjects());
+                      }}
+                      className="icon-btn absolute right-2 top-2 hidden h-6 w-6 bg-black/60 group-hover:flex"
+                      aria-label="Удалить проект"
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * Контекстная подсказка: показывает, как именно система прочитает запрос
+ * (формат, темп, цвет, шаблон) — те же правила, что реально использует
+ * пайплайн автомонтажа. Пользователь понимает систему ещё до запуска.
+ */
+function ContextHint({ prompt, templateId }: { prompt: string; templateId: string }) {
+  const hint = useMemo(() => {
+    if (!prompt.trim() && !templateId) return null;
+    const style = parsePromptToStyle(prompt);
+    const parts: string[] = [];
+    const platform =
+      style.contentType === "tiktok"
+        ? "вертикальный 9:16"
+        : style.contentType === "youtube"
+          ? "горизонтальный 16:9"
+          : null;
+    if (platform) parts.push(platform);
+    const pace = style.pace === "fast" ? "быстрый темп" : style.pace === "slow" ? "спокойный темп" : "средний темп";
+    parts.push(pace);
+    if (style.beatSync) parts.push("синхронизация с музыкой");
+    if (style.colorGrade !== "none") parts.push(`цветокоррекция «${style.colorGrade}»`);
+    const template = TEMPLATES.find((t) => t.id === templateId);
+    if (template && template.id !== "auto") parts.push(`шаблон «${template.name}»`);
+    return parts;
+  }, [prompt, templateId]);
+
+  if (!hint) return null;
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-1.5 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-2.5">
+      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        <Icon name="sparkles" size={12} className="text-violet-300" />
+        Что сделает Release Cut:
+      </span>
+      {hint.map((h) => (
+        <span key={h} className="chip !cursor-default !py-1 text-[10px]">
+          {h}
+        </span>
+      ))}
+    </div>
   );
 }

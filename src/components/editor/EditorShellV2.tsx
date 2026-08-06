@@ -32,7 +32,9 @@ import ProductionPanelV2 from "./panels/ProductionPanelV2";
 import OfflineEditPanel from "./panels/OfflineEditPanel";
 import PictureLockPanelV2 from "./panels/PictureLockPanelV2";
 import KeyframeEditor from "./KeyframeEditor";
+import EditorAssistant from "./EditorAssistant";
 import { isPictureLocked } from "@/lib/pictureLock";
+import { warmupFFmpeg, warmupHeavyModules } from "@/lib/editor/idleWarmup";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
 /* ------------------------------------------------------------------ */
@@ -218,6 +220,10 @@ export default function EditorShellV2() {
       clearTimeout(disposeTimer);
       disposeTimer = null;
     }
+    // Пока пользователь смотрит превью и монтирует, в фоне прогреваем тяжёлые
+    // модули и FFmpeg — экспорт и автомонтаж стартуют мгновенно.
+    warmupHeavyModules(2000);
+    warmupFFmpeg(6000);
     return () => {
       audioMixer.stop();
       disposeTimer = window.setTimeout(() => {
@@ -625,6 +631,9 @@ export default function EditorShellV2() {
           </button>
         </div>
       ) : null}
+
+      {/* Умный помощник — контекстные подсказки следующего шага */}
+      <EditorAssistant />
 
       {/* Mobile nav dropdown */}
       {mobileNavOpen && (

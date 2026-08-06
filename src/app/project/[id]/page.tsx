@@ -25,6 +25,13 @@ export default function ProjectPage() {
   const loadProjectStore = useProjectStore((s) => s.loadProject);
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 2600);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     let mounted = true;
@@ -111,7 +118,7 @@ export default function ProjectPage() {
                 onClick={(e) => {
                   if (!s.done && s.label !== "Редактор" && s.label !== "Монтаж" && s.label !== "Материалы") {
                     e.preventDefault();
-                    alert("Этот этап доступен после завершения предыдущих.");
+                    setToast("Этот этап станет доступен после завершения предыдущих.");
                   }
                 }}
                 className={`surface-card group flex items-center gap-4 p-4 transition-all duration-200 hover:translate-x-0.5 ${
@@ -194,6 +201,16 @@ export default function ProjectPage() {
           </div>
         </div>
       </main>
+
+      {/* Ненавязчивый тост вместо блокирующего alert() */}
+      {toast && (
+        <div className="animate-pop fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-amber-400/30 bg-[#14101c]/95 px-4 py-2.5 text-xs font-medium text-amber-100 shadow-2xl backdrop-blur-xl">
+          <span className="mr-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/20">
+            <Icon name="info" size={11} className="text-amber-300" />
+          </span>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

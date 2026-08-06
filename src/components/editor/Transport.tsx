@@ -15,6 +15,57 @@ export function formatTimecode(time: number, fps = 30): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}:${pad(frames)}`;
 }
 
+/**
+ * Таймкод вынесен в отдельный компонент: при воспроизведении плейхед
+ * обновляется 60 раз/с, и перерисовывать из-за этого всю панель транспорта
+ * (кнопки, слайдеры, метры) не нужно — обновляется только цифры.
+ */
+function TimecodeControl({ fps, duration }: { fps: number; duration: number }) {
+  const playhead = useProjectStore((s) => s.playhead);
+  const setPlayhead = useProjectStore((s) => s.setPlayhead);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const commitTimecode = () => {
+    setEditing(false);
+    const parts = draft.split(":").map((p) => parseInt(p, 10));
+    if (parts.some((p) => Number.isNaN(p))) return;
+    const [h = 0, m = 0, s = 0, f = 0] = parts.length === 4 ? parts : [0, ...parts];
+    setPlayhead(h * 3600 + m * 60 + s + f / fps);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commitTimecode}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitTimecode();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className="timecode w-[128px] rounded-lg border border-violet-400/40 bg-black/60 px-2 py-1.5 text-center text-violet-100 outline-none"
+        aria-label="Ввести таймкод"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => {
+        setDraft(formatTimecode(playhead, fps));
+        setEditing(true);
+      }}
+      title="Кликните, чтобы ввести таймкод"
+      className="timecode rounded-lg border border-white/[0.08] bg-black/40 px-2.5 py-1.5 text-violet-200 transition hover:border-violet-400/40 hover:bg-black/60"
+    >
+      {formatTimecode(playhead, fps)}
+      <span className="mx-1 text-slate-600">/</span>
+      <span className="text-slate-400">{formatTimecode(duration, fps)}</span>
+    </button>
+  );
+}
+
 function TransportButton({
   icon,
   title,
@@ -43,7 +94,6 @@ function TransportButton({
 
 export default function Transport() {
   const project = useProjectStore((s) => s.project);
-  const playhead = useProjectStore((s) => s.playhead);
   const isPlaying = useProjectStore((s) => s.isPlaying);
   const setPlaying = useProjectStore((s) => s.setPlaying);
   const setPlayhead = useProjectStore((s) => s.setPlayhead);
@@ -63,8 +113,6 @@ export default function Transport() {
   const fps = project?.fps || 30;
   const duration = timelineDuration(project);
   const [level, setLevel] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
   const meterRef = useRef<number>(0);
 
   useEffect(() => {
@@ -90,20 +138,14 @@ export default function Transport() {
   }, [project]);
 
   const goPrevEdit = () => {
-    const prev = [...editPoints].reverse().find((p) => p < playhead - 0.02);
+    const current = useProjectStore.getState().playhead;
+    const prev = [...editPoints].reverse().find((p) => p < current - 0.02);
     setPlayhead(prev ?? 0);
   };
   const goNextEdit = () => {
-    const next = editPoints.find((p) => p > playhead + 0.02);
+    const current = useProjectStore.getState().playhead;
+    const next = editPoints.find((p) => p > current + 0.02);
     setPlayhead(next ?? duration);
-  };
-
-  const commitTimecode = () => {
-    setEditing(false);
-    const parts = draft.split(":").map((p) => parseInt(p, 10));
-    if (parts.some((p) => Number.isNaN(p))) return;
-    const [h = 0, m = 0, s = 0, f = 0] = parts.length === 4 ? parts : [0, ...parts];
-    setPlayhead(h * 3600 + m * 60 + s + f / fps);
   };
 
   const volumePct = volume * 100;
@@ -114,7 +156,11 @@ export default function Transport() {
       <div className="flex items-center gap-1">
         <TransportButton icon="skip-back" title="В начало (Home)" onClick={() => setPlayhead(inPoint ?? 0)} />
         <TransportButton icon="chevrons-left" title="Предыдущая склейка" onClick={goPrevEdit} />
-        <TransportButton icon="frame-back" title="Кадр назад (←)" onClick={() => setPlayhead(Math.max(0, playhead - 1 / fps))} />
+        <TransportButton
+          icon="frame-back"
+          title="Кадр назад (←)"
+          onClick={() => setPlayhead(Math.max(0, useProjectStore.getState().playhead - 1 / fps))}
+        />
         <button
           onClick={() => setPlaying(!isPlaying)}
           title={isPlaying ? "Пауза (Space)" : "Воспроизведение (Space)"}
@@ -123,50 +169,28 @@ export default function Transport() {
         >
           {isPlaying ? <Icon name="pause" size={15} /> : <Icon name="play" size={15} />}
         </button>
-        <TransportButton icon="frame-forward" title="Кадр вперёд (→)" onClick={() => setPlayhead(Math.min(duration, playhead + 1 / fps))} />
+        <TransportButton
+          icon="frame-forward"
+          title="Кадр вперёд (→)"
+          onClick={() => setPlayhead(Math.min(duration, useProjectStore.getState().playhead + 1 / fps))}
+        />
         <TransportButton icon="chevrons-right" title="Следующая склейка" onClick={goNextEdit} />
         <TransportButton icon="skip-forward" title="В конец (End)" onClick={() => setPlayhead(outPoint ?? duration)} />
       </div>
 
       <div className="mx-0.5 h-6 w-px bg-white/[0.08]" />
 
-      {/* Таймкод */}
-      {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitTimecode}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitTimecode();
-            if (e.key === "Escape") setEditing(false);
-          }}
-          className="timecode w-[128px] rounded-lg border border-violet-400/40 bg-black/60 px-2 py-1.5 text-center text-violet-100 outline-none"
-          aria-label="Ввести таймкод"
-        />
-      ) : (
-        <button
-          onClick={() => {
-            setDraft(formatTimecode(playhead, fps));
-            setEditing(true);
-          }}
-          title="Кликните, чтобы ввести таймкод"
-          className="timecode rounded-lg border border-white/[0.08] bg-black/40 px-2.5 py-1.5 text-violet-200 transition hover:border-violet-400/40 hover:bg-black/60"
-        >
-          {formatTimecode(playhead, fps)}
-          <span className="mx-1 text-slate-600">/</span>
-          <span className="text-slate-400">{formatTimecode(duration, fps)}</span>
-        </button>
-      )}
+      {/* Таймкод — отдельный лёгкий компонент, см. TimecodeControl */}
+      <TimecodeControl fps={fps} duration={duration} />
 
       <div className="mx-0.5 h-6 w-px bg-white/[0.08]" />
 
       {/* Диапазон и маркеры */}
       <div className="flex items-center gap-1">
-        <TransportButton icon="bracket-left" title="Отметить начало диапазона (I)" onClick={() => setInPoint(playhead)} active={inPoint !== null} />
-        <TransportButton icon="bracket-right" title="Отметить конец диапазона (O)" onClick={() => setOutPoint(playhead)} active={outPoint !== null} />
+        <TransportButton icon="bracket-left" title="Отметить начало диапазона (I)" onClick={() => setInPoint(useProjectStore.getState().playhead)} active={inPoint !== null} />
+        <TransportButton icon="bracket-right" title="Отметить конец диапазона (O)" onClick={() => setOutPoint(useProjectStore.getState().playhead)} active={outPoint !== null} />
         <TransportButton icon="x" title="Сбросить диапазон" onClick={clearRange} />
-        <TransportButton icon="flag" title="Поставить маркер (M)" onClick={() => addMarker(playhead)} />
+        <TransportButton icon="flag" title="Поставить маркер (M)" onClick={() => addMarker(useProjectStore.getState().playhead)} />
         <TransportButton icon="repeat" title="Зациклить воспроизведение (L)" onClick={() => setLoop(!loop)} active={loop} />
       </div>
 

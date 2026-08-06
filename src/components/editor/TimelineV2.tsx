@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectStore, timelineDuration, findClip } from "@/store/projectStore";
 import { mediaPool } from "@/lib/editor/resourcePool";
 import { importFilesAsAssets } from "@/lib/editor/mediaImport";
@@ -121,7 +121,12 @@ function Waveform({ clip, asset, width, height }: { clip: AudioClip; asset: Medi
   );
 }
 
-function ClipBlock({
+/**
+ * Клип таймлайна. Обёрнут в React.memo: во время воспроизведения плейхед
+ * обновляется 60 раз/с, но клипы (и «киноплёнка» в них) перерисовываются
+ * только когда реально меняются их данные, выделение или масштаб.
+ */
+const ClipBlock = memo(function ClipBlock({
   clip,
   track,
   asset,
@@ -219,6 +224,27 @@ function ClipBlock({
           />
         </>
       )}
+    </div>
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* playhead overlay                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Линия плейхеда вынесена в отдельный компонент: она единственная в
+ * таймлайне обновляется на каждый кадр при воспроизведении. Тяжёлая часть
+ * (дорожки, клипы, «киноплёнка») больше не перерисовывается 60 раз/с.
+ */
+function PlayheadLayer({ pxPerSecond }: { pxPerSecond: number }) {
+  const playhead = useProjectStore((s) => s.playhead);
+  return (
+    <div
+      className="tln-playhead pointer-events-none absolute bottom-0 top-0 z-40 w-px"
+      style={{ left: HEADER_WIDTH + playhead * pxPerSecond }}
+    >
+      <div className="tln-playhead-handle absolute -left-[5px] top-0 h-3.5 w-[11px] rounded-b-[4px]" />
     </div>
   );
 }
@@ -505,13 +531,11 @@ function TimelineToolbar({ onFit }: { onFit: () => void }) {
 export default function TimelineV2() {
   const project = useProjectStore((s) => s.project);
   const pxPerSecond = useProjectStore((s) => s.pxPerSecond);
-  const playhead = useProjectStore((s) => s.playhead);
   const selectedClipIds = useProjectStore((s) => s.selectedClipIds);
   const tool = useProjectStore((s) => s.tool);
   const snapping = useProjectStore((s) => s.snapping);
   const inPoint = useProjectStore((s) => s.inPoint);
   const outPoint = useProjectStore((s) => s.outPoint);
-  const isPlaying = useProjectStore((s) => s.isPlaying);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const rulerRef = useRef<HTMLDivElement | null>(null);
@@ -537,9 +561,10 @@ export default function TimelineV2() {
   const snapTargets = useCallback(
     (excludeClipIds: Set<string>): number[] => {
       if (!project) return [0];
-      const points: number[] = [0, playhead];
-      if (inPoint !== null) points.push(inPoint);
-      if (outPoint !== null) points.push(outPoint);
+      const st = useProjectStore.getState();
+      const points: number[] = [0, st.playhead];
+      if (st.inPoint !== null) points.push(st.inPoint);
+      if (st.outPoint !== null) points.push(st.outPoint);
       for (const marker of project.markers) points.push(marker.time);
       for (const track of project.tracks) {
         for (const clip of track.clips) {
@@ -549,7 +574,7 @@ export default function TimelineV2() {
       }
       return points;
     },
-    [project, playhead, inPoint, outPoint],
+    [project],
   );
 
   const applySnap = useCallback(
@@ -816,18 +841,23 @@ export default function TimelineV2() {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // Автопрокрутка за плейхедом во время воспроизведения.
+  // Автопрокрутка за плейхедом во время воспроизведения. Подписка на стор
+  // вместо рендера: плейхед обновляется 60 раз/с, а прокрутка — дешёвая
+  // операция, не требующая перерисовки всего таймлайна.
   useEffect(() => {
-    if (!isPlaying) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const x = playhead * pxPerSecond;
-    const viewLeft = el.scrollLeft;
-    const viewRight = viewLeft + el.clientWidth - HEADER_WIDTH;
-    if (x < viewLeft || x > viewRight - 80) {
-      el.scrollLeft = Math.max(0, x - (el.clientWidth - HEADER_WIDTH) * 0.35);
-    }
-  }, [playhead, pxPerSecond, isPlaying]);
+    const unsubscribe = useProjectStore.subscribe((state) => {
+      if (!state.isPlaying) return;
+      const el = scrollRef.current;
+      if (!el) return;
+      const x = state.playhead * state.pxPerSecond;
+      const viewLeft = el.scrollLeft;
+      const viewRight = viewLeft + el.clientWidth - HEADER_WIDTH;
+      if (x < viewLeft || x > viewRight - 80) {
+        el.scrollLeft = Math.max(0, x - (el.clientWidth - HEADER_WIDTH) * 0.35);
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   if (!project) {
     return <div className="flex h-full items-center justify-center text-sm text-slate-500">Проект не загружен</div>;
@@ -944,13 +974,8 @@ export default function TimelineV2() {
             </div>
           ))}
 
-          {/* Playhead */}
-          <div
-            className="tln-playhead pointer-events-none absolute bottom-0 top-0 z-40 w-px"
-            style={{ left: HEADER_WIDTH + playhead * pxPerSecond }}
-          >
-            <div className="tln-playhead-handle absolute -left-[5px] top-0 h-3.5 w-[11px] rounded-b-[4px]" />
-          </div>
+          {/* Playhead — отдельный лёгкий компонент (см. PlayheadLayer) */}
+          <PlayheadLayer pxPerSecond={pxPerSecond} />
         </div>
       </div>
 

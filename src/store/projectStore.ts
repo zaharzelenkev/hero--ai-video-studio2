@@ -330,18 +330,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   /* ------------------------------ project ------------------------- */
   loadProject: (p) =>
-    set({
-      project: normalizeProject(p),
-      selectedClipIds: [],
-      selectedClipId: null,
-      selectedTrackId: p.tracks[0]?.id ?? null,
-      playhead: 0,
-      isPlaying: false,
-      inPoint: null,
-      outPoint: null,
-      dirty: false,
-      past: [],
-      future: [],
+    set((s) => {
+      const normalized = normalizeProject(p);
+      const hasClips = normalized.tracks.some((t) => t.clips.length > 0);
+      // Контекстная страница по умолчанию: пустой проект открывается на
+      // «Медиа» (надо импортировать материалы), собранный — на «Монтаж».
+      return {
+        project: normalized,
+        selectedClipIds: [],
+        selectedClipId: null,
+        selectedTrackId: normalized.tracks[0]?.id ?? null,
+        playhead: 0,
+        isPlaying: false,
+        inPoint: null,
+        outPoint: null,
+        dirty: false,
+        past: [],
+        future: [],
+        activePage: hasClips ? s.activePage : "media",
+      };
     }),
 
   persist: async () => {

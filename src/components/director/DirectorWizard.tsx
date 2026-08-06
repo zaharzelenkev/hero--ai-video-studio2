@@ -79,6 +79,15 @@ export default function DirectorWizard({ onDraftMontage }: { onDraftMontage?: ()
     }
   };
 
+  /** Клик по пройденному этапу — мгновенный переход (не 5 кликов «Назад»). */
+  const jumpTo = (index: number) => {
+    if (index >= currentIndex || loading) return;
+    setCurrentIndex(index);
+    setResults((prev) => prev.slice(0, index));
+    setInput("");
+    setCompleted(false);
+  };
+
   const restart = () => {
     setCurrentIndex(0);
     setResults([]);
@@ -92,18 +101,27 @@ export default function DirectorWizard({ onDraftMontage }: { onDraftMontage?: ()
         <h1 className="text-3xl font-extrabold tracking-tight text-gradient mb-2">AI Director</h1>
         <p className="text-sm text-slate-400">12 практических пунктов для создания короткометражки или видео. Ничего лишнего.</p>
         <div className="mt-4 flex gap-2 flex-wrap">
-          {STAGES.map((s, i) => (
-            <span
-              key={s.id}
-              className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
-                i < currentIndex ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30" :
-                i === currentIndex ? "bg-violet-500/20 text-violet-100 border border-violet-400/40 ring-1 ring-violet-300/20" :
-                "bg-white/[0.04] text-slate-500 border border-white/10"
-              }`}
-            >
-              {i + 1}. {s.label}
-            </span>
-          ))}
+          {STAGES.map((s, i) => {
+            const done = i < currentIndex;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => jumpTo(i)}
+                disabled={!done}
+                title={done ? "Перейти к этому этапу" : "Сначала пройдите предыдущие этапы"}
+                className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
+                  done
+                    ? "cursor-pointer bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/35"
+                    : i === currentIndex
+                      ? "bg-violet-500/20 text-violet-100 border border-violet-400/40 ring-1 ring-violet-300/20"
+                      : "bg-white/[0.04] text-slate-500 border border-white/10"
+                }`}
+              >
+                {i + 1}. {s.label}
+              </button>
+            );
+          })}
         </div>
       </header>
 

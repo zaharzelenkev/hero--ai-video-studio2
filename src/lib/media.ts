@@ -7,15 +7,22 @@ export interface MediaMeta {
   thumbnail?: string;
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement, maxSize = 320): string {
+/**
+ * Превью-кадры медиа. Размер намеренно скромный: миниатюры лежат прямо в
+ * JSON проекта (IndexedDB-сохранения и история правок сериализуют их при
+ * каждой операции). 240px при q=0.66 хватает для сетки медиатеки и карточек
+ * проектов, но в ~3 раза легче прежних 320px/0.75 — сохранение и undo/redo
+ * на больших проектах заметно быстрее.
+ */
+function canvasToJpeg(canvas: HTMLCanvasElement, maxSize = 240): string {
   const scale = Math.min(1, maxSize / Math.max(canvas.width, canvas.height));
-  if (scale >= 1) return canvas.toDataURL("image/jpeg", 0.75);
+  if (scale >= 1) return canvas.toDataURL("image/jpeg", 0.66);
   const small = document.createElement("canvas");
   small.width = Math.round(canvas.width * scale);
   small.height = Math.round(canvas.height * scale);
   const ctx = small.getContext("2d");
   if (ctx) ctx.drawImage(canvas, 0, 0, small.width, small.height);
-  return small.toDataURL("image/jpeg", 0.75);
+  return small.toDataURL("image/jpeg", 0.66);
 }
 
 export function readVideoMeta(file: File): Promise<MediaMeta> {

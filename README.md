@@ -1,4 +1,4 @@
-# 🎬 MONTIQ — AI Video Production Studio
+# 🎬 Release Cut — AI Video Production Studio
 
 ![MONTIQ Logo](./public/montiq-logo.png)
 
@@ -8,7 +8,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.1-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-**MONTIQ** — это полноценная браузерная студия видеопроизводства, работающая на базе искусственного интеллекта. В отличие от простых редакторов, MONTIQ автоматизирует весь цикл: от идеи и написания сценария до финального рендеринга в 4K с использованием передовых техник монтажа и VFX.
+**Release Cut** — это полноценная браузерная студия видеопроизводства, работающая на базе искусственного интеллекта. В отличие от простых редакторов, MONTIQ автоматизирует весь цикл: от идеи и написания сценария до финального рендеринга в 4K с использованием передовых техник монтажа и VFX.
 
 ---
 
@@ -137,4 +137,4 @@ graph TD
 
 Если у вас есть вопросы или предложения, свяжитесь с нами напрямую.
 
-Сделано с ❤️ командой **MONTIQ**
+Сделано с ❤️ командой **Release Cut**
